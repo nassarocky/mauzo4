@@ -1,0 +1,2 @@
+C:/Users/LITtech/AndroidStudioProjects/hesabumauzo/android/app/.cxx/RelWithDebInfo/6y3m45b5/x86/CMakeFiles/edit_cache.dir
+C:/Users/LITtech/AndroidStudioProjects/hesabumauzo/android/app/.cxx/RelWithDebInfo/6y3m45b5/x86/CMakeFiles/rebuild_cache.dir

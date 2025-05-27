@@ -1,0 +1,188 @@
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import '../../../controllers/store_controller.dart';
+import '../../../utils/preferences.dart';
+import '../../widgets/buttons/primary_button.dart';
+import '../../widgets/buttons/secondary_button.dart';
+import '../../../models/product_model.dart';
+import '../../../utils/constants.dart';
+
+// ignore: must_be_immutable
+class StoreQuantityDialog extends StatefulWidget {
+  StoreQuantityDialog({Key? key, required this.product}) : super(key: key);
+  final Product product;
+  double itemCounter = 0.0;
+
+  @override
+  State<StoreQuantityDialog> createState() => _StoreQuantityDialog();
+}
+
+class _StoreQuantityDialog extends State<StoreQuantityDialog> {
+  final StoreController _storeController = Get.find();
+  late TextEditingController quantityController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the controller with the initial value of itemCounter
+    quantityController = TextEditingController(
+      text: widget.itemCounter.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    // Dispose of the controller to avoid memory leaks
+    quantityController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Column(
+        children: [
+          Text(
+            widget.product.name,
+            style: bodyText(
+              Theme.of(context).textTheme.bodyMedium!.color,
+            ),
+          ),
+          Text(
+            'stock_in_out'.tr,
+            style: h6(
+              Theme.of(context).textTheme.bodyLarge!.color,
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: Preferences.getTheme()
+                      ? lightGrayColor
+                      : primaryUltraLightColor,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      if (-widget.product.quantity! < widget.itemCounter) {
+                        widget.itemCounter--;
+                        quantityController.text = widget.itemCounter.toString();
+                      }
+                    });
+                  },
+                  icon: Icon(
+                    Icons.remove,
+                    color: Preferences.getTheme() ? whiteColor : primaryColor,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: TextField(
+                  onChanged: (value) {
+                    // Handle decimal input properly
+                    final parsedValue = double.tryParse(value);
+                    if (parsedValue != null) {
+                      setState(() {
+                        widget.itemCounter = parsedValue;
+                        quantityController.selection = TextSelection.fromPosition(
+                          TextPosition(offset: quantityController.text.length),
+                        );
+                      });
+                    }
+                  },
+                  style: TextStyle(
+                    fontSize: 36,
+                    color: Theme.of(context).textTheme.bodyLarge!.color,
+                  ),
+                  textAlign: TextAlign.center,
+                  controller: quantityController,
+                  keyboardType: TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: Preferences.getTheme()
+                      ? lightGrayColor
+                      : primaryUltraLightColor,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      widget.itemCounter++;
+                      quantityController.text = widget.itemCounter.toString();
+                    });
+                  },
+                  icon: Icon(
+                    Icons.add,
+                    color: Preferences.getTheme() ? whiteColor : primaryColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        Row(
+          children: [
+            Expanded(
+              child: PrimaryButton(
+                text: 'save'.tr,
+                onPressed: () {
+                  _storeController.updateProductCount(
+                    widget.product,
+                    (widget.itemCounter + widget.product.quantity),
+                  );
+                  Navigator.of(context).pop();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: PrimaryButton(
+                text: 'Move to Shop'.tr,
+                onPressed: () {
+                  _storeController.moveStockToShop(
+                      widget.product,
+                      widget.itemCounter
+                  );
+                  Navigator.of(context).pop();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: SecondaryButton(
+                text: 'cancel'.tr,
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}

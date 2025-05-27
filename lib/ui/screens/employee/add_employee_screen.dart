@@ -1,0 +1,381 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../controllers/business_controller.dart';
+import 'package:http/http.dart' as http;
+import '../../../controllers/profile_controller.dart';
+import '../../../utils/constants.dart';
+import '../../../utils/image.dart';
+import '../../../utils/preferences.dart';
+import '../../widgets/buttons/primary_button.dart';
+
+Future<void> registerUser({
+  required String name,
+  required String email,
+  required String phone,
+  required String password,
+  required String business,
+}) async {
+  final Uri url = Uri.parse(
+      'https://us-central1-hesabumauzo.cloudfunctions.net/registerUser');
+
+  try {
+    // Sending POST request to Cloud Function
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'password': password,
+        'business': business,
+      }),
+    );
+
+    // Handle successful response
+    if (response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      final String userId = data['userId'];
+      successSnackbar('User successfully registered! User ID: $userId');
+    }
+    // Handle different error cases
+    else if (response.statusCode == 400) {
+      final error = response.body; // Read the specific error message
+      errorSnackbar('Error400: $error');
+    } else {
+      errorSnackbar('Failed to register user. Please try again later.');
+    }
+  } catch (e) {
+    // Handle network or server errors
+    errorSnackbar('Error: ${e.toString()}');
+  }
+}
+
+void successSnackbar(String message) {
+  Get.snackbar(
+    'Success',
+    message,
+    snackPosition: SnackPosition.BOTTOM,
+    backgroundColor: Colors.green,
+    colorText: Colors.white,
+    duration: Duration(seconds: 3),
+  );
+}
+
+void errorSnackbar(String message) {
+  Get.snackbar(
+    'Error',
+    message,
+    snackPosition: SnackPosition.BOTTOM,
+    backgroundColor: Colors.red,
+    colorText: Colors.white,
+    duration: Duration(seconds: 3),
+  );
+}
+
+class AddEmployeeScreen extends StatefulWidget {
+  const AddEmployeeScreen({Key? key}) : super(key: key);
+
+  @override
+  State<AddEmployeeScreen> createState() => _AddEmployeeScreenState();
+}
+
+class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
+
+  File? imageFile;
+  UploadTask? uploadTask;
+  bool isUploading = false;
+
+  Future<String?> uploadFile(String folder, File file) async {
+    try {
+      final path = '$folder/${DateTime.now().millisecondsSinceEpoch}.png';
+      final ref = FirebaseStorage.instance.ref().child(path);
+      uploadTask = ref.putFile(file);
+      final snapshot = await uploadTask!.whenComplete(() => {});
+      final url = await snapshot.ref.getDownloadURL();
+      return url;
+    } catch (e) {
+      _showSnackbar('Upload failed: $e');
+      throw Exception('File upload failed: $e');
+    }
+  }
+
+  Future<void> pickImageFromGallery() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        imageFile = File(pickedFile.path);
+        // _showSnackbar('Image picked from gallery: ${pickedFile.path}');
+      });
+    }
+  }
+
+  Future<void> pickImageFromCamera() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.camera);
+    if (pickedFile != null) {
+      setState(() {
+        imageFile = File(pickedFile.path);
+        //  _showSnackbar('Image picked from camera: ${pickedFile.path}');
+      });
+    }
+  }
+  void _showSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+      ),
+    );
+  }
+
+  bool isValidEmail(String email) {
+    return RegExp(r"^[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$").hasMatch(email);
+  }
+
+  bool isValidPassword(String password) {
+    return password.length >= 8;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async => isUploading ? false : true,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor:
+          Preferences.getTheme() ? darkGrayColor : primaryUltraLightColor,
+          elevation: 0,
+          leading: isUploading
+              ? Container()
+              : IconButton(
+            icon: Icon(
+              Icons.close,
+              color: Theme.of(context).textTheme.bodyLarge!.color,
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+            },
+          ),
+          title: Text(
+            'new_employee'.tr,
+            style: TextStyle(
+              color: Preferences.getTheme()
+                  ? primaryUltraLightColor
+                  : textDarkColor,
+            ),
+          ),
+        ),
+        body: isUploading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Center(
+                  child: GestureDetector(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: Text('select_image_source'.tr),
+                          content: SizedBox(
+                            height: 180,
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.collections),
+                                  title: Text('gallery'.tr),
+                                  onTap: () async {
+                                    await pickImageFromGallery();
+                                    Navigator.pop(context);
+                                  },
+                                ),
+                                ListTile(
+                                  leading: const Icon(Icons.camera),
+                                  title: Text('camera'.tr),
+                                  onTap: () async {
+                                    await pickImageFromCamera();
+                                    Navigator.pop(context);
+                                  },
+                                ),
+                                ListTile(
+                                  leading: const Icon(Icons.close),
+                                  title: Text('delete'.tr),
+                                  onTap: () {
+                                    setState(() {
+                                      imageFile = null;
+                                      Navigator.pop(context);
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: imageFile != null
+                        ? Container(
+                      decoration: BoxDecoration(
+                        color: gray200Color,
+                        borderRadius: BorderRadius.circular(100),
+                      ),
+                      width: 72,
+                      height: 72,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(100),
+                        child: Image.file(
+                          imageFile!,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    )
+                        : const CircleAvatar(
+                      radius: 36,
+                      backgroundColor: gray200Color,
+                      child: Icon(
+                        Icons.person,
+                        size: 44,
+                        color: primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                TextField(
+                  controller: _nameController,
+                  maxLength: 25,
+                  decoration: InputDecoration(
+                    contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10),
+                    labelText: '${'name'.tr}*',
+                    counterText: '',
+                    labelStyle: bodyText(textPlaceholderColor),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: borderColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10),
+                    labelText: 'email'.tr,
+                    labelStyle: bodyText(textPlaceholderColor),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: borderColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10),
+                    labelText: 'password'.tr,
+                    labelStyle: bodyText(textPlaceholderColor),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: borderColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 34),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        onPressed: () async {
+                          try {
+                            if (_nameController.text.isEmpty ||
+                                _emailController.text.isEmpty ||
+                                _passwordController.text.isEmpty) {
+                              errorSnackbar('fill_required_fields'.tr);
+                            } else if (!isValidEmail(_emailController.text)) {
+                              errorSnackbar('Invalid email format.');
+                            } else if (!isValidPassword(_passwordController.text)) {
+                              errorSnackbar('Password must be at least 8 characters.');
+                            } else {
+                              setState(() {
+                                isUploading = true;
+                              });
+
+                              String? url = '';
+                              if (imageFile != null) {
+                                url = await uploadFile(
+                                    'employees', imageFile!);
+                              }
+
+                              final String? businessId = _businessController.business['id'];
+
+                              if (businessId == null) {
+                                print('business ID is null, cannot add employee.');
+                                setState(() {
+                                  isUploading = false;
+                                });
+                                return;
+                              }
+
+                              await registerUser(
+                                name: _nameController.text,
+                                email: _emailController.text,
+                                phone: _profileController.user['phone'], // Assuming this is available in ProfileController
+                                password: _passwordController.text,
+                                business: businessId,
+                              );
+
+                              setState(() {
+                                isUploading = false;
+                              });
+
+                              if (mounted) {
+                                Navigator.pop(context);
+                              }
+                              successSnackbar('Employee added successfully.');
+                            }
+                          } catch (e) {
+                            errorSnackbar('something_went_wrong'.tr);
+                            Navigator.pop(context);
+                          }
+                        },
+                        text: 'save'.tr,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

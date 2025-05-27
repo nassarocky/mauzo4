@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "366012871773",
+    "project_id": "hesabumauzo",
+    "storage_bucket": "hesabumauzo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:366012871773:android:418593f149d8e26f0889b4",
+        "android_client_info": {
+          "package_name": "com.hesabu.mauzo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBXy65s08FX_JEmeYKY9ze9zsXX0-N5XI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
