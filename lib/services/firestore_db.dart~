@@ -1,0 +1,494 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/models/business_model.dart';
+import 'package:mauzo/models/client_model.dart';
+import 'package:mauzo/models/profile_model.dart';
+import 'package:mauzo/models/sale_model.dart';
+import '../controllers/business_controller.dart';
+import '../models/close_book_model.dart';
+import '../models/debtHistory_model.dart';
+import '../models/expences.dart';
+import '../models/product_model.dart';
+import '../models/product_transfer_request.dart';
+import '../models/stock_transaction.dart';
+import '../utils/constants.dart';
+
+class FirestoreDb {
+  // * Initialize Firestore
+  final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
+
+
+  Stream<List<StockTransaction>> getTransactions() {
+    final String? business = _businessController.businessId.value;
+
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty transactions.');
+      return Stream.value([]);
+    }
+    print('Fetching transactions for owner: $business');
+
+    return firestore
+        .collection('transactions')
+        .doc(business)
+        .collection('usersTransactions')
+        .orderBy('timestamp', descending: true) // Order by timestamp
+        .snapshots()
+        .map((snapshot) {
+      print('Received transactions with ${snapshot.docs.length} documents');
+      List<StockTransaction> transactions = snapshot.docs.map((doc) {
+        print('Processing transactions with ID: ${doc.id}');
+        return StockTransaction.fromSnapshot(doc);
+      }).toList();
+
+      return transactions;
+    }).handleError((error) {
+      print('Error fetching transactions: $error');
+    });
+  }
+
+// * BUSINESS
+  Stream<List<BusinessModel>> getBusiness() {
+    print('Fetching BUSINESS for owner:${_profileController.user['id']}');
+    if (_profileController.user['business'].isEmpty) {
+      print('Business ID list is empty, returning empty Business.');
+      return Stream.value([]);
+    }
+
+    return firestore
+        .collection('businesses')
+        .where(FieldPath.documentId, whereIn: _profileController.user['business'])
+        .snapshots()
+        .map((snapshot) {
+      print('Received Business with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Business with ID: ${doc.id}');
+        return BusinessModel.fromSnapshot(doc); // Assuming you have a method to convert doc to BusinessModel
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching businesses: $error');
+    });
+  }
+  Stream<List<Product>> getReport() {
+    final String? business = _businessController.businessId.value;
+
+
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty productos.');
+      return Stream.value([]);
+    }
+
+    print('Fetching productos for owner: $business');
+
+    return firestore
+        .collection('productReports')
+        .doc(business)
+        .collection('userReports')
+        .snapshots()
+        .map((snapshot) {
+      print('Received productos with ${snapshot.docs.length} documents');
+      List<Product> products = snapshot.docs.map((doc) {
+        print('Processing productos with ID: ${doc.id}');
+        return Product.fromSnapshot(doc);
+      }).toList();
+
+      // Sort the products alphabetically by name
+      products.sort((a, b) => a.name.compareTo(b.name));
+
+      return products;
+    }).handleError((error) {
+      Get.snackbar(
+        'Error',
+        'Error: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: Duration(seconds: 10),
+      );
+      print('Error fetching products: $error');
+    });
+  }
+
+  Stream<List<Product>> getProducts() {
+    final String? business = _businessController.businessId.value;
+
+
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty productos.');
+      return Stream.value([]);
+    }
+
+    print('Fetching productos for owner: $business');
+
+    return firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .snapshots()
+        .map((snapshot) {
+      print('Received productos with ${snapshot.docs.length} documents');
+      List<Product> products = snapshot.docs.map((doc) {
+        print('Processing productos with ID: ${doc.id}');
+        return Product.fromSnapshot(doc);
+      }).toList();
+
+      // Sort the products alphabetically by name
+      products.sort((a, b) => a.name.compareTo(b.name));
+
+      return products;
+    }).handleError((error) {
+      Get.snackbar(
+        'Error',
+        'Error: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: Duration(seconds: 10),
+      );
+      print('Error fetching products: $error');
+    });
+  }
+  Stream<List<Product>> getProductInStore() {
+    final String? storeId = _businessController.business['owner'];
+
+    if (storeId!.isEmpty) {
+      print('Owner ID is null, returning empty productos.');
+      return Stream.value([]);
+    }
+
+    print('Fetching productos for store: $storeId');
+
+    return firestore
+        .collection('store')
+        .doc(storeId)
+        .collection('userStore')
+        .snapshots()
+        .map((snapshot) {
+      print('Received productos with ${snapshot.docs.length} documents');
+      List<Product> products = snapshot.docs.map((doc) {
+        print('Processing store productos with ID: ${doc.id}');
+        return Product.fromSnapshot(doc);
+      }).toList();
+
+      // Sort the products alphabetically by name
+      products.sort((a, b) => a.name.compareTo(b.name));
+
+      return products;
+    }).handleError((error) {
+      Get.snackbar(
+        'Error',
+        'Error: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: Duration(seconds: 10),
+      );
+      print('Error fetching products: $error');
+    });
+  }
+  Stream<List<CloseBook>> getClosedBooks() {
+    final String? business = _businessController.businessId.value;
+
+    if (business!.isEmpty) {
+      print('Business ID is null, returning empty ClosedBooks.');
+      return Stream.value([]);
+    }
+
+    print('Fetching closed books for ClosedBooks: $business');
+
+    return firestore
+        .collection('closedbooks')
+        .doc(business)
+        .collection('userClosedBooks')
+        .orderBy('createdAt', descending: true)  // Sorting by createdDate in descending order
+        .snapshots()
+        .map((snapshot) {
+      print('Received ClosedBooks with ${snapshot.docs.length} documents');
+      List<CloseBook> books = snapshot.docs.map((doc) {
+        print('Processing ClosedBooks with ID: ${doc.id}');
+        return CloseBook.fromSnapshot(doc);  // Convert Firestore document to Book model
+      }).toList();
+
+      return books;
+    }).handleError((error) {
+      Get.snackbar(
+        'Error',
+        'Error: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 10),
+      );
+      print('Error fetching closed books: $error');
+    });
+  }
+
+  // * SALE
+  Stream<List<Sale>> getSales() {
+
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty Sales.');
+      return Stream.value([]);
+    }
+
+    print('Fetching sales for owner: $business');
+
+    return firestore
+        .collection('sales')
+        .doc(business)
+        .collection('userSales')
+        .snapshots()
+        .map((snapshot) {
+      print('Received Salest with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Sales with ID: ${doc.id}');
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching sales: $error');
+    });
+  }
+
+  Stream<List<Sale>> getBought() {
+
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty Recovered.');
+      return Stream.value([]);
+    }
+
+    print('Fetching Recovered for owner: $business');
+
+    return firestore
+        .collection('recovered')
+        .doc(business)
+        .collection('userRecovered')
+        .snapshots()
+        .map((snapshot) {
+      print('Received Recovered with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Recovered with ID: ${doc.id}');
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching Recovered: $error');
+    });
+  }
+
+
+  Stream<List<DebtHistory>> getDebtHistory() {
+    final String? business = _businessController.businessId.value;
+
+    if (business!.isEmpty) {
+      print('Business ID is null, returning empty DebtHistory');
+      return Stream.value([]);
+    }
+
+    print('Fetching debt history for DebtHistory: $business');
+
+    return firestore
+        .collection('debtHistory')
+        .doc(business)
+        .collection('clientDebtHistory')
+        .orderBy('dateIncurred', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received snapshot with ${snapshot.docs.length} debt history records');
+      List<DebtHistory> debtHistories = snapshot.docs.map((doc) {
+        print('Processing debt history document with ID: ${doc.id}');
+        return DebtHistory.fromSnapshot(doc);
+      }).toList();
+
+      return debtHistories;
+    }).handleError((error) {
+      Get.snackbar(
+        'Error',
+        'Error: $error',
+        snackPosition: SnackPosition.BOTTOM,
+        duration: Duration(seconds: 10),
+      );
+      print('Error fetching debt history: $error');
+    });
+  }
+
+
+
+
+  Stream<List<Expense>> getExpenses() {
+    final String? business = _businessController.businessId.value;
+
+    if (business!.isEmpty) {
+      print('business ID is null, returning empty stream.');
+      return Stream.value([]);
+    }
+
+    print('Fetching expenses for business: $business');
+
+    return firestore
+        .collection('expenses')
+        .doc(business)
+        .collection('userExpenses')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => Expense.fromMap(doc.data(), doc.id))
+          .toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+    });
+  }
+  // * INVOICE
+  Stream<List<Sale>> getInvoices() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty sInvoices.');
+      return Stream.value([]);
+    }
+    print('Fetching invoices for owner: $business');
+
+    return firestore
+        .collection('invoices')
+        .doc(business)
+        .collection('userInvoices')
+        .snapshots()
+        .map((snapshot) {
+      print('Received Invoices with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Invoices with ID: ${doc.id}');
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching invoices: $error');
+    });
+  }
+
+  // * CLIENT
+  Stream<List<Client>> getClients() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty Clients');
+      return Stream.value([]);
+    }
+
+    print('Fetching clients for owner: $business');
+
+    return firestore
+        .collection('clients')
+        .doc(business)
+        .collection('userClients')
+        .snapshots()
+        .map((snapshot) {
+      print('Received Clients with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Clients with ID: ${doc.id}');
+        return Client.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching clients: $error');
+    });
+  }
+
+  Stream<List<ProfileModel>> getEmployee() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty Employee.');
+      return Stream.value([]);
+    }
+
+    print('Fetching Employeefor owner: $business');
+
+    return firestore
+        .collection('employees')
+        .doc(business)
+        .collection('userEmployees')
+        .snapshots()
+        .map((snapshot) {
+      print('Received Employee with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing Employee with ID: ${doc.id}');
+        return ProfileModel.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching Employee: $error');
+    });
+  }
+
+  // * TRANSFER REQUESTS
+  Stream<List<ProductTransferRequest>> getIncomingTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty incoming transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching incoming transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .where('toBusinessId', isEqualTo: business)
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received incoming transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing incoming transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching incoming transfer requests: $error');
+    });
+  }
+
+  Stream<List<ProductTransferRequest>> getOutgoingTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty outgoing transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching outgoing transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .where('fromBusinessId', isEqualTo: business)
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received outgoing transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing outgoing transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching outgoing transfer requests: $error');
+    });
+  }
+
+  Stream<List<ProductTransferRequest>> getAllTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching all transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received all transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching all transfer requests: $error');
+    });
+  }
+}

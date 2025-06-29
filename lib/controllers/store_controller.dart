@@ -12,7 +12,7 @@ import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
-import 'dart:html' as html; // Only for web
+//import 'dart:html' as html; // Only for web
 class StoreController extends GetxController {
   final BusinessController _businessController = Get.find();
 
@@ -300,7 +300,7 @@ class StoreController extends GetxController {
     selectedLocation.value = updatedLocation;
   }
   //for mobile
-/*
+
   Future<void> generateExcelFromProductsInstore() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -401,9 +401,9 @@ class StoreController extends GetxController {
 
   }
 
-*/
-//for web
 
+//for web
+/*
   Future<void> generateExcelFromProductsInstore() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -494,7 +494,7 @@ class StoreController extends GetxController {
     html.Url.revokeObjectUrl(url);
 
   }
-
+*/
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 
   // Method to toggle understock filtering

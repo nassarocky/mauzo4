@@ -15,6 +15,7 @@ import '../../../models/product_model.dart';
 import '../../screens/transactions/transactions_screen.dart';
 import '../dialogs/product_quantity_dialog.dart';
 import '../buttons/delete_save_button.dart';
+import '../../../controllers/firestore_db.dart';
 
 class ProductInfoBottomSheet extends StatelessWidget {
   ProductInfoBottomSheet({Key? key, required this.product}) : super(key: key);
@@ -375,6 +376,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                   ),
                 ],
               ),
+
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -401,6 +403,52 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       text: 'Copy to Store'.tr,
                       onPressed: () {
                   _productController.copyProductToStore(product.id);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      text: 'Transfer Product',
+                      onPressed: () async {
+                        // Show a dialog to select the target business (placeholder for now)
+                        String? selectedBusinessId = await showDialog<String>(
+                          context: context,
+                          builder: (context) {
+                            TextEditingController controller = TextEditingController();
+                            return AlertDialog(
+                              title: Text('Enter Target Business ID'),
+                              content: TextField(
+                                controller: controller,
+                                decoration: InputDecoration(hintText: 'Business ID'),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, null),
+                                  child: Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, controller.text),
+                                  child: Text('Transfer'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                        if (selectedBusinessId != null && selectedBusinessId.isNotEmpty) {
+                          final firestoreDb = Get.find<FirestoreDb>();
+                          await firestoreDb.createTransferRequest(
+                            productId: product.id,
+                            fromBusinessId: product.owner,
+                            toBusinessId: selectedBusinessId,
+                            requestedByUserId: _profileController.user['id'],
+                          );
+                          Get.snackbar('Transfer Requested', 'Product transfer request sent.');
+                        }
                       },
                     ),
                   ),

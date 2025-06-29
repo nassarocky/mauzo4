@@ -8,6 +8,7 @@ import 'package:mauzo/ui/screens/expences/add_expences_screen.dart';
 import 'package:mauzo/ui/screens/my_account_screen.dart';
 import 'package:mauzo/ui/screens/product/add_product_screen.dart';
 import 'package:mauzo/ui/screens/product/store_screen.dart';
+import 'package:mauzo/ui/screens/product/transfer_requests_screen.dart';
 import 'package:mauzo/ui/screens/report_screen.dart';
 import 'package:mauzo/ui/screens/sale/add_sale_view_screen.dart';
 import 'package:mauzo/ui/screens/sale/sales_screen.dart';
@@ -76,6 +77,8 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const AddProductScreen());
       case '/store/add':
         return CupertinoPageRoute(builder: (_) => const StoreScreen());
+      case '/transfer_requests':
+        return CupertinoPageRoute(builder: (_) => const TransferRequestsScreen());
       case '/statistics':
         return CupertinoPageRoute(builder: (_) => const StatisticsScreen());
       case '/clients':

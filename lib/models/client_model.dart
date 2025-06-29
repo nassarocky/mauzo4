@@ -5,7 +5,7 @@ class Client {
   final String owner;
   late final String name;
   final String phone;
-  final dynamic date;
+  final Timestamp date;
   final double debt;
   final double advance;
   final List<dynamic> advanceTransactions; // New field to track transactions
@@ -31,18 +31,61 @@ class Client {
     if (data == null) {
       throw Exception("Document data is null for snapshot with ID: ${snapshot.id}");
     }
+    
+    // Handle date field with proper type checking and conversion
+    Timestamp date;
+    if (data['date'] == null) {
+      date = Timestamp.now();
+    } else if (data['date'] is Timestamp) {
+      date = data['date'] as Timestamp;
+    } else if (data['date'] is DateTime) {
+      date = Timestamp.fromDate(data['date'] as DateTime);
+    } else if (data['date'] is Map) {
+      // Handle Firestore Timestamp format from web
+      try {
+        final seconds = data['date']['seconds'] as int;
+        final nanoseconds = data['date']['nanoseconds'] as int;
+        date = Timestamp(seconds, nanoseconds);
+      } catch (e) {
+        print('Error converting date: $e');
+        date = Timestamp.now();
+      }
+    } else {
+      print('Unexpected date format: ${data['date']}');
+      date = Timestamp.now();
+    }
+
+    // Handle debt and advance with proper type conversion
+    double debt = 0.0;
+    if (data['debt'] != null) {
+      if (data['debt'] is int) {
+        debt = (data['debt'] as int).toDouble();
+      } else if (data['debt'] is double) {
+        debt = data['debt'] as double;
+      } else if (data['debt'] is String) {
+        debt = double.tryParse(data['debt'] as String) ?? 0.0;
+      }
+    }
+
+    double advance = 0.0;
+    if (data['advance'] != null) {
+      if (data['advance'] is int) {
+        advance = (data['advance'] as int).toDouble();
+      } else if (data['advance'] is double) {
+        advance = data['advance'] as double;
+      } else if (data['advance'] is String) {
+        advance = double.tryParse(data['advance'] as String) ?? 0.0;
+      }
+    }
+
     return Client(
       id: snapshot.id,
       owner: data['owner'] ?? '',
       name: data['name'] ?? 'Unnamed Client',
       phone: data['phone'] ?? '',
-      date: data['date'],
-      debt: (data['debt'] ?? 0.0) is int
-          ? (data['debt'] as int).toDouble()
-          : (data['debt'] ?? 0.0) as double,
-      advance: (data['advance'] ?? 0.0) is int
-          ? (data['advance'] as int).toDouble()
-          : (data['advance'] ?? 0.0) as double,
+      date: date,
+      debt: debt,
+      advance: advance,
       advanceTransactions: data['advanceTransactions'] ?? [],
       note: data['note'],
       image: data['image'],

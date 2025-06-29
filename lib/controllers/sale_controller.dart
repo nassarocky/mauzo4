@@ -17,7 +17,7 @@ import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
 import 'expence_controller.dart';
-import 'dart:html' as html; // Only for web
+//import 'dart:html' as html; // Only for web
 
 class SaleController extends GetxController {
   StreamSubscription<List<Sale>>? _saleSubscription;
@@ -410,7 +410,7 @@ class SaleController extends GetxController {
   }
 //for mobile app
 
-/*
+
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -559,10 +559,10 @@ class SaleController extends GetxController {
     }
 
 
-  }*/
+  }
 
 //for web app
-
+/*
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -701,7 +701,7 @@ class SaleController extends GetxController {
 
 
   }
-
+*/
   void clearSales(){
     sales.value.clear();
     filteredSales.value.clear();

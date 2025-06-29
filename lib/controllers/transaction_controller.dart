@@ -21,7 +21,7 @@ class TransactionController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    /*
+
     try {
       _transactionSubscription = FirestoreDb().getTransactions().listen((data)
       {
@@ -32,7 +32,7 @@ class TransactionController extends GetxController {
       });
     } catch (e) {
       print("Error binding transaction stream: $e");
-    }*/
+    }
   }
 
   @override

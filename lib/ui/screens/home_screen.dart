@@ -16,6 +16,7 @@ import '../../controllers/debt_history_controller.dart';
 import '../../controllers/expence_controller.dart';
 import '../../controllers/invoice_controller.dart';
 import '../../controllers/product_controller.dart';
+import '../../controllers/product_transfer_controller.dart';
 import '../../controllers/profile_controller.dart';
 import '../../controllers/sale_controller.dart';
 import '../../controllers/store_controller.dart';
@@ -274,6 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final TransactionController _TransactionController = Get.put(TransactionController());
         final ClientController clientController = Get.put(ClientController());
         final SaleController _saleController = Get.put(SaleController());
+        final ProductTransferController _transferController = Get.put(ProductTransferController());
         final CartController cartController = Get.put(CartController());
         final EmployeeController _employeeController = Get.put(EmployeeController());
         final DebtHistoryController _debtHistoryController = Get.put(DebtHistoryController());
@@ -283,8 +285,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         void restartAllControllers() {
           // Delete all controllers
-          Get.delete<BusinessListController>(force: true);
+          Get.delete<ProductTransferController>(force: true);
           Get.delete<StoreController>(force: true);
+          Get.delete<BusinessListController>(force: true);
           Get.delete<BoughtController>(force: true);
           Get.delete<DebtHistoryController>(force: true);
           Get.delete<InvoiceController>(force: true);
@@ -296,7 +299,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.delete<CartController>(force: true);
           Get.delete<EmployeeController>(force: true);
           Get.delete<ClosedBooksController>(force: true);
-          // Recreate controllers
+          // Recreate controllersProductTransferController
+          Get.put<ProductTransferController>(ProductTransferController());
           Get.put<StoreController>(StoreController());
           Get.put<BoughtController>(BoughtController());
           Get.put<BusinessListController>(BusinessListController());
@@ -582,6 +586,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         route: 'bought',
                       ),
                     DrawerTile(
+                      title: 'Transfer Requests'.tr,
+                      icon: Icons.swap_horiz,
+                      route: 'transfer_requests',
+                    ),
+                    DrawerTile(
                       title: 'Support'.tr,
                       icon: Icons.help_outline,
                       route: 'support',
@@ -735,6 +744,50 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Color(0xFFE49639),
                             ),
                           ),
+                          const SizedBox(width: 16),
+                          Obx(() {
+                            final pendingCount = _transferController.incomingTransferRequests
+                                .where((request) => request.status == 'pending')
+                                .length;
+                            return Stack(
+                              children: [
+                                ScreensCard(
+                                  title: 'Transfer Requests'.tr,
+                                  backgroundColor: const Color(0xFFE8F4FD),
+                                  route: '/transfer_requests',
+                                  child: const Icon(
+                                    Icons.swap_horiz,
+                                    color: Color(0xFF2196F3),
+                                  ),
+                                ),
+                                if (pendingCount > 0)
+                                  Positioned(
+                                    top: 20,
+                                    right: 20,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 20,
+                                        minHeight: 20,
+                                      ),
+                                      child: Text(
+                                        pendingCount.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          }),
                         ],
                       ),
                     ],

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
@@ -256,7 +257,7 @@ class _AddClientScreenState extends State<AddClientScreen> {
                                 'phone': _phoneController.text.trim(),
                                 "image": url,
                                 "note": _noteController.text.trim(),
-                                'date': DateTime.now(),
+                                'date': Timestamp.now(),
                               }).then((doc) {
                                 // Successfully added to Firestore
                                 setState(() {

@@ -9,6 +9,7 @@ import '../../../models/client_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/image.dart';
 import '../../../utils/preferences.dart';
+import '../../widgets/buttons/primary_button.dart';
 
 class EditClientScreen extends StatefulWidget {
   const EditClientScreen({Key? key, required this.client}) : super(key: key);
@@ -302,7 +303,7 @@ class _EditClientScreenState extends State<EditClientScreen> {
                                 'phone': phoneController.text.trim(),
                                 "image": url,
                                 "note": noteController.text.trim(),
-                                'date': DateTime.now(),
+                                'date': Timestamp.now(),
                               });
 
                               setState(() {

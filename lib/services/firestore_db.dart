@@ -10,6 +10,7 @@ import '../models/close_book_model.dart';
 import '../models/debtHistory_model.dart';
 import '../models/expences.dart';
 import '../models/product_model.dart';
+import '../models/product_transfer_request.dart';
 import '../models/stock_transaction.dart';
 import '../utils/constants.dart';
 
@@ -18,7 +19,7 @@ class FirestoreDb {
   final ProfileController _profileController = Get.find();
   final BusinessController _businessController = Get.find();
 
-/*
+
   Stream<List<StockTransaction>> getTransactions() {
     final String? business = _businessController.businessId.value;
 
@@ -46,7 +47,7 @@ class FirestoreDb {
       print('Error fetching transactions: $error');
     });
   }
-*/
+
 // * BUSINESS
   Stream<List<BusinessModel>> getBusiness() {
     print('Fetching BUSINESS for owner:${_profileController.user['id']}');
@@ -407,6 +408,87 @@ class FirestoreDb {
     })
         .handleError((error) {
       print('Error fetching Employee: $error');
+    });
+  }
+
+  // * TRANSFER REQUESTS
+  Stream<List<ProductTransferRequest>> getIncomingTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty incoming transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching incoming transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .where('toBusinessId', isEqualTo: business)
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received incoming transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing incoming transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching incoming transfer requests: $error');
+    });
+  }
+
+  Stream<List<ProductTransferRequest>> getOutgoingTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty outgoing transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching outgoing transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .where('fromBusinessId', isEqualTo: business)
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received outgoing transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing outgoing transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching outgoing transfer requests: $error');
+    });
+  }
+
+  Stream<List<ProductTransferRequest>> getAllTransferRequests() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is empty, returning empty transfer requests.');
+      return Stream.value([]);
+    }
+
+    print('Fetching all transfer requests for business: $business');
+
+    return firestore
+        .collection('product_transfer_requests')
+        .doc(business)
+        .collection('userTransferRequests')
+        .orderBy('requestedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received all transfer requests with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing transfer request with ID: ${doc.id}');
+        return ProductTransferRequest.fromSnapshot(doc);
+      }).toList();
+    }).handleError((error) {
+      print('Error fetching all transfer requests: $error');
     });
   }
 }

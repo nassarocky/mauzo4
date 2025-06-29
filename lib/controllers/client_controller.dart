@@ -35,8 +35,6 @@ class ClientController extends GetxController {
     super.onClose();
   }
 
-
-
   Client getClient(String clientId) {
     return clients.firstWhere((client) => client.id == clientId,
         orElse: () => Client(
@@ -44,9 +42,10 @@ class ClientController extends GetxController {
           id: '',
           name: '',
           phone: '',
-          date: DateTime.now(),
+          date: Timestamp.now(),
         ));
   }
+
   Future<void> updateAdvance(Client client, double amount) async {
     final String? business = _businessController.businessId.value;
     if (business == null) {
@@ -143,7 +142,6 @@ class ClientController extends GetxController {
       errorSnackbar(e.toString());
     }
   }
-
 
   void deleteClient(String clientId) async {
     final String? business = _businessController.businessId.value;
