@@ -10,8 +10,9 @@ import '../../../utils/constants.dart';
 
 // ignore: must_be_immutable
 class StoreQuantityDialog extends StatefulWidget {
-  StoreQuantityDialog({Key? key, required this.product}) : super(key: key);
+  StoreQuantityDialog({Key? key, required this.product, this.isMoveToStore = false}) : super(key: key);
   final Product product;
+  final bool isMoveToStore; // New parameter to determine direction
   double itemCounter = 0.0;
 
   @override
@@ -50,7 +51,7 @@ class _StoreQuantityDialog extends State<StoreQuantityDialog> {
             ),
           ),
           Text(
-            'stock_in_out'.tr,
+            widget.isMoveToStore ? 'Move to Store'.tr : 'stock_in_out'.tr,
             style: h6(
               Theme.of(context).textTheme.bodyLarge!.color,
             ),
@@ -140,12 +141,19 @@ class _StoreQuantityDialog extends State<StoreQuantityDialog> {
           children: [
             Expanded(
               child: PrimaryButton(
-                text: 'save'.tr,
+                text: widget.isMoveToStore ? 'Move to Store'.tr : 'Move to Shop'.tr,
                 onPressed: () {
-                  _storeController.updateProductCount(
-                    widget.product,
-                    (widget.itemCounter + widget.product.quantity),
-                  );
+                  if (widget.isMoveToStore) {
+                    _storeController.moveStockToStore(
+                      widget.product,
+                      widget.itemCounter,
+                    );
+                  } else {
+                    _storeController.moveStockToShop(
+                      widget.product,
+                      widget.itemCounter,
+                    );
+                  }
                   Navigator.of(context).pop();
                 },
               ),
@@ -157,11 +165,11 @@ class _StoreQuantityDialog extends State<StoreQuantityDialog> {
           children: [
             Expanded(
               child: PrimaryButton(
-                text: 'Move to Shop'.tr,
-                onPressed: () {
-                  _storeController.moveStockToShop(
-                      widget.product,
-                      widget.itemCounter
+                text: 'Add to Store'.tr,
+                onPressed: () async {
+                  await _storeController.updateStoreProductCount(
+                    widget.product,
+                    widget.product.quantity + widget.itemCounter,
                   );
                   Navigator.of(context).pop();
                 },

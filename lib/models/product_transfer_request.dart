@@ -69,4 +69,22 @@ class ProductTransferRequest {
       'productOwner': productOwner,
     };
   }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'productId': productId,
+      'fromBusinessId': fromBusinessId,
+      'toBusinessId': toBusinessId,
+      'status': status,
+      'requestedByUserId': requestedByUserId,
+      'respondedByUserId': respondedByUserId,
+      'requestedAt': requestedAt,
+      'respondedAt': respondedAt,
+      'quantity': quantity,
+      'transferQuantity': transferQuantity,
+      'productName': productName,
+      'productOwner': productOwner,
+    };
+  }
 } 

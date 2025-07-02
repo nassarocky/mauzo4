@@ -18,6 +18,7 @@ import '../dialogs/product_quantity_dialog.dart';
 import '../buttons/delete_save_button.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../dialogs/transfer_quantity_dialog.dart';
+import '../dialogs/store_quantity_dialog.dart';
 
 
 class ProductInfoBottomSheet extends StatelessWidget {
@@ -406,6 +407,28 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       text: 'Copy to Store'.tr,
                       onPressed: () {
                   _productController.copyProductToStore(product.id);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      text: 'Move to Store'.tr,
+                      onPressed: () {
+                        if(passwordMatches){
+                          Navigator.pop(context);
+                          showDialog(
+                            context: context,
+                            builder: (context) => StoreQuantityDialog(
+                              product: product,
+                              isMoveToStore: true,
+                            ),
+                          );
+                        }
                       },
                     ),
                   ),

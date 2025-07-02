@@ -471,4 +471,235 @@ class ProductTransferController extends GetxController {
       print('Error refreshing transfer requests: $e');
     }
   }
+
+  // Transfer store products between businesses
+  Future<void> createStoreTransferRequest({
+    required String productId,
+    required String fromBusinessId,
+    required String toBusinessId,
+    required double transferQuantity,
+    required String requestedByUserId,
+  }) async {
+    try {
+      print('Creating store transfer request from $fromBusinessId to $toBusinessId for product $productId with quantity $transferQuantity');
+
+      // Get the source store product to check quantity
+      final sourceStoreProductRef = firestore
+          .collection('store')
+          .doc(fromBusinessId)
+          .collection('userStore')
+          .doc(productId);
+
+      final sourceStoreProductDoc = await sourceStoreProductRef.get();
+      if (!sourceStoreProductDoc.exists) {
+        print('[Store Transfer] ERROR: Source store product not found in business $fromBusinessId with product ID $productId');
+        throw Exception('Source store product not found in business $fromBusinessId');
+      }
+
+      final sourceStoreProductData = sourceStoreProductDoc.data() as Map<String, dynamic>;
+      final currentStoreQuantity = (sourceStoreProductData['quantity'] ?? 0.0).toDouble();
+      final productOwner = sourceStoreProductData['owner'] ?? fromBusinessId;
+
+      if (currentStoreQuantity < transferQuantity) {
+        throw Exception('Insufficient store stock. Available: $currentStoreQuantity, Requested: $transferQuantity');
+      }
+
+      // Create transfer request in fromBusiness collection
+      final fromTransferRef = firestore
+          .collection('store_transfer_requests')
+          .doc(fromBusinessId)
+          .collection('userStoreTransferRequests')
+          .doc();
+
+      final transferData = {
+        'id': fromTransferRef.id,
+        'productId': productId,
+        'fromBusinessId': fromBusinessId,
+        'toBusinessId': toBusinessId,
+        'status': 'pending',
+        'requestedByUserId': requestedByUserId,
+        'respondedByUserId': null,
+        'requestedAt': Timestamp.now(),
+        'respondedAt': null,
+        'quantity': currentStoreQuantity,
+        'transferQuantity': transferQuantity,
+        'productName': sourceStoreProductData['name'] ?? 'Unknown Product',
+        'productOwner': productOwner,
+        'transferType': 'store', // Indicate this is a store transfer
+      };
+
+      await fromTransferRef.set(transferData);
+      print('Created store transfer request in fromBusiness collection');
+
+      // Create transfer request in toBusiness collection
+      final toTransferRef = firestore
+          .collection('store_transfer_requests')
+          .doc(toBusinessId)
+          .collection('userStoreTransferRequests')
+          .doc(fromTransferRef.id);
+
+      await toTransferRef.set(transferData);
+      print('Created store transfer request in toBusiness collection');
+
+      successSnackbar('Store transfer request created successfully');
+      
+      // Force refresh the transfer requests to update UI immediately
+      await refreshTransferRequests();
+    } catch (e) {
+      print('Error creating store transfer request: $e');
+      errorSnackbar('Error creating store transfer request: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> acceptStoreTransferRequest(ProductTransferRequest request) async {
+    try {
+      print('Accepting store transfer request: ${request.id}');
+
+      final data = request.toMap();
+      String fromBusinessId = data['fromBusinessId'];
+      String toBusinessId = data['toBusinessId'];
+      String productId = data['productId'];
+      double transferQuantity = (data['transferQuantity'] ?? 0.0).toDouble();
+      String respondedByUserId = _businessController.businessId.value!;
+
+      // Get source store product
+      final sourceStoreProductRef = firestore
+          .collection('store')
+          .doc(fromBusinessId)
+          .collection('userStore')
+          .doc(productId);
+
+      final sourceStoreProductDoc = await sourceStoreProductRef.get();
+      
+      // Fallback: If not found, try to fetch from the product's actual owner
+      if (!sourceStoreProductDoc.exists) {
+        print('[Store Transfer] Product not found under fromBusinessId=$fromBusinessId. Trying fallback to product.owner...');
+        String? fallbackOwner = data['productOwner'] ?? data['owner'];
+        if (fallbackOwner != null && fallbackOwner != fromBusinessId) {
+          fromBusinessId = fallbackOwner;
+          final fallbackSourceRef = firestore
+              .collection('store')
+              .doc(fromBusinessId)
+              .collection('userStore')
+              .doc(productId);
+          final fallbackDoc = await fallbackSourceRef.get();
+          if (fallbackDoc.exists) {
+            print('[Store Transfer] Found product in fallback location: $fromBusinessId');
+          } else {
+            throw Exception('Store product not found in any location');
+          }
+        } else {
+          throw Exception('Store product not found in business $fromBusinessId');
+        }
+      }
+
+      final sourceStoreProductData = sourceStoreProductDoc.data() as Map<String, dynamic>;
+      final currentSourceQuantity = (sourceStoreProductData['quantity'] ?? 0.0).toDouble();
+
+      if (currentSourceQuantity < transferQuantity) {
+        throw Exception('Insufficient store stock in source business');
+      }
+
+      // Get or create destination store product
+      final destStoreProductRef = firestore
+          .collection('store')
+          .doc(toBusinessId)
+          .collection('userStore')
+          .doc(productId);
+
+      final destStoreProductDoc = await destStoreProductRef.get();
+      double currentDestQuantity = 0.0;
+
+      if (destStoreProductDoc.exists) {
+        final destStoreProductData = destStoreProductDoc.data() as Map<String, dynamic>;
+        currentDestQuantity = (destStoreProductData['quantity'] ?? 0.0).toDouble();
+      } else {
+        // Create store product in destination if it doesn't exist
+        final newStoreProductData = Map<String, dynamic>.from(sourceStoreProductData);
+        newStoreProductData['quantity'] = 0.0;
+        newStoreProductData['owner'] = toBusinessId;
+        await destStoreProductRef.set(newStoreProductData);
+      }
+
+      // Update quantities
+      final newSourceQuantity = currentSourceQuantity - transferQuantity;
+      final newDestQuantity = currentDestQuantity + transferQuantity;
+
+      await sourceStoreProductRef.update({'quantity': newSourceQuantity});
+      await destStoreProductRef.update({'quantity': newDestQuantity});
+
+      // Update transfer request status
+      final fromTransferRef = firestore
+          .collection('store_transfer_requests')
+          .doc(fromBusinessId)
+          .collection('userStoreTransferRequests')
+          .doc(request.id);
+
+      final toTransferRef = firestore
+          .collection('store_transfer_requests')
+          .doc(toBusinessId)
+          .collection('userStoreTransferRequests')
+          .doc(request.id);
+
+      final updateData = {
+        'status': 'accepted',
+        'respondedByUserId': respondedByUserId,
+        'respondedAt': Timestamp.now(),
+      };
+
+      await fromTransferRef.update(updateData);
+      await toTransferRef.update(updateData);
+
+      // Log transaction in both businesses
+      final sourceTransactionRef = firestore
+          .collection('transactions')
+          .doc(fromBusinessId)
+          .collection('usersTransactions')
+          .doc();
+
+      final sourceTransaction = StockTransaction(
+          transactionId: sourceTransactionRef.id,
+          productId: productId,
+          quantity: transferQuantity,
+          previousQuantity: currentSourceQuantity,
+          transactionType: 'removal',
+          transactionOrigin: 'Store Transfer Out',
+          timestamp: Timestamp.now(),
+          userId: respondedByUserId,
+          price: (sourceStoreProductData['price'] ?? 0.0).toDouble()
+      );
+
+      await sourceTransactionRef.set(sourceTransaction.toMap());
+
+      final destTransactionRef = firestore
+          .collection('transactions')
+          .doc(toBusinessId)
+          .collection('usersTransactions')
+          .doc();
+
+      final destTransaction = StockTransaction(
+          transactionId: destTransactionRef.id,
+          productId: productId,
+          quantity: transferQuantity,
+          previousQuantity: currentDestQuantity,
+          transactionType: 'addition',
+          transactionOrigin: 'Store Transfer In',
+          timestamp: Timestamp.now(),
+          userId: respondedByUserId,
+          price: (sourceStoreProductData['price'] ?? 0.0).toDouble()
+      );
+
+      await destTransactionRef.set(destTransaction.toMap());
+
+      successSnackbar('Store transfer request accepted successfully');
+      
+      // Force refresh the transfer requests to update UI immediately
+      await refreshTransferRequests();
+    } catch (e) {
+      print('Error accepting store transfer request: $e');
+      errorSnackbar('Error accepting store transfer request: $e');
+      rethrow;
+    }
+  }
 } 

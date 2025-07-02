@@ -139,6 +139,106 @@ class _StoreScreenState extends State<StoreScreen> {
     }
   }
 
+  void _showBulkMovementOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+        ),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Bulk Stock Movement'.tr,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmBulkMove('toStore');
+                    },
+                    icon: Icon(Icons.move_to_inbox),
+                    label: Text('Move All to Store'.tr),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmBulkMove('toShop');
+                    },
+                    icon: Icon(Icons.store),
+                    label: Text('Move All to Shop'.tr),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmBulkMove(String direction) {
+    String title = direction == 'toStore' ? 'Move All to Store'.tr : 'Move All to Shop'.tr;
+    String message = direction == 'toStore' 
+        ? 'This will move all shop products with stock to the store. Continue?'.tr
+        : 'This will move all store products with stock to the shop. Continue?'.tr;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel'.tr),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              if (direction == 'toStore') {
+                _storeController.moveAllStockToStore();
+              } else {
+                _storeController.moveAllStockToShop();
+              }
+            },
+            child: Text('Confirm'.tr),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool passwordMatches = _profileController.user['role'] == 'owner';
@@ -195,6 +295,15 @@ class _StoreScreenState extends State<StoreScreen> {
 
     return Scaffold(
       appBar: buildAppBar(context, _storeController, passwordMatches),
+      floatingActionButton: passwordMatches ? FloatingActionButton.extended(
+        onPressed: () {
+          _showBulkMovementOptions(context);
+        },
+        label: Text('Bulk Actions'.tr),
+        icon: Icon(Icons.move_to_inbox),
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+      ) : null,
       body: Obx(
             () => Column(
           children: [

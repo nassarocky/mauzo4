@@ -19,7 +19,7 @@ class Product {
   double understock;    // Converted from int
 
   // New fields for store stock and reserve data
-  double storeQuantity; // Converted from int
+ // double storeQuantity; // Converted from int
   String reserveString1;
   String reserveString2;
   double reserveDouble1;
@@ -48,7 +48,6 @@ class Product {
     this.location = '',
     this.details = '',
     this.understock = 0.0,
-    this.storeQuantity = 0.0,
     this.reserveString1 = '',
     this.reserveString2 = '',
     this.reserveDouble1 = 0.0,
@@ -87,7 +86,6 @@ class Product {
       location: data['location'] as String? ?? '',
       details: data['details'] as String? ?? '',
       understock: convertToDouble(data['understock']),
-      storeQuantity: convertToDouble(data['storeQuantity']),
       reserveString1: data['reserveString1'] as String? ?? '',
       reserveString2: data['reserveString2'] as String? ?? '',
       price: convertToDouble(data['price']),
@@ -121,7 +119,6 @@ class Product {
       'location': location,
       'details': details,
       'understock': understock,
-      'storeQuantity': storeQuantity,
       'reserveString1': reserveString1,
       'reserveString2': reserveString2,
       'reserveDouble1': reserveDouble1,

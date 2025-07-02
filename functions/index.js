@@ -1097,8 +1097,8 @@ const messages = {
     cartDetails: (items, total) => `Your Cart:\n\n${items}\nTotal: ${total} TZS\nReply with:\n1. Checkout\n2. Clear Cart\n0. Go Back`,
     noProducts: 'No products available at the moment.\nReply with:\n0. Go Back',
     productList: 'Available Products:\n\n',
-    help: (business) => `I’m here to help you with ${business}!\nReply with the number:\n1. Check product prices\n2. Add items to your cart\n3. List available products\n4. View your cart\n0. Go Back`,
-    error: (suggestions) => `Sorry, I didn’t understand that. Did you mean: ${suggestions.join(' or ')}?\nReply with:\n5. Help\n0. Go Back`,
+    help: (business) => `I'm here to help you with ${business}!\nReply with the number:\n1. Check product prices\n2. Add items to your cart\n3. List available products\n4. View your cart\n0. Go Back`,
+    error: (suggestions) => `Sorry, I didn't understand that. Did you mean: ${suggestions.join(' or ')}?\nReply with:\n5. Help\n0. Go Back`,
     enterProductName: 'Please enter the product name (e.g., "iPhone").\nReply with:\n0. Go Back',
     feedbackPrompt: 'How was your experience with this product?\nReply with:\n1. Satisfied\n2. Not Satisfied\n0. Go Back',
     feedbackSuccess: 'Thank you for your feedback! ✅',
@@ -1107,7 +1107,7 @@ const messages = {
     checkoutFailed: 'Sorry, there was an error processing your payment. Please try again.\nReply with:\n0. Go Back',
     errorProcessing: 'Sorry, there was an error processing your request. Please try again.\nReply with:\n0. Go Back',
     imageSendingFailed: 'Here are the product details (image unavailable):\n',
-    sessionExpired: 'Your session has expired due to inactivity. Let’s start over!\nReply with:\n1. Get Product Price\n2. Add to Cart\n3. List Products\n4. Show Cart\n5. Help',
+    sessionExpired: 'Your session has expired due to inactivity. Let's start over!\nReply with:\n1. Get Product Price\n2. Add to Cart\n3. List Products\n4. Show Cart\n5. Help',
   },
   sw: {
     welcome: (name, business) => `Habari ${name || 'yako'}! Karibu ${business} 🎉\nTafadhali chagua kwa kujibu na nambari:\n1. Pata Bei ya Bidhaa\n2. Ongeza kwenye Kikapu\n3. Orodhesha Bidhaa\n4. Angalia Kikapu\n5. Msaada`,
@@ -1909,3 +1909,59 @@ function suggestCommand(message) {
   const commands = ['price of', 'add to cart', 'list products', 'show cart', 'help'];
   return commands.filter(cmd => cmd.includes(message.split(' ')[0])).slice(0, 2);
 }
+
+exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (request) => {
+  const context = request.auth;
+  if (!context) {
+    throw new HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { fromBusinessId, toBusinessId, productId, transferRequestId, quantity } = request.data;
+  if (!fromBusinessId || !toBusinessId || !productId || !transferRequestId || !quantity) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
+
+  try {
+    // 1. Update transfer request status to 'accepted' in the receiver's business
+    await firestore
+      .collection('product_transfer_requests').doc(toBusinessId)
+      .collection('userTransferRequests').doc(transferRequestId)
+      .update({ status: 'accepted', respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    // 2. Update product stock in sender (fromBusinessId): decrement quantity
+    const fromProductRef = firestore
+      .collection('products').doc(fromBusinessId)
+      .collection('userProducts').doc(productId);
+    await firestore.runTransaction(async (transaction) => {
+      const fromProductSnap = await transaction.get(fromProductRef);
+      if (!fromProductSnap.exists) {
+        throw new HttpsError('not-found', 'Product not found in sender business');
+      }
+      const fromQty = fromProductSnap.data().quantity || 0;
+      if (fromQty < quantity) {
+        throw new HttpsError('failed-precondition', 'Not enough stock in sender business');
+      }
+      transaction.update(fromProductRef, { quantity: fromQty - quantity });
+    });
+
+    // 3. Update product stock in receiver (toBusinessId): increment quantity
+    const toProductRef = firestore
+      .collection('products').doc(toBusinessId)
+      .collection('userProducts').doc(productId);
+    await firestore.runTransaction(async (transaction) => {
+      const toProductSnap = await transaction.get(toProductRef);
+      if (!toProductSnap.exists) {
+        // If product does not exist in receiver, create it with the transferred quantity
+        transaction.set(toProductRef, { quantity: quantity });
+      } else {
+        const toQty = toProductSnap.data().quantity || 0;
+        transaction.update(toProductRef, { quantity: toQty + quantity });
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('acceptTransferRequestV2 error:', error);
+    throw new HttpsError('internal', error.message || 'Unknown error');
+  }
+});

@@ -684,24 +684,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Row(
                         children: [
-                          ScreensCard(
-                            title: 'all_sales'.tr,
-                            backgroundColor: const Color(0xFFFDF0D6),
-                            route: '/sales',
-                            child: const Icon(
-                              Icons.receipt,
-                              color: Color(0xFFE49639),
+                          Expanded(
+                            child: ScreensCard(
+                              title: 'all_sales'.tr,
+                              backgroundColor: const Color(0xFFFDF0D6),
+                              route: '/sales',
+                              child: const Icon(
+                                Icons.receipt,
+                                color: Color(0xFFE49639),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 16),
-                          ScreensCard(
-                            title: 'products'.tr,
-                            backgroundColor: const Color(0xFFFCE2E6),
-                            route: '/products',
-                            child: Image.asset(
-                              'assets/images/products.png',
-                              width: 24,
-                              height: 24,
+                          Expanded(
+                            child: ScreensCard(
+                              title: 'products'.tr,
+                              backgroundColor: const Color(0xFFFCE2E6),
+                              route: '/products',
+                              child: Image.asset(
+                                'assets/images/products.png',
+                                width: 24,
+                                height: 24,
+                              ),
                             ),
                           ),
                         ],
@@ -709,24 +713,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          ScreensCard(
-                            title: 'clients'.tr,
-                            backgroundColor: const Color(0xFFDFF7FF),
-                            route: '/clients',
-                            child: const Icon(
-                              Icons.people,
-                              color: Color(0xFF00C2FF),
+                          Expanded(
+                            child: ScreensCard(
+                              title: 'clients'.tr,
+                              backgroundColor: const Color(0xFFDFF7FF),
+                              route: '/clients',
+                              child: const Icon(
+                                Icons.people,
+                                color: Color(0xFF00C2FF),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 16),
-
-                          ScreensCard(
-                            title: 'New Sale'.tr,
-                            backgroundColor: const Color(0xFFDAF9DA),
-                            route: '/sale/add',
-                            child: const Icon(
-                              Icons.shopping_basket,
-                              color: Color(0xFF64BE62),
+                          Expanded(
+                            child: ScreensCard(
+                              title: 'New Sale'.tr,
+                              backgroundColor: const Color(0xFFDAF9DA),
+                              route: '/sale/add',
+                              child: const Icon(
+                                Icons.shopping_basket,
+                                color: Color(0xFF64BE62),
+                              ),
                             ),
                           ),
                         ],
@@ -735,59 +742,63 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       Row(
                         children: [
-                          ScreensCard(
-                            title: 'all_invoices'.tr,
-                            backgroundColor: const Color(0xFFFDF0D6),
-                            route: '/invoices',
-                            child: const Icon(
-                              Icons.receipt,
-                              color: Color(0xFFE49639),
+                          Expanded(
+                            child: ScreensCard(
+                              title: 'all_invoices'.tr,
+                              backgroundColor: const Color(0xFFFDF0D6),
+                              route: '/invoices',
+                              child: const Icon(
+                                Icons.receipt,
+                                color: Color(0xFFE49639),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 16),
-                          Obx(() {
-                            final pendingCount = _transferController.incomingTransferRequests
-                                .where((request) => request.status == 'pending')
-                                .length;
-                            return Stack(
-                              children: [
-                                ScreensCard(
-                                  title: 'Transfer Requests'.tr,
-                                  backgroundColor: const Color(0xFFE8F4FD),
-                                  route: '/transfer_requests',
-                                  child: const Icon(
-                                    Icons.swap_horiz,
-                                    color: Color(0xFF2196F3),
-                                  ),
-                                ),
-                                if (pendingCount > 0)
-                                  Positioned(
-                                    top: 20,
-                                    right: 20,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      constraints: const BoxConstraints(
-                                        minWidth: 20,
-                                        minHeight: 20,
-                                      ),
-                                      child: Text(
-                                        pendingCount.toString(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
+                          Expanded(
+                            child: Obx(() {
+                              final pendingCount = _transferController.incomingTransferRequests
+                                  .where((request) => request.status == 'pending')
+                                  .length;
+                              return Stack(
+                                children: [
+                                  ScreensCard(
+                                    title: 'Transfer Requests'.tr,
+                                    backgroundColor: const Color(0xFFE8F4FD),
+                                    route: '/transfer_requests',
+                                    child: const Icon(
+                                      Icons.swap_horiz,
+                                      color: Color(0xFF2196F3),
                                     ),
                                   ),
-                              ],
-                            );
-                          }),
+                                  if (pendingCount > 0)
+                                    Positioned(
+                                      top: 20,
+                                      right: 20,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 20,
+                                          minHeight: 20,
+                                        ),
+                                        child: Text(
+                                          pendingCount.toString(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            }),
+                          ),
                         ],
                       ),
                     ],
