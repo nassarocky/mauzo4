@@ -1107,7 +1107,7 @@ const messages = {
     checkoutFailed: 'Sorry, there was an error processing your payment. Please try again.\nReply with:\n0. Go Back',
     errorProcessing: 'Sorry, there was an error processing your request. Please try again.\nReply with:\n0. Go Back',
     imageSendingFailed: 'Here are the product details (image unavailable):\n',
-    sessionExpired: 'Your session has expired due to inactivity. Let's start over!\nReply with:\n1. Get Product Price\n2. Add to Cart\n3. List Products\n4. Show Cart\n5. Help',
+    sessionExpired: 'Your session has expired due to inactivity. Lets start over!\nReply with:\n1. Get Product Price\n2. Add to Cart\n3. List Products\n4. Show Cart\n5. Help',
   },
   sw: {
     welcome: (name, business) => `Habari ${name || 'yako'}! Karibu ${business} 🎉\nTafadhali chagua kwa kujibu na nambari:\n1. Pata Bei ya Bidhaa\n2. Ongeza kwenye Kikapu\n3. Orodhesha Bidhaa\n4. Angalia Kikapu\n5. Msaada`,
