@@ -32,6 +32,7 @@ import '../ui/screens/employee/add_employee_screen.dart';
 import '../ui/screens/employee/employee_screen.dart';
 import '../ui/screens/expences/expences_list_screen.dart';
 import '../ui/screens/invoices/invoices_screen.dart';
+import 'package:mauzo/ui/screens/service/services_screen.dart';
 
 class AppRouter {
   static Route onGenerateRoute(RouteSettings settings) {
@@ -101,6 +102,8 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const SupportScreen());
       case '/account':
         return CupertinoPageRoute(builder: (_) =>  AccountScreen());
+      case '/services':
+        return CupertinoPageRoute(builder: (_) => const ServicesScreen());
       default:
         return CupertinoPageRoute(
           builder: (_) => const LoadingScreen(),

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class ProductTransferRequest {
   final String id;
@@ -86,5 +87,17 @@ class ProductTransferRequest {
       'productName': productName,
       'productOwner': productOwner,
     };
+  }
+
+  Future<void> acceptRequest() async {
+    final result = await FirebaseFunctions.instance
+      .httpsCallable('acceptTransferRequest')
+      .call({
+        'fromBusinessId': fromBusinessId,
+        'toBusinessId': toBusinessId,
+        'productId': productId,
+        'transferRequestId': id,
+        'quantity': quantity,
+      });
   }
 } 

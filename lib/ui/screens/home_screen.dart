@@ -551,6 +551,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.production_quantity_limits_rounded,
                         route: 'store/add',
                       ),
+                    if (passwordMatches)
+                      DrawerTile(
+                        title: 'Services'.tr,
+                        icon: Icons.design_services,
+                        route: '/services',
+                      ),
 
                     DrawerTile(
                       title: 'Debt Records'.tr,

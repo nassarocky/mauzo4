@@ -7,6 +7,7 @@ import 'package:mauzo/models/product_transfer_request.dart';
 import 'package:mauzo/models/stock_transaction.dart';
 import 'package:mauzo/services/firestore_db.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class ProductTransferController extends GetxController {
   final ProfileController _profileController = Get.find();
@@ -171,163 +172,26 @@ class ProductTransferController extends GetxController {
 
       print('[Transfer] Accepting: fromBusinessId=$fromBusinessId, toBusinessId=$toBusinessId, productId=$productId, transferQuantity=$transferQuantity');
 
-      // Try to fetch the product from the source business
-      DocumentReference sourceProductRef = firestore
-          .collection('products')
-          .doc(fromBusinessId)
-          .collection('userProducts')
-          .doc(productId);
-      DocumentSnapshot sourceProductDoc = await sourceProductRef.get();
+      // Call the Firebase function
+      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('acceptTransferRequestV2');
+      final result = await callable.call({
+        'fromBusinessId': fromBusinessId,
+        'toBusinessId': toBusinessId,
+        'productId': productId,
+        'transferRequestId': requestId,
+        'quantity': transferQuantity,
+      });
 
-      // Fallback: If not found, try to fetch from the product's actual owner
-      if (!sourceProductDoc.exists) {
-        print('[Transfer] Product not found under fromBusinessId=$fromBusinessId. Trying fallback to product.owner...');
-        // Try to get the owner from the transfer request data (if available)
-        String? fallbackOwner = data['productOwner'] ?? data['owner'];
-        if (fallbackOwner != null && fallbackOwner != fromBusinessId) {
-          fromBusinessId = fallbackOwner;
-          sourceProductRef = firestore
-              .collection('products')
-              .doc(fromBusinessId)
-              .collection('userProducts')
-              .doc(productId);
-          sourceProductDoc = await sourceProductRef.get();
-        }
-      }
-
-      if (!sourceProductDoc.exists) {
-        print('[Transfer] ERROR: Source product not found in Firestore. fromBusinessId=$fromBusinessId, productId=$productId');
-        errorSnackbar('Source product not found in business $fromBusinessId. Please check product ownership and try again.');
-        return;
-      }
-
-      final sourceProductData = sourceProductDoc.data() as Map<String, dynamic>;
-      final currentQuantity = (sourceProductData['quantity'] ?? 0.0).toDouble();
-
-      if (currentQuantity < transferQuantity) {
-        throw Exception('Insufficient quantity in source. Available: $currentQuantity, Requested: $transferQuantity');
-      }
-
-      // Update the transfer request status in both businesses
-      final updateData = {
-        'status': 'accepted',
-        'respondedByUserId': responderUserId,
-        'respondedAt': Timestamp.now(),
-      };
-
-      // Update in current business
-      await docRef.update(updateData);
-      print('Updated transfer request in current business');
-
-      // Update in from business
-      final fromBusinessRef = firestore
-          .collection('product_transfer_requests')
-          .doc(fromBusinessId)
-          .collection('userTransferRequests')
-          .doc(requestId);
-      await fromBusinessRef.update(updateData);
-      print('Updated transfer request in from business');
-
-      // Reduce quantity in source business
-      final newSourceQuantity = currentQuantity - transferQuantity;
-      await sourceProductRef.update({'quantity': newSourceQuantity});
-      print('Reduced quantity in source business from $currentQuantity to $newSourceQuantity');
-
-      // Check if product exists in destination business
-      final destProductRef = firestore
-          .collection('products')
-          .doc(toBusinessId)
-          .collection('userProducts')
-          .doc(productId);
-
-      final destProductDoc = await destProductRef.get();
-
-      if (destProductDoc.exists) {
-        // Product exists in destination, add quantity
-        final destProductData = destProductDoc.data() as Map<String, dynamic>;
-        final destQuantity = (destProductData['quantity'] ?? 0.0).toDouble();
-        final newQuantity = destQuantity + transferQuantity;
-
-        await destProductRef.update({
-          'quantity': newQuantity,
-          'owner': toBusinessId, // Update owner to destination business
-        });
-        print('Added quantity to existing product in destination business from $destQuantity to $newQuantity');
+      if (result.data != null && result.data['success'] == true) {
+        successSnackbar('Transfer request accepted successfully');
+        await refreshTransferRequests();
       } else {
-        // Product doesn't exist in destination, create it
-        final newProductData = {
-          ...sourceProductData,
-          'quantity': transferQuantity,
-          'owner': toBusinessId,
-          'businessId': toBusinessId,
-        };
-
-        await destProductRef.set(newProductData);
-        print('Created new product in destination business with quantity $transferQuantity');
+        errorSnackbar('Failed to accept transfer request.');
       }
-
-      // Log the transfer transaction in both businesses
-      await _logTransferTransaction(
-        fromBusinessId,
-        productId,
-        transferQuantity,
-        currentQuantity,
-        'transfer_out',
-        'Product Transfer Out',
-      );
-
-      await _logTransferTransaction(
-        toBusinessId,
-        productId,
-        transferQuantity,
-        destProductDoc.exists ? (destProductDoc.data() as Map<String, dynamic>)['quantity'] ?? 0.0 : 0.0,
-        'transfer_in',
-        'Product Transfer In',
-      );
-
-      successSnackbar('Transfer request accepted successfully');
-      
-      // Force refresh the transfer requests to update UI immediately
-      await refreshTransferRequests();
     } catch (e) {
       print('Error accepting transfer request: $e');
       errorSnackbar('Error accepting transfer request: $e');
       rethrow;
-    }
-  }
-
-  // Helper method to log transfer transactions
-  Future<void> _logTransferTransaction(
-    String businessId,
-    String productId,
-    double quantity,
-    double previousQuantity,
-    String transactionType,
-    String transactionOrigin,
-  ) async {
-    try {
-      final transactionRef = firestore
-          .collection('transactions')
-          .doc(businessId)
-          .collection('usersTransactions')
-          .doc();
-
-      final stockTransaction = StockTransaction(
-        transactionId: transactionRef.id,
-        productId: productId,
-        quantity: quantity,
-        previousQuantity: previousQuantity,
-        transactionType: transactionType,
-        transactionOrigin: transactionOrigin,
-        timestamp: Timestamp.now(),
-        userId: businessId,
-        price: 0.0, // Price not relevant for transfers
-      );
-
-      await transactionRef.set(stockTransaction.toMap());
-      print('Logged transfer transaction for business: $businessId');
-    } catch (e) {
-      print('Error logging transfer transaction: $e');
     }
   }
 

@@ -29,8 +29,8 @@ class _TransferQuantityDialogState extends State<TransferQuantityDialog> {
   @override
   void initState() {
     super.initState();
-    // Set initial value to current quantity
-    _quantityController.text = widget.product.quantity?.toString() ?? '0';
+    // Set initial value to 1
+    _quantityController.text = '1';
   }
 
   @override
