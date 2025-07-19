@@ -30,6 +30,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
   final ProductController _productController = Get.find();
   final ScrollController _scrollController = ScrollController();
   bool showSearchBar = true;
+  bool transferMode = false;
+  final Set<String> selectedProductIds = {};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['transferMode'] == true) {
+      transferMode = true;
+    }
+  }
 
   @override
   void dispose() {
@@ -196,86 +207,146 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return Scaffold(
       appBar: buildAppBar(context, _productController, passwordMatches),
       body: Obx(
-            () => Column(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              height: showSearchBar ? null : 0,
-              child: SearchWidget(scanner: scanner),
-            ),
-            Expanded(
-              child: _productController.filteredProducts.isEmpty
-                  ? Center(
-                child: Text(
-                  'not_found'.tr,
-                  style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                ),
-              )
-                  : NotificationListener<ScrollNotification>(
-                onNotification: (scrollNotification) {
-                  if (_scrollController.position.userScrollDirection ==
-                      ScrollDirection.reverse) {
-                    if (showSearchBar) {
-                      setState(() {
-                        showSearchBar = false;
-                      });
+            () {
+          // Sort products: services first
+          final sortedProducts = List.of(_productController.filteredProducts);
+          sortedProducts.sort((a, b) {
+            if (a.itemType == 'service' && b.itemType != 'service') return -1;
+            if (a.itemType != 'service' && b.itemType == 'service') return 1;
+            return 0;
+          });
+          return Column(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                height: showSearchBar ? null : 0,
+                child: SearchWidget(scanner: scanner),
+              ),
+              Expanded(
+                child: sortedProducts.isEmpty
+                    ? Center(
+                  child: Text(
+                    'not_found'.tr,
+                    style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                  ),
+                )
+                    : NotificationListener<ScrollNotification>(
+                  onNotification: (scrollNotification) {
+                    if (_scrollController.position.userScrollDirection ==
+                        ScrollDirection.reverse) {
+                      if (showSearchBar) {
+                        setState(() {
+                          showSearchBar = false;
+                        });
+                      }
+                    } else if (_scrollController.position.userScrollDirection ==
+                        ScrollDirection.forward) {
+                      if (!showSearchBar) {
+                        setState(() {
+                          showSearchBar = true;
+                        });
+                      }
                     }
-                  } else if (_scrollController.position.userScrollDirection ==
-                      ScrollDirection.forward) {
-                    if (!showSearchBar) {
-                      setState(() {
-                        showSearchBar = true;
-                      });
-                    }
-                  }
-                  return true;
-                },
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.only(top: 20),
-                  itemCount: _productController.filteredProducts.length +
-                      (_productController.filterCategories.isNotEmpty ? 1 : 0),
-                  itemBuilder: (context, index) {
-
-                    if (index < _productController.filteredProducts.length) {
-
-                      final product = _productController.filteredProducts[index];
-                      return ProductTile(product: product);
-                    } else if (_productController.filterCategories.isNotEmpty) {
-                      return Column(
-                        children: [
-                          const Divider(height: 0),
-                          const SizedBox(height: 20),
-                          Text(
-                            'you_applied_filter'.tr,
-                            style: bodyText(textMutedColor),
-                          ),
-                          const SizedBox(height: 6),
-                          TextButton(
-                            child: Text(
-                              'show_all'.tr,
-                              style: bodyText(
-                                Preferences.getTheme()
-                                    ? primaryLightColor
-                                    : primaryColor,
-                              ),
-                            ),
-                            onPressed: () {
-                              _productController.filterCategories.value = [];
-                              _productController.filterProducts();
-                            },
-                          ),
-                          const SizedBox(height: 40),
-                        ],
-                      );
-                    }
-                    return null;
+                    return true;
                   },
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(top: 20),
+                    itemCount: sortedProducts.length +
+                        (_productController.filterCategories.isNotEmpty ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index < sortedProducts.length) {
+                        final product = sortedProducts[index];
+                        if (transferMode) {
+                          return ListTile(
+                            leading: Checkbox(
+                              value: selectedProductIds.contains(product.id),
+                              onChanged: (checked) {
+                                setState(() {
+                                  if (checked == true) {
+                                    selectedProductIds.add(product.id);
+                                  } else {
+                                    selectedProductIds.remove(product.id);
+                                  }
+                                });
+                              },
+                            ),
+                            title: Text(product.name),
+                            subtitle: Text('Qty: ${product.quantity}'),
+                            trailing: Icon(Icons.arrow_forward_ios, size: 16),
+                            onTap: () {
+                              setState(() {
+                                if (selectedProductIds.contains(product.id)) {
+                                  selectedProductIds.remove(product.id);
+                                } else {
+                                  selectedProductIds.add(product.id);
+                                }
+                              });
+                            },
+                          );
+                        } else {
+                          return ProductTile(product: product);
+                        }
+                      } else if (_productController.filterCategories.isNotEmpty) {
+                        return Column(
+                          children: [
+                            const Divider(height: 0),
+                            const SizedBox(height: 20),
+                            Text(
+                              'you_applied_filter'.tr,
+                              style: bodyText(textMutedColor),
+                            ),
+                            const SizedBox(height: 6),
+                            TextButton(
+                              child: Text(
+                                'show_all'.tr,
+                                style: bodyText(
+                                  Preferences.getTheme()
+                                      ? primaryLightColor
+                                      : primaryColor,
+                                ),
+                              ),
+                              onPressed: () {
+                                _productController.filterCategories.value = [];
+                                _productController.searchProducts.value = _productController.products;
+                                _productController.searchText.value = '';
+                                _productController.filteredProducts.value = _productController.products;
+                                _productController.clearSelectedDateRange();
+                              },
+                            ),
+                          ],
+                        );
+                      }
+                      return null;
+                    },
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
+              if (transferMode)
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton.icon(
+                    icon: Icon(Icons.shopping_cart),
+                    label: Text('Proceed to Transfer'),
+                    onPressed: selectedProductIds.isEmpty
+                        ? null
+                        : () {
+                            // Pass selected products to CartScreen in transfer mode
+                            final selectedProducts = sortedProducts.where((p) => selectedProductIds.contains(p.id)).toList();
+                            Navigator.pushNamed(
+                              context,
+                              '/cart',
+                              arguments: {
+                                'transferMode': true,
+                                'selectedProducts': selectedProducts,
+                              },
+                            );
+                          },
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

@@ -19,6 +19,7 @@ import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
 import '../widgets/dialogs/add_to_cart_dialog.dart';
 import '../widgets/dialogs/double_action_dialog.dart';
+import '../../controllers/product_transfer_controller.dart'; // Added import for ProductTransferController
 
 
 class CartScreen extends StatefulWidget {
@@ -58,7 +59,9 @@ class _CartScreenState extends State<CartScreen> {
     if(from=='invoice'){
       appbartitle='Save Invoice';
     }
-
+    if(from=='transfer'){
+      appbartitle='Transfer Products';
+    }
     return WillPopScope(
       onWillPop: () async => _isLoading ? false : true,
       child: Scaffold(
@@ -87,6 +90,7 @@ class _CartScreenState extends State<CartScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (from != 'transfer')
                 Padding(
                   padding: const EdgeInsets.all(20),
                   child: Row(
@@ -157,6 +161,7 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 )
                 ,
+
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   padding: const EdgeInsets.all(16),
@@ -267,6 +272,7 @@ class _CartScreenState extends State<CartScreen> {
                         },
                       ),
                       if (MediaQuery.of(context).size.width <= 600)
+                        if (from != 'transfer')
                         Container(
                           decoration: BoxDecoration(
                             border: Border.all(
@@ -389,6 +395,7 @@ class _CartScreenState extends State<CartScreen> {
                       )
                           : Container(),
                       const SizedBox(height: 12),
+                      if (from != 'transfer')
                       SizedBox(
                         height: 36,
                         child: Container(
@@ -432,7 +439,9 @@ class _CartScreenState extends State<CartScreen> {
                     ],
                   ),
                 ),
+
                 const SizedBox(height: 16),
+                if (from != 'transfer')
                 _cartController.payment > 0
                     ? GestureDetector(
                   onTap: () {
@@ -452,7 +461,9 @@ class _CartScreenState extends State<CartScreen> {
                         },
                       );
                     } },
-                  child: Container(
+
+                  child:
+                  Container(
                     decoration: BoxDecoration(
                       color: Preferences.getTheme()
                           ? mediumGrayColor
@@ -546,6 +557,7 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (from != 'transfer')
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: SizedBox(
@@ -574,6 +586,7 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (from != 'transfer')
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
@@ -626,16 +639,13 @@ class _CartScreenState extends State<CartScreen> {
                                 return;
                               }
                               List products = [];
-                              for (var item in _cartController
-                                  .getUniqueProducts()) {
+                              for (var item in _cartController.getUniqueProducts()) {
                                 products.add({
                                   'id': item.id,
-                                  'quantity': _cartController
-                                      .singleProductQuantity(item.id),
-                                  'price':
-                                  //web      (_cartController.getPrice(item.id).toDouble()+
-                                  (_cartController.getPrice(item.id).toDouble()),
+                                  'quantity': _cartController.singleProductQuantity(item.id),
+                                  'price': (_cartController.getPrice(item.id).toDouble()),
                                   'name': item.name,
+                                  'itemType': item.itemType, // <-- Ensure itemType is included
                                 });
                               }
 
@@ -804,6 +814,108 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
+                // Add Transfer Products button
+                if (from == 'transfer') // Only show if not in transfer
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: PrimaryButton(
+                        color: Colors.orange,
+                        text: 'Transfer Products',
+                        onPressed: () async {
+                          // print('[DEBUG] Transfer Products button pressed, transferMode=$transferMode');
+                          // 1. Select target business
+                          final businesses = _profileController.user['business'] as List<dynamic>? ?? [];
+                          final currentBusinessId = _businessController.businessId.value;
+                          final otherBusinessIds = businesses.where((id) => id != currentBusinessId).toList();
+                          if (otherBusinessIds.isEmpty) {
+                            Get.snackbar('No Businesses', 'No other businesses available for transfer.');
+                            return;
+                          }
+                          // Fetch business names for dropdown
+                          List<Map<String, String>> businessOptions = [];
+                          for (var id in otherBusinessIds) {
+                            var doc = await FirebaseFirestore.instance.collection('businesses').doc(id).get();
+                            if (doc.exists) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              businessOptions.add({'id': id, 'name': data['name'] ?? id});
+                            }
+                          }
+                          String? selectedBusinessId = await showDialog<String>(
+                            context: context,
+                            builder: (context) {
+                              String? dropdownValue = businessOptions.first['id'];
+                              return StatefulBuilder(
+                                builder: (context, setState) {
+                                  return AlertDialog(
+                                    title: Text('Select Target Business'),
+                                    content: DropdownButton<String>(
+                                      value: dropdownValue,
+                                      isExpanded: true,
+                                      items: businessOptions.map((option) {
+                                        return DropdownMenuItem<String>(
+                                          value: option['id'],
+                                          child: Text(option['name'] ?? option['id']!),
+                                        );
+                                      }).toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          dropdownValue = value;
+                                        });
+                                      },
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, null),
+                                        child: Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, dropdownValue),
+                                        child: Text('Next'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                            },
+                          );
+                          if (selectedBusinessId == null || selectedBusinessId.isEmpty) return;
+                          // 2. Gather products and services from cart
+                          List<Map<String, dynamic>> itemsToTransfer = [];
+                          for (var item in _cartController.getUniqueProducts()) {
+                            final quantity = _cartController.singleProductQuantity(item.id);
+                            final name = (item.name != null && item.name.isNotEmpty) ? item.name : 'Unknown Item';
+                            final itemType = (item.itemType != null && item.itemType.isNotEmpty) ? item.itemType : 'product';
+                            if (quantity > 0) {
+                              itemsToTransfer.add({
+                                'id': item.id,
+                                'name': name,
+                                'quantity': quantity,
+                                'itemType': itemType, // 'product' or 'service'
+                              });
+                            }
+                          }
+                          print('DEBUG: itemsToTransfer = ' + itemsToTransfer.toString());
+                          if (itemsToTransfer.isEmpty) {
+                            errorSnackbar('No products or services selected for transfer.');
+                            return;
+                          }
+                          // 3. Create transfer request (pending)
+                          final transferController = Get.find<ProductTransferController>();
+                          await transferController.createBatchTransferRequest(
+                            fromBusinessId: currentBusinessId,
+                            toBusinessId: selectedBusinessId,
+                            requestedByUserId: _profileController.user['id'],
+                            products: itemsToTransfer,
+                          );
+                          Get.snackbar('Transfer Requested', 'Product/service transfer request sent.');
+                          // Optionally clear cart
+                          clearCartData();
+                        },
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -987,24 +1099,20 @@ class _CartScreenState extends State<CartScreen> {
     });
   }
 
-  Future<void>  decreaseSoldQuantity() async {
+  Future<void> decreaseSoldQuantity() async {
     for (var product in _cartController.getUniqueProducts()) {
-      // Get the current quantity of the product
+      // Skip stock reduction for services
+      if (product.itemType == 'service') continue;
+
       double currentQuantity = product.quantity;
-
-      // Calculate the quantity to reduce
       double soldQuantity = _cartController.singleProductQuantity(product.id);
-
-      // Determine the new quantity after the sale
       double newQuantity = currentQuantity - soldQuantity;
-
-      // Make sure that the quantity doesn't go below zero
       newQuantity = newQuantity < 0 ? 0 : newQuantity;
 
-      // Update the product count
       _productController.updateProductCount(
         product,
-        newQuantity,'Sale',
+        newQuantity,
+        'Sale',
       );
     }
   }

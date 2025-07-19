@@ -18,9 +18,12 @@ class SaleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine how soon the product expires
+    // Determine if this is a service
+    bool isService = product.itemType == 'service';
+    
+    // Determine how soon the product expires (only for non-services)
     int expireWarning = _businessController.business['expireWarning'] ?? 30; // Default to 30 days
-    Color nameColor = product.expireDate != null && product.expireDate!.isBefore(DateTime.now().add(Duration(days: expireWarning)))
+    Color nameColor = !isService && product.expireDate != null && product.expireDate!.isBefore(DateTime.now().add(Duration(days: expireWarning)))
         ? Colors.orange // Warning color for products nearing expiry
         : Theme.of(context).textTheme.bodyLarge!.color!; // Default color
 
@@ -35,11 +38,13 @@ class SaleTile extends StatelessWidget {
               height: 48,
               width: 48,
               decoration: BoxDecoration(
-                color: const Color(0xFF80B2FF),
+                color: isService ? Colors.purple : const Color(0xFF80B2FF),
                 borderRadius: BorderRadius.circular(4),
               ),
               padding: const EdgeInsets.all(10),
-              child: Image.asset('assets/images/box.png'),
+              child: isService 
+                  ? Icon(Icons.miscellaneous_services, color: Colors.white, size: 28)
+                  : Image.asset('assets/images/box.png'),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -85,17 +90,20 @@ class SaleTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        // Check if quantity has a decimal part and format accordingly
-                        product.quantity % 1 == 0
-                            ? product.quantity.toStringAsFixed(0) // Display as whole number
-                            : product.quantity.toStringAsFixed(2), // Display with two decimal places
-                        style: bodyText(warningColor),
+                        isService 
+                            ? 'N/A' // Show N/A for services
+                            : (product.quantity % 1 == 0
+                                ? product.quantity.toStringAsFixed(0) // Display as whole number
+                                : product.quantity.toStringAsFixed(2)), // Display with two decimal places
+                        style: bodyText(isService ? Colors.grey : warningColor),
                       ),
                       Text(
-                        (product.reserveString1?.isEmpty ?? true) ? 'unit' : product.reserveString1!,
-                        style: const TextStyle(
+                        isService 
+                            ? 'Service' // Show "Service" for services
+                            : ((product.reserveString1?.isEmpty ?? true) ? 'unit' : product.reserveString1!),
+                        style: TextStyle(
                           fontSize: 14,
-                          color: warningColor,
+                          color: isService ? Colors.grey : warningColor,
                         ),
                       ),
                     ],
@@ -140,7 +148,7 @@ class SaleTile extends StatelessWidget {
                       : IconButton(
                     padding: const EdgeInsets.all(0),
                     onPressed: () {
-                      if (product.quantity! > 0) {
+                      if (isService || product.quantity! > 0) {
                         showDialog(
                           barrierDismissible: false,
                           context: context,
@@ -155,7 +163,7 @@ class SaleTile extends StatelessWidget {
                     },
                     icon: Icon(
                       Icons.add_circle,
-                      color: product.quantity! > 0
+                      color: (isService || product.quantity! > 0)
                           ? Preferences.getTheme()
                           ? primaryLightColor
                           : primaryColor

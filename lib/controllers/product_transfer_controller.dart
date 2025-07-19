@@ -165,6 +165,97 @@ class ProductTransferController extends GetxController {
         throw Exception('Transfer request not found');
       }
       final data = doc.data() as Map<String, dynamic>;
+
+      // Batch transfer logic
+      if (data.containsKey('products')) {
+        final List products = data['products'] ?? [];
+        final fromBusinessId = data['fromBusinessId'];
+        final toBusinessId = data['toBusinessId'];
+        print('[Batch Transfer] Accepting: fromBusinessId=$fromBusinessId, toBusinessId=$toBusinessId, products=$products');
+        for (final product in products) {
+          final productId = product['id'];
+          final transferQuantity = (product['quantity'] ?? 0.0).toDouble();
+          final productName = product['name'] ?? 'Unknown Product';
+          final itemType = product['itemType'] ?? 'product';
+
+          // Check if product exists in receiving business
+          final toProductRef = firestore
+              .collection('products')
+              .doc(toBusinessId)
+              .collection('userProducts')
+              .doc(productId);
+          final toProductDoc = await toProductRef.get();
+          if (toProductDoc.exists) {
+            // Update quantity
+            final toProductData = toProductDoc.data() as Map<String, dynamic>;
+            final currentQuantity = (toProductData['quantity'] ?? 0.0).toDouble();
+            await toProductRef.update({'quantity': currentQuantity + transferQuantity});
+          } else {
+            // Create new product in receiving business
+            // Fetch product details from the source business
+            final fromProductRef = firestore
+                .collection('products')
+                .doc(fromBusinessId)
+                .collection('userProducts')
+                .doc(productId);
+            final fromProductDoc = await fromProductRef.get();
+            Map<String, dynamic> newProductData;
+            if (fromProductDoc.exists) {
+              newProductData = Map<String, dynamic>.from(fromProductDoc.data()!);
+              newProductData['quantity'] = transferQuantity;
+              newProductData['owner'] = toBusinessId;
+            } else {
+              // Fallback to minimal data if source not found
+              newProductData = {
+                'id': productId,
+                'name': productName,
+                'quantity': transferQuantity,
+                'itemType': itemType,
+                'owner': toBusinessId,
+                'storeId': '',
+                'code': '',
+                'price': 0.0,
+                'buyingPrice': 0.0,
+                'discount': 0.0,
+                'manufacturer': '',
+                'location': '',
+                'details': '',
+                'understock': 0.0,
+                'reserveString1': '',
+                'reserveString2': '',
+                'reserveDouble1': 0.0,
+                'reserveDouble2': 0.0,
+                'reserveList1': [],
+                'reserveList2': [],
+                'expireDate': null,
+                'image': '',
+                'category': '',
+                'total': 0.0,
+                'count': 0.0,
+              };
+            }
+            await toProductRef.set(newProductData);
+          }
+        }
+        // Mark transfer request as accepted
+        final updateData = {
+          'status': 'accepted',
+          'respondedByUserId': responderUserId,
+          'respondedAt': Timestamp.now(),
+        };
+        await docRef.update(updateData);
+        final fromBusinessRef = firestore
+            .collection('product_transfer_requests')
+            .doc(fromBusinessId)
+            .collection('userTransferRequests')
+            .doc(requestId);
+        await fromBusinessRef.update(updateData);
+        successSnackbar('Batch transfer request accepted successfully');
+        await refreshTransferRequests();
+        return;
+      }
+
+      // Fallback: single-product logic
       final productId = data['productId'];
       String fromBusinessId = data['fromBusinessId'];
       final toBusinessId = data['toBusinessId'];
@@ -563,6 +654,56 @@ class ProductTransferController extends GetxController {
     } catch (e) {
       print('Error accepting store transfer request: $e');
       errorSnackbar('Error accepting store transfer request: $e');
+      rethrow;
+    }
+  }
+
+  // Create a new batch transfer request for multiple products
+  Future<void> createBatchTransferRequest({
+    required String fromBusinessId,
+    required String toBusinessId,
+    required String requestedByUserId,
+    required List<Map<String, dynamic>> products,
+  }) async {
+    try {
+      if (products.isEmpty) throw Exception('No products to transfer');
+      print('[DEBUG] Creating batch transfer request:');
+      for (final p in products) {
+        print('[DEBUG] Product: ' + p.toString());
+        if (!p.containsKey('id') || !p.containsKey('name') || !p.containsKey('quantity')) {
+          print('[ERROR] Product missing required fields: ' + p.toString());
+        }
+      }
+      final transferRef = firestore
+          .collection('product_transfer_requests')
+          .doc(fromBusinessId)
+          .collection('userTransferRequests')
+          .doc();
+      final transferData = {
+        'id': transferRef.id,
+        'fromBusinessId': fromBusinessId,
+        'toBusinessId': toBusinessId,
+        'status': 'pending',
+        'requestedByUserId': requestedByUserId,
+        'respondedByUserId': null,
+        'requestedAt': Timestamp.now(),
+        'respondedAt': null,
+        'products': products, // Array of {id, name, quantity, itemType}
+      };
+      print('[DEBUG] Writing transferData to Firestore: ' + transferData.toString());
+      await transferRef.set(transferData);
+      // Also create a copy in the toBusiness collection for easy access
+      final toBusinessRef = firestore
+          .collection('product_transfer_requests')
+          .doc(toBusinessId)
+          .collection('userTransferRequests')
+          .doc(transferRef.id);
+      await toBusinessRef.set(transferData);
+      successSnackbar('Batch transfer request created successfully');
+      await refreshTransferRequests();
+    } catch (e) {
+      print('Error creating batch transfer request: $e');
+      errorSnackbar('Error creating batch transfer request: $e');
       rethrow;
     }
   }

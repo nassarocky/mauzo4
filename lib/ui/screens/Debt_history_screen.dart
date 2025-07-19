@@ -436,7 +436,7 @@ class DebtCard extends StatelessWidget {
         throw Exception("Client with ID ${debt.client} does not exist.");
       }
 
-      final double oldDebt = oldSaleData['debt'] ?? 0.0;
+      final double oldDebt = (oldSaleData['debt'] ?? 0.0).toDouble();
       final double newRemainingDebt = oldDebt - paymentAmount;
 
       if (newRemainingDebt < 0) {
@@ -469,7 +469,7 @@ class DebtCard extends StatelessWidget {
       };
       transaction.update(debtHistoryRef, debtHistoryUpdates);
 
-      final double currentClientDebt = clientSnapshot.get('debt') ?? 0.0;
+      final double currentClientDebt = (clientSnapshot.get('debt') ?? 0.0).toDouble();
       final double newClientDebt = currentClientDebt - paymentAmount;
       transaction.update(clientRef, {'debt': newClientDebt});
     }).then((_) {

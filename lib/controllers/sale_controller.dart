@@ -61,6 +61,14 @@ class SaleController extends GetxController {
 
       // Update the product quantities in the inventory
       for (var product in products) {
+        // Skip quantity update for services
+        String itemType = 'product';
+        if (product is Map<String, dynamic> && product.containsKey('itemType')) {
+          itemType = product['itemType'] ?? 'product';
+        } else if (product is Product) {
+          itemType = product.itemType;
+        }
+        if (itemType == 'service') continue;
         String productId = product['id'];
         double quantityToAdd = product['quantity'];
 
@@ -273,6 +281,37 @@ class SaleController extends GetxController {
     }
 
     return totalPayments;
+  }
+
+  double getTotalServiceSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
+    double totalServiceSales = 0;
+    for (var sale in sales) {
+      if (sale.date is Timestamp) {
+        Timestamp saleTimestamp = sale.date;
+        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endTimestamp) < 0) {
+          for (var product in sale.products) {
+            // product can be Map<String, dynamic> or Product
+            String itemType = 'product';
+            if (product is Map<String, dynamic> && product.containsKey('itemType')) {
+              itemType = product['itemType'] ?? 'product';
+            } else if (product is Product) {
+              itemType = product.itemType;
+            }
+            if (itemType == 'service') {
+              double price = 0;
+              if (product is Map<String, dynamic> && product.containsKey('price')) {
+                price = (product['price'] is int) ? (product['price'] as int).toDouble() : (product['price'] ?? 0.0) as double;
+                double quantity = (product['quantity'] is int) ? (product['quantity'] as int).toDouble() : (product['quantity'] ?? 1.0) as double;
+                totalServiceSales += price * quantity;
+              } else if (product is Product) {
+                totalServiceSales += product.price * product.quantity;
+              }
+            }
+          }
+        }
+      }
+    }
+    return totalServiceSales;
   }
 
   DateTime parseDateString(String dateString) {
@@ -700,8 +739,8 @@ class SaleController extends GetxController {
     html.Url.revokeObjectUrl(url);
 
 
-  }
-*/
+  }*/
+
   void clearSales(){
     sales.value.clear();
     filteredSales.value.clear();

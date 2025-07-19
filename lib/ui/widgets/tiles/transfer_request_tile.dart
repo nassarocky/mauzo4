@@ -206,45 +206,94 @@ class _TransferRequestTileState extends State<TransferRequestTile> {
           SizedBox(height: 12),
           
           // Product information
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.request.productName,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+          if (widget.request.products != null && widget.request.products!.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Products:',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Quantity: ${widget.request.quantity.toStringAsFixed(2)}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
+                SizedBox(height: 4),
+                ...widget.request.products!.map<Widget>((product) {
+                  final name = product['name'] ?? 'Unknown Product';
+                  final quantity = product['quantity'] ?? 0.0;
+                  final itemType = product['itemType'] ?? 'product';
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '- $name',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        Text(
+                          'Qty: ${quantity.toString()}',
+                          style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                        ),
+                        SizedBox(width: 8),
+                        if (itemType == 'service')
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('Service', style: TextStyle(fontSize: 12, color: Colors.green[800])),
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            )
+          else
+            // Single-product fallback
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.request.productName,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Transfer: ${widget.request.transferQuantity.toStringAsFixed(2)}',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.blue[700],
+                SizedBox(height: 4),
+                Text(
+                  'Quantity: ${widget.request.quantity.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Status: ${widget.request.status.toUpperCase()}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: _getStatusColor(widget.request.status),
+                SizedBox(height: 4),
+                Text(
+                  'Transfer: ${widget.request.transferQuantity.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue[700],
+                  ),
                 ),
-              ),
-            ],
-          ),
+                SizedBox(height: 4),
+                Text(
+                  'Status: ${widget.request.status.toUpperCase()}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _getStatusColor(widget.request.status),
+                  ),
+                ),
+              ],
+            ),
           
           SizedBox(height: 12),
           

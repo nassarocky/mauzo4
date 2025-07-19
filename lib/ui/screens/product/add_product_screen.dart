@@ -59,6 +59,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isTypingPerItem = false;
   bool _isTypingTotal = false;
   bool _isQuantityEntered = false;
+  // Add state for item type
+  String _selectedItemType = 'product'; // Default to 'product'
   @override
   void initState() {
     super.initState();
@@ -377,61 +379,61 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           const SizedBox(height: 24),
                           Row(
                             children: [
-                              // Quantity TextField
-                              Expanded(
-                                child: SizedBox(
-                                  height: 44,
-                                  child: TextField(
-                                    controller: _quantityController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                      labelText: '${'quantity'.tr}*',
-                                      labelStyle: bodyText(textPlaceholderColor),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                        borderSide: BorderSide(
-                                          color: _isQuantityEmpty ? Colors.red : Preferences.getTheme() ? mediumGrayColor : borderColor,
+                              // Quantity and unit fields (only for products)
+                              if (_selectedItemType == 'product') ...[
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 44,
+                                    child: TextField(
+                                      controller: _quantityController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                        labelText: '${'quantity'.tr}*',
+                                        labelStyle: bodyText(textPlaceholderColor),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide: BorderSide(
+                                            color: _isQuantityEmpty ? Colors.red : Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 8), // Space between TextField and Dropdown
-                              // Unit Dropdown
-                              Container(
-                                height: 44,
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                const SizedBox(width: 8), // Space between TextField and Dropdown
+                                // Unit Dropdown
+                                Container(
+                                  height: 44,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
-                                  borderRadius: BorderRadius.circular(4),
+                                  child: DropdownButton<String>(
+                                    value: _selectedUnit,
+                                    onChanged: (String? newValue) {
+                                      setState(() {
+                                        _selectedUnit = newValue!;
+                                      });
+                                    },
+                                    items: [
+                                      ...uniqueUnits.map<DropdownMenuItem<String>>((String value) {
+                                        return DropdownMenuItem<String>(
+                                          value: value,
+                                          child: Text(value),
+                                        );
+                                      }).toList()
+                                    ],
+                                    underline: Container(),
+                                  ),
                                 ),
-                                child: DropdownButton<String>(
-                                  value: _selectedUnit,
-                                  onChanged: (String? newValue) {
-                                    setState(() {
-                                      _selectedUnit = newValue!;
-                                    });
-
-                                  },
-                                  items: [
-                                    // Existing units
-                                    ...uniqueUnits.map<DropdownMenuItem<String>>((String value) {
-                                      return DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(value),
-                                      );
-                                    }).toList()
-                                  ],
-                                  underline: Container(),
-                                ),
-                              ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 24),
@@ -559,30 +561,131 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
                           // Additional fields that are shown/hidden
                           if (showAdditionalFields) ...[
+                            // Item type selection in additional details
+                            Row(
+                              children: [
+                                Text('Item Type:'.tr),
+                                const SizedBox(width: 16),
+                                DropdownButton<String>(
+                                  value: _selectedItemType,
+                                  items: [
+                                    DropdownMenuItem(
+                                      value: 'product',
+                                      child: Text('Product'.tr),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'service',
+                                      child: Text('Service'.tr),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _selectedItemType = value!;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 24),
-                            SizedBox(
-                              height: 44,
-                              child: TextField(
-                                controller: _underStockController,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                  labelText: 'Under stock Value'.tr,
-                                  labelStyle: bodyText(textPlaceholderColor),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(4),
-                                    borderSide: BorderSide(
-                                      color: Preferences.getTheme()
-                                          ? mediumGrayColor
-                                          : borderColor,
+                            // Understock, manufacturer, location fields (only for products)
+                            if (_selectedItemType == 'product') ...[
+                              SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  controller: _underStockController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                    labelText: 'Under stock Value'.tr,
+                                    labelStyle: bodyText(textPlaceholderColor),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                      borderSide: BorderSide(
+                                        color: Preferences.getTheme()
+                                            ? mediumGrayColor
+                                            : borderColor,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  onTap: () {
+                                    showModalBottomSheet(
+                                      isScrollControlled: true,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      context: context,
+                                      builder: (context) => ProductManufacturerBottomSheet(
+                                        refresh: () {
+                                          _manufacturerController.text = _productController.selectedManufacturer.value;
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  controller: _manufacturerController,
+                                  decoration: InputDecoration(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                    labelText: 'manufacturer'.tr, // Label for the manufacturer field
+                                    labelStyle: bodyText(textPlaceholderColor),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                      borderSide: BorderSide(
+                                        color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      ),
+                                    ),
+                                  ),
+                                  readOnly: true,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  onTap: () {
+                                    showModalBottomSheet(
+                                      isScrollControlled: true,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      context: context,
+                                      builder: (context) => ProductLocationBottomSheet(
+                                        refresh: () {
+                                          _locationController.text = _productController.selectedLocation.value;
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  controller: _locationController,
+                                  decoration: InputDecoration(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                    labelText: 'location'.tr, // Label for the manufacturer field
+                                    labelStyle: bodyText(textPlaceholderColor),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                      borderSide: BorderSide(
+                                        color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      ),
+                                    ),
+                                  ),
+                                  readOnly: true,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
                             const SizedBox(height: 24),
                             SizedBox(
                               height: 44,
@@ -817,12 +920,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               onPressed: () async {
                                 setState(() {
                                   _isNameEmpty = _nameController.text.isEmpty;
-                                  _isQuantityEmpty = _quantityController.text.isEmpty;
                                   _isPriceEmpty = _priceController.text.isEmpty;
                                   _isBuyingPriceEmpty = _buyingPriceController.text.isEmpty;
+                                  if (_selectedItemType == 'product') {
+                                    _isQuantityEmpty = _quantityController.text.isEmpty;
+                                  } else {
+                                    _isQuantityEmpty = false;
+                                  }
                                 });
 
-                                if (!_isNameEmpty && !_isQuantityEmpty && !_isPriceEmpty && !_isBuyingPriceEmpty) {
+                                // Validation: for service, only name, price, and buying price are required
+                                if (!_isNameEmpty && !_isPriceEmpty && !_isBuyingPriceEmpty && (_selectedItemType == 'service' || !_isQuantityEmpty)) {
                                   double buyingPrice = double.parse(_buyingPriceController.text.replaceAll(',', ''));
                                   double sellingPrice = double.parse(_priceController.text.replaceAll(',', ''));
 
@@ -894,7 +1002,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       details: _detailsController.text.trim(),
                                       imageUrl: imageUrl ?? '',
                                       price: sellingPrice,
-                                      quantity: 0.0,
+                                      quantity: _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
                                       manufacturer: _manufacturerController.text.trim(),
                                       location: _locationController.text.trim(),
                                       category: _categoryController.text.trim(),
@@ -920,7 +1028,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                               : _discountController.text.trim().replaceAll(',', '')),
                                       'code': _codeController.text.trim(),
                                       'price': sellingPrice,
-                                      'quantity': double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
+                                      'quantity': _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
                                       'category': _categoryController.text.trim(),
                                       'image': imageUrl ?? '',
                                       'storeQuantity': 0,
@@ -931,10 +1039,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       'reserveList1': [],
                                       'reserveList2': [],
                                       'expireDate': expireDate,
+                                      'itemType': _selectedItemType, // Add itemType
                                     });
 
                                     await _productController.updateInitialTransaction(
-                                      double.parse(_quantityController.text.trim().replaceAll(',', '')),
+                                      _selectedItemType == 'service' ? 1.0 : double.parse(_quantityController.text.trim().replaceAll(',', '')),
                                       productRef.id,
                                       sellingPrice,
                                     );

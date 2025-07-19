@@ -34,6 +34,8 @@ import '../ui/screens/expences/expences_list_screen.dart';
 import '../ui/screens/invoices/invoices_screen.dart';
 import 'package:mauzo/ui/screens/service/services_screen.dart';
 
+import '../ui/screens/sale/edit_sale.screen.dart';
+
 class AppRouter {
   static Route onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -57,7 +59,11 @@ class AppRouter {
         return CupertinoPageRoute(
           builder: (_) => const HomeScreen());
     case '/sale/add':
-        return CupertinoPageRoute(builder: (_) =>  DualScreenApp());
+        final args = settings.arguments;
+        if (args is Map && args['userData'] is UserData) {
+          return CupertinoPageRoute(builder: (_) => AddSaleScreen(userData: args['userData']));
+        }
+        return CupertinoPageRoute(builder: (_) => AddSaleScreen());
       case '/sales':
         return CupertinoPageRoute(builder: (_) => const SalesScreen());
       case '/cart':

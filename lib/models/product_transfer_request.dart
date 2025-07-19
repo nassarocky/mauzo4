@@ -15,6 +15,7 @@ class ProductTransferRequest {
   final double transferQuantity; // Quantity to be transferred
   final String productName; // Name of the product being transferred
   final String? productOwner; // Actual owner of the product
+  final List<Map<String, dynamic>>? products; // For batch transfers
 
   ProductTransferRequest({
     required this.id,
@@ -30,12 +31,26 @@ class ProductTransferRequest {
     required this.transferQuantity,
     required this.productName,
     this.productOwner,
+    this.products, // Add products to constructor
   });
 
   factory ProductTransferRequest.fromSnapshot(DocumentSnapshot snapshot) {
     final data = snapshot.data() as Map<String, dynamic>?;
     if (data == null) {
       throw Exception('Document data is null for snapshot with ID: ${snapshot.id}');
+    }
+    // Parse products array if present
+    List<Map<String, dynamic>>? productsList;
+    if (data.containsKey('products') && data['products'] is List) {
+      productsList = (data['products'] as List)
+          .whereType<Map<String, dynamic>>()
+          .toList();
+      // If Firestore returns List<dynamic>, convert each to Map<String, dynamic>
+      if (productsList.isEmpty && (data['products'] as List).isNotEmpty) {
+        productsList = (data['products'] as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
     }
     return ProductTransferRequest(
       id: snapshot.id,
@@ -51,11 +66,12 @@ class ProductTransferRequest {
       transferQuantity: (data['transferQuantity'] ?? 0.0).toDouble(),
       productName: data['productName'] ?? 'Unknown Product',
       productOwner: data['productOwner'],
+      products: productsList,
     );
   }
 
   Map<String, dynamic> toFirestore() {
-    return {
+    final map = {
       'productId': productId,
       'fromBusinessId': fromBusinessId,
       'toBusinessId': toBusinessId,
@@ -69,10 +85,14 @@ class ProductTransferRequest {
       'productName': productName,
       'productOwner': productOwner,
     };
+    if (products != null) {
+      map['products'] = products;
+    }
+    return map;
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final map = {
       'id': id,
       'productId': productId,
       'fromBusinessId': fromBusinessId,
@@ -87,6 +107,10 @@ class ProductTransferRequest {
       'productName': productName,
       'productOwner': productOwner,
     };
+    if (products != null) {
+      map['products'] = products;
+    }
+    return map;
   }
 
   Future<void> acceptRequest() async {

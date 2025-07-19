@@ -89,6 +89,8 @@ class ProductController extends GetxController {
   }
 
   Future<void> updateProductCount(Product product, double count, String type) async {
+    // Skip quantity update for services
+    if (product.itemType == 'service') return;
     final String? business = _businessController.business['id'];
 
     if (business == null) {

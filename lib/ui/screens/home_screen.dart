@@ -39,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ProfileController _profileController =Get.put(ProfileController());
   final BusinessController _businessController = Get.put(BusinessController());
   String accountName = 'Customer service / Huduma kwa wateja';
-  String accountEmail = '+255750549026/+255698720225';
+  String accountEmail = '+255698720225/+255653422101';
   bool isAccountActive = true;
   bool isInitialized = false;
   bool isBuyingStock = Preferences.getStockDisplayPreference();
@@ -551,12 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.production_quantity_limits_rounded,
                         route: 'store/add',
                       ),
-                    if (passwordMatches)
-                      DrawerTile(
-                        title: 'Services'.tr,
-                        icon: Icons.design_services,
-                        route: '/services',
-                      ),
+
 
                     DrawerTile(
                       title: 'Debt Records'.tr,
@@ -662,6 +657,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         _businessController.business['reset_time'],Timestamp.now()),
                     _businessController.business['mainCurrency'],
                   ),
+                ),
+                // Only show service sales InfoTile if value > 0
+                Builder(
+                  builder: (context) {
+                    final serviceSales = _saleController.getTotalServiceSalesFromTimestamp(
+                      _businessController.business['reset_time'], Timestamp.now());
+                    if (serviceSales > 0) {
+                      return InfoTile(
+                        onTap: () {},
+                        title: "service_sales".tr,
+                        trailing: formatCurrency(
+                          serviceSales,
+                          _businessController.business['mainCurrency'],
+                        ),
+                      );
+                    } else {
+                      return SizedBox.shrink();
+                    }
+                  },
                 ),
                 const SizedBox(height: 16),
                   InfoTile(

@@ -18,6 +18,9 @@ class Product {
   String details;
   double understock;    // Converted from int
 
+  // New: item type (product or service)
+  final String itemType;
+
   // New fields for store stock and reserve data
  // double storeQuantity; // Converted from int
   String reserveString1;
@@ -55,6 +58,7 @@ class Product {
     this.reserveList1 = const [],
     this.reserveList2 = const [],
     this.expireDate,
+    this.itemType = 'product', // Default to 'product' if not set
   });
 
   static Product fromSnapshot(DocumentSnapshot snapshot) {
@@ -98,6 +102,7 @@ class Product {
       expireDate: data['expireDate'] != null
           ? (data['expireDate'] as Timestamp).toDate()
           : null,
+      itemType: data['itemType'] as String? ?? 'product', // Default to 'product' if not set
     );
   }
 
@@ -126,6 +131,7 @@ class Product {
       'reserveList1': reserveList1,
       'reserveList2': reserveList2,
       'expireDate': expireDate != null ? Timestamp.fromDate(expireDate!) : null,
+      'itemType': itemType, // Add itemType to Firestore
     };
   }
 

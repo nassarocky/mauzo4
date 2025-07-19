@@ -361,168 +361,170 @@ class ProductInfoBottomSheet extends StatelessWidget {
                 ],
               ),
 
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: 'stock_in_out'.tr,
-                      onPressed: () {
-                        if(passwordMatches){
-                          Navigator.pop(context);
-                          showDialog(
-                            context: context,
-                            builder: (context) =>
-                                ProductQuantityDialog(product: product),
-                          );}
-                      },
+              // Action buttons (hide for services)
+              if (product.itemType != 'service') ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: 'stock_in_out'.tr,
+                        onPressed: () {
+                          if(passwordMatches){
+                            Navigator.pop(context);
+                            showDialog(
+                              context: context,
+                              builder: (context) =>
+                                  ProductQuantityDialog(product: product),
+                            );}
+                        },
+                      ),
                     ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: 'Stock Transactions'.tr,
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          CupertinoPageRoute(
-                            builder: (context) => TransactionsScreen(product: product),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: 'Copy to Store'.tr,
-                      onPressed: () {
-                  _productController.copyProductToStore(product.id);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: 'Move to Store'.tr,
-                      onPressed: () {
-                        if(passwordMatches){
-                          Navigator.pop(context);
-                          showDialog(
-                            context: context,
-                            builder: (context) => StoreQuantityDialog(
-                              product: product,
-                              isMoveToStore: true,
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: 'Stock Transactions'.tr,
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            CupertinoPageRoute(
+                              builder: (context) => TransactionsScreen(product: product),
                             ),
                           );
-                        }
-                      },
+                        },
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: 'Transfer Product',
-                      onPressed: () async {
-                        // Get all businesses associated with the user except the current one
-                        final businesses = _profileController.user['business'] as List<dynamic>? ?? [];
-                        final currentBusinessId = _businessController.businessId.value;
-                        final otherBusinessIds = businesses.where((id) => id != currentBusinessId).toList();
-                        if (otherBusinessIds.isEmpty) {
-                          Get.snackbar('No Businesses', 'No other businesses available for transfer.');
-                          return;
-                        }
-                        // Fetch business names for dropdown
-                        List<Map<String, String>> businessOptions = [];
-                        for (var id in otherBusinessIds) {
-                          var doc = await FirebaseFirestore.instance.collection('businesses').doc(id).get();
-                          if (doc.exists) {
-                            final data = doc.data() as Map<String, dynamic>;
-                            businessOptions.add({'id': id, 'name': data['name'] ?? id});
-                          }
-                        }
-                        String? selectedBusinessId = await showDialog<String>(
-                          context: context,
-                          builder: (context) {
-                            String? dropdownValue = businessOptions.first['id'];
-                            return StatefulBuilder(
-                              builder: (context, setState) {
-                                return AlertDialog(
-                                  title: Text('Select Target Business'),
-                                  content: DropdownButton<String>(
-                                    value: dropdownValue,
-                                    isExpanded: true,
-                                    items: businessOptions.map((option) {
-                                      return DropdownMenuItem<String>(
-                                        value: option['id'],
-                                        child: Text(option['name'] ?? option['id']!),
-                                      );
-                                    }).toList(),
-                                    onChanged: (value) {
-                                      setState(() {
-                                        dropdownValue = value;
-                                      });
-                                    },
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context, null),
-                                      child: Text('Cancel'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context, dropdownValue),
-                                      child: Text('Next'),
-                                    ),
-                                  ],
-                                );
-                              },
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: 'Copy to Store'.tr,
+                        onPressed: () {
+                    _productController.copyProductToStore(product.id);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: 'Move to Store'.tr,
+                        onPressed: () {
+                          if(passwordMatches){
+                            Navigator.pop(context);
+                            showDialog(
+                              context: context,
+                              builder: (context) => StoreQuantityDialog(
+                                product: product,
+                                isMoveToStore: true,
+                              ),
                             );
-                          },
-                        );
-                        if (selectedBusinessId != null && selectedBusinessId.isNotEmpty) {
-                          // Show transfer quantity dialog
-                          showDialog(
-                            context: context,
-                            builder: (context) => TransferQuantityDialog(
-                              product: product,
-                              fromBusinessId: _businessController.businessId.value!,
-                              toBusinessId: selectedBusinessId,
-                              onConfirm: (fromBusinessId, toBusinessId, quantity) async {
-                                final productTransferController = Get.find<ProductTransferController>();
-                                await productTransferController.createTransferRequest(
-                                  productId: product.id,
-                                  fromBusinessId: fromBusinessId,
-                                  toBusinessId: toBusinessId,
-                                  requestedByUserId: _profileController.user['id'],
-                                  transferQuantity: quantity,
-                                );
-                                Get.snackbar('Transfer Requested', 'Product transfer request sent.');
-                              },
-                            ),
-                          );
-                        }
-                      },
+                          }
+                        },
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: 'Transfer Product',
+                        onPressed: () async {
+                          // Get all businesses associated with the user except the current one
+                          final businesses = _profileController.user['business'] as List<dynamic>? ?? [];
+                          final currentBusinessId = _businessController.businessId.value;
+                          final otherBusinessIds = businesses.where((id) => id != currentBusinessId).toList();
+                          if (otherBusinessIds.isEmpty) {
+                            Get.snackbar('No Businesses', 'No other businesses available for transfer.');
+                            return;
+                          }
+                          // Fetch business names for dropdown
+                          List<Map<String, String>> businessOptions = [];
+                          for (var id in otherBusinessIds) {
+                            var doc = await FirebaseFirestore.instance.collection('businesses').doc(id).get();
+                            if (doc.exists) {
+                              final data = doc.data() as Map<String, dynamic>;
+                              businessOptions.add({'id': id, 'name': data['name'] ?? id});
+                            }
+                          }
+                          String? selectedBusinessId = await showDialog<String>(
+                            context: context,
+                            builder: (context) {
+                              String? dropdownValue = businessOptions.first['id'];
+                              return StatefulBuilder(
+                                builder: (context, setState) {
+                                  return AlertDialog(
+                                    title: Text('Select Target Business'),
+                                    content: DropdownButton<String>(
+                                      value: dropdownValue,
+                                      isExpanded: true,
+                                      items: businessOptions.map((option) {
+                                        return DropdownMenuItem<String>(
+                                          value: option['id'],
+                                          child: Text(option['name'] ?? option['id']!),
+                                        );
+                                      }).toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          dropdownValue = value;
+                                        });
+                                      },
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, null),
+                                        child: Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, dropdownValue),
+                                        child: Text('Next'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                            },
+                          );
+                          if (selectedBusinessId != null && selectedBusinessId.isNotEmpty) {
+                            // Show transfer quantity dialog
+                            showDialog(
+                              context: context,
+                              builder: (context) => TransferQuantityDialog(
+                                product: product,
+                                fromBusinessId: _businessController.businessId.value!,
+                                toBusinessId: selectedBusinessId,
+                                onConfirm: (fromBusinessId, toBusinessId, quantity) async {
+                                  final productTransferController = Get.find<ProductTransferController>();
+                                  await productTransferController.createTransferRequest(
+                                    productId: product.id,
+                                    fromBusinessId: fromBusinessId,
+                                    toBusinessId: toBusinessId,
+                                    requestedByUserId: _profileController.user['id'],
+                                    transferQuantity: quantity,
+                                  );
+                                  Get.snackbar('Transfer Requested', 'Product transfer request sent.');
+                                },
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [

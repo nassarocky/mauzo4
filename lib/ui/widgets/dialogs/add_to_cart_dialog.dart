@@ -215,6 +215,17 @@ class _AddToCartDialogState extends State<AddToCartDialog> {
                     return; // Exit early to prevent submission
                   }
 
+                  // If service, skip quantity check
+                  if (widget.product.itemType == 'service') {
+                    _cartController.updateCart(
+                      widget.product,
+                      widget.itemCounter,
+                      enteredPrice,
+                    );
+                    Navigator.of(context).pop();
+                    return;
+                  }
+
                   // ✅ Continue your existing logic
                   if (widget.product.discount > 0) {
                     // Case: Discount is greater than zero

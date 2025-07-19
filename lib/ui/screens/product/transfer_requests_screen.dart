@@ -10,6 +10,8 @@ import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/tiles/transfer_request_tile.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
 
+import '../sale/edit_sale.screen.dart';
+
 class TransferRequestsScreen extends StatefulWidget {
   const TransferRequestsScreen({Key? key}) : super(key: key);
 
@@ -104,6 +106,15 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
           // Outgoing Transfer Requests Tab
           _buildOutgoingRequestsTab(),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          print('[DEBUG] FAB pressed: Navigating to /sale/add with userData=transfer');
+          Navigator.pushNamed(context, '/sale/add', arguments: {'userData': UserData('transfer')});
+        },
+        child: Icon(Icons.add),
+        backgroundColor: Preferences.getTheme() ? primaryLightColor : primaryColor,
+        tooltip: 'Transfer Products',
       ),
     );
   }

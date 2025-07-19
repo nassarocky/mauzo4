@@ -23,6 +23,16 @@ class AddSaleScreen extends StatefulWidget {
 
   const AddSaleScreen({Key? key, this.userData}) : super(key: key);
 
+  static AddSaleScreen fromArgs(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    print('[DEBUG] AddSaleScreen.fromArgs called with args: ' + args.toString());
+    if (args is Map && args['userData'] is UserData) {
+      print('[DEBUG] AddSaleScreen.fromArgs setting userData to: ' + (args['userData'] as UserData).name);
+      return AddSaleScreen(userData: args['userData']);
+    }
+    return AddSaleScreen();
+  }
+
   @override
   State<AddSaleScreen> createState() => _AddSaleScreenState();
 }
@@ -58,10 +68,21 @@ class _AddSaleScreenState extends State<AddSaleScreen>
     _animationController.forward();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['transferMode'] == true) {
+      transferMode = true;
+      print('[DEBUG] AddSaleScreen transferMode set to TRUE');
+    }
+  }
+
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
   final ScrollController _scrollController = ScrollController();
   bool showSearchBar = true;
+  bool transferMode = false;
 
   // Scanner
   Future<void> scanner() async {
@@ -105,6 +126,7 @@ class _AddSaleScreenState extends State<AddSaleScreen>
   @override
   Widget build(BuildContext context) {
     String from = widget.userData?.name ?? '';
+    final bool transferMode = from == 'transfer';
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth >= 600;
 
@@ -166,9 +188,18 @@ class _AddSaleScreenState extends State<AddSaleScreen>
                                   userData: UserData('invoice')),
                             ),
                           );
+                        } else if(from=='transfer') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CartScreen(
+                                  userData: UserData('transfer')),
+                            ),
+                          );
                         } else if(from=='hariri'){
                           Navigator.pop(context);
                         } else {
+                          print('[DEBUG] Navigating to CartScreen with transferMode=$transferMode');
                           Navigator.pushNamed(context, '/cart');
                         }
                       },
@@ -306,8 +337,16 @@ class _AddSaleScreenState extends State<AddSaleScreen>
                   padding: const EdgeInsets.only(top: 8),
                   itemCount: _productController.filteredProducts.length,
                   itemBuilder: (context, index) {
+                    // Sort products: services first
+                    final sortedProducts = List.of(_productController.filteredProducts);
+                    sortedProducts.sort((a, b) {
+                      if (a.itemType == 'service' && b.itemType != 'service') return -1;
+                      if (a.itemType != 'service' && b.itemType == 'service') return 1;
+                      return 0;
+                    });
+                    
                     return SaleTile(
-                      product: _productController.filteredProducts[index],
+                      product: sortedProducts[index],
                     );
                   },
                 ),

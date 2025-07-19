@@ -50,6 +50,7 @@ class ProductTile extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
+          color: product.itemType == 'service' ? const Color(0xFFD0F5E8) : null, // Light green for services
           border: Border(
             top: BorderSide(
               color: Preferences.getTheme() ? mediumGrayColor : borderColor,
@@ -169,15 +170,24 @@ class ProductTile extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.end,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text.rich(
-                              product.getQuantityWithUnitSpan(
-                                quantityColor: (product.quantity ?? 0) < (product.understock ?? 0)
-                                    ? Colors.red
-                                    : Colors.green,
-                                unitColor: Colors.grey,
-                                fontSize: 16.0,
-                              ),
-                            ),
+                            product.itemType == 'service'
+                                ? Text(
+                                    'N/A',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 16.0,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : Text.rich(
+                                    product.getQuantityWithUnitSpan(
+                                      quantityColor: (product.quantity ?? 0) < (product.understock ?? 0)
+                                          ? Colors.red
+                                          : Colors.green,
+                                      unitColor: Colors.grey,
+                                      fontSize: 16.0,
+                                    ),
+                                  ),
                             const SizedBox(width: 8),
                             const Icon(
                               Icons.unfold_more,
