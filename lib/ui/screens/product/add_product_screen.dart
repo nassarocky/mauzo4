@@ -16,6 +16,9 @@ import '../../widgets/bottomsheets/product_location_bottom_sheet.dart';
 import '../../widgets/bottomsheets/product_manufacturer_bottom_sheet.dart';
 import '../../widgets/buttons/primary_button.dart';
 import 'package:http/http.dart' as http;
+
+import '../mobile_code.dart';
+
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({Key? key}) : super(key: key);
 
@@ -881,6 +884,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                           ),
                                         ),
                                       ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    height: 44,
+                                    width: 44,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.qr_code_scanner),
+                                      tooltip: 'Scan QR/Barcode',
+                                      onPressed: () async {
+                                        final scannedCode = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => BarcodeScannerScreen(),
+                                          ),
+                                        );
+                                        if (scannedCode != null && scannedCode is String) {
+                                          setState(() {
+                                            _codeController.text = scannedCode;
+                                          });
+                                        }
+                                      },
                                     ),
                                   ),
                                 ],
