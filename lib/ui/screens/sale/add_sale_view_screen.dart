@@ -16,12 +16,15 @@ class DualScreenApp extends StatelessWidget {
 
     return Scaffold(
       appBar: null,
-      body: isTabletOrWeb ? TabletView() : AddSaleScreen(),
+      body: isTabletOrWeb ? TabletView(userData: userData) : AddSaleScreen(userData: userData),
     );
   }
 }
 
 class TabletView extends StatelessWidget {
+  final UserData? userData;
+  const TabletView({Key? key, this.userData}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -29,13 +32,13 @@ class TabletView extends StatelessWidget {
         // Screen 1 on the left
         Expanded(
           flex: 1, // Adjust flex to control space distribution
-          child: AddSaleScreen(),
+          child: AddSaleScreen(userData: userData),
         ),
         VerticalDivider(width: 1, color: Colors.grey),
         // Screen 2 on the right
         Expanded(
           flex: 1,
-          child: CartScreen(),
+          child: CartScreen(userData: userData),
         ),
       ],
     );

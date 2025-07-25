@@ -61,9 +61,9 @@ class AppRouter {
     case '/sale/add':
         final args = settings.arguments;
         if (args is Map && args['userData'] is UserData) {
-          return CupertinoPageRoute(builder: (_) => AddSaleScreen(userData: args['userData']));
+          return CupertinoPageRoute(builder: (_) => DualScreenApp(userData: args['userData']));
         }
-        return CupertinoPageRoute(builder: (_) => AddSaleScreen());
+        return CupertinoPageRoute(builder: (_) => DualScreenApp());
       case '/sales':
         return CupertinoPageRoute(builder: (_) => const SalesScreen());
       case '/cart':

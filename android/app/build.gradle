@@ -13,12 +13,12 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "12"
-def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.9"
+def flutterVersionCode =  "13"
+def flutterVersionName =  "2.0"
 
 android {
     namespace = "com.hesabu.mauzo"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -33,7 +33,7 @@ android {
     defaultConfig {
         applicationId = "com.hesabu.mauzo"
         minSdk = 23
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 35
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true
