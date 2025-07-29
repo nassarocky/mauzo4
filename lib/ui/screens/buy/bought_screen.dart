@@ -44,11 +44,27 @@ class _boughtControllerState extends State<BoughtScreen> {
 
   @override
   void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to buy products
+    if (!_profileController.hasPermission('buy_products')) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to view or manage product purchases',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+    
     Timer.run(() {
       _boughtController.setSalesByDate();
     });
-
-    super.initState();
   }
 
   @override
@@ -65,7 +81,7 @@ class _boughtControllerState extends State<BoughtScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canViewPurchases = _profileController.hasPermission('view_purchases');
 
     return Scaffold(
       backgroundColor: Preferences.getTheme()
@@ -351,7 +367,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                           ),
                                         ),
                                         const Spacer(),
-                                        if (sale.debt == 0 && passwordMatches)
+                                        if (sale.debt == 0 && canViewPurchases)
                                           PopupMenuButton(
                                             child: Icon(
                                               Icons.more_vert,
@@ -497,7 +513,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                             printInvoice(sale, client);
                                           },
                                           icon: const Icon(Icons.print),
-                                          label: const Text("Print"),
+                                          label: Text('print'.tr),
                                         ),
                                         const SizedBox(width: 8),
                                         ElevatedButton.icon(
@@ -505,7 +521,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                             shareInvoice(sale, client);
                                           },
                                           icon: const Icon(Icons.share),
-                                          label: const Text("Share"),
+                                          label: Text('share'.tr),
                                         ),
                                       ],
                                     ),
@@ -984,3 +1000,4 @@ class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
 
 
 }
+      

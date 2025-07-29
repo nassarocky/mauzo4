@@ -8,6 +8,7 @@ import 'package:mauzo/ui/widgets/dashed_seperator.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/cart_controller.dart';
 import '../../../controllers/product_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../../models/sale_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
@@ -41,9 +42,32 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
   final ProductController _productController = Get.find();
   final ClientController _clientController = Get.put(ClientController());
   static final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
 
   String chosenCurrency = _businessController.business['mainCurrency'];
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to make sales
+    if (!_profileController.hasPermission('make_sales')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditSaleScreen without make_sales permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to edit sales',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
 
   @override
   void dispose() {

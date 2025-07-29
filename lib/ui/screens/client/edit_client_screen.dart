@@ -28,6 +28,28 @@ class _EditClientScreenState extends State<EditClientScreen> {
 
   bool isUploading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to manage clients
+    if (!_profileController.hasPermission('manage_clients')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditClientScreen without manage_clients permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to edit clients',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
+
   Future<String> uploadFile(
       String folder,
       File file,

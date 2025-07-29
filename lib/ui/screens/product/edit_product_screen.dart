@@ -13,6 +13,7 @@ import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
 import '../../../controllers/business_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../widgets/bottomsheets/product_location_bottom_sheet.dart';
 import '../../widgets/bottomsheets/product_manufacturer_bottom_sheet.dart';
 import '../../widgets/buttons/primary_button.dart';
@@ -53,6 +54,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
   bool showAdditionalFields = false; // State to track visibility of additional fields
   final ProductController _productController = Get.find();
   static final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
   String _payment = _businessController.business['mainCurrency'];
 
   List<String> _units = ['piece','meter','cm','unit', 'kg', 'g']; // Example units
@@ -68,6 +70,24 @@ class _EditProductScreenState extends State<EditProductScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to edit products
+    if (!_profileController.hasPermission('edit_products')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditProductScreen without edit_products permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to edit products',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+    
     if (_payment == 'UZS') {
       _priceController.text = widget.product.price.toString();
     } else {

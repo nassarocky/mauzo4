@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../models/product_model.dart';
@@ -60,11 +61,29 @@ class _BuyProductScreenState extends State<BuyProductScreen>
   @override
   void initState() {
     super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to buy products
+    if (!_profileController.hasPermission('buy_products')) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to buy products',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+    
     _animationController.forward();
   }
 
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
+  final ProfileController _profileController = Get.find();
   final ScrollController _scrollController = ScrollController();
   bool showSearchBar = true;
 

@@ -18,7 +18,7 @@ class ProductTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final ProfileController profileController = Get.find();
     final BusinessController businessController = Get.find();
-    final bool passwordMatches = profileController.user['role'] == 'owner';
+    final bool canEditProduct = profileController.hasPermission('edit_products');
     int expireWarning = businessController.business['expireWarning'] ?? 30;
 
     bool isExpireWarning = false;
@@ -161,7 +161,7 @@ class ProductTile extends StatelessWidget {
                   Expanded(
                     child: GestureDetector(
                       onTap: () {
-                        if (passwordMatches) {
+                        if (canEditProduct) {
                           showDialog(
                             barrierDismissible: false,
                             context: context,

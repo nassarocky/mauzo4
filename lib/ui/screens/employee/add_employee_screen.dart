@@ -18,6 +18,7 @@ Future<void> registerUser({
   required String phone,
   required String password,
   required String business,
+  String role = 'employee', // Default to 'employee' for backward compatibility
 }) async {
   final Uri url = Uri.parse(
       'https://us-central1-hesabumauzo.cloudfunctions.net/registerUser');
@@ -33,6 +34,7 @@ Future<void> registerUser({
         'phone': phone,
         'password': password,
         'business': business,
+        'role': role,
       }),
     );
 
@@ -85,6 +87,24 @@ class AddEmployeeScreen extends StatefulWidget {
 }
 
 class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
+  String _selectedRole = 'cashier';
+  final List<String> _allPermissions = [
+    'edit_products',
+    'view_products',
+    'make_sales',
+    'view_sales',
+    'manage_employees',
+    'view_purchases',
+    'edit_clients',
+    'edit_invoices',
+    'edit_home',
+    'edit_business',
+    'view_reports',
+    'statistics',
+    // Add more as needed
+  ];
+  final Set<String> _selectedPermissions = <String>{};
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -94,6 +114,28 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   File? imageFile;
   UploadTask? uploadTask;
   bool isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to manage employees
+    if (!_profileController.hasPermission('manage_employees')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddEmployeeScreen without manage_employees permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to add employees',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
 
   Future<String?> uploadFile(String folder, File file) async {
     try {
@@ -309,6 +351,51 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                   ),
                 ),
                 const SizedBox(height: 34),
+                // Role selection
+                DropdownButtonFormField<String>(
+                  value: _selectedRole,
+                  decoration: InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    DropdownMenuItem(value: 'owner', child: Text('owner'.tr)),
+                    DropdownMenuItem(value: 'manager', child: Text('manager'.tr)),
+                    DropdownMenuItem(value: 'cashier', child: Text('cashier'.tr)),
+                    DropdownMenuItem(value: 'sales_person', child: Text('sales_person'.tr)),
+                    DropdownMenuItem(value: 'agent', child: Text('agent'.tr)),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedRole = value!;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Custom permissions selection
+                InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Custom Permissions',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _allPermissions.map((perm) => CheckboxListTile(
+                      value: _selectedPermissions.contains(perm),
+                      title: Text(perm),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            _selectedPermissions.add(perm);
+                          } else {
+                            _selectedPermissions.remove(perm);
+                          }
+                        });
+                      },
+                    )).toList(),
+                  ),
+                ),
+                const SizedBox(height: 24),
                 Row(
                   children: [
                     Expanded(
@@ -345,12 +432,13 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                               }
 
                               await registerUser(
-                                name: _nameController.text,
-                                email: _emailController.text,
-                                phone: _profileController.user['phone'], // Assuming this is available in ProfileController
-                                password: _passwordController.text,
-                                business: businessId,
-                              );
+  name: _nameController.text,
+  email: _emailController.text,
+  phone: _profileController.user['phone'], // Assuming this is available in ProfileController
+  password: _passwordController.text,
+  business: businessId,
+  role: _selectedRole,
+);
 
                               setState(() {
                                 isUploading = false;

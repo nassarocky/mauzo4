@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/product_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/bottomsheets/product_category_bottom_sheet.dart';
@@ -29,6 +30,7 @@ class AddProductScreen extends StatefulWidget {
 class _AddProductScreenState extends State<AddProductScreen> {
   final ProductController _productController = Get.find();
   static final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
@@ -67,6 +69,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to edit products
+    if (!_profileController.hasPermission('edit_products')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddProductScreen without edit_products permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to add/edit products',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+    
     requestPermissions();
 
     _quantityController.addListener(() {

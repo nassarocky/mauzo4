@@ -7,6 +7,7 @@ import 'package:mauzo/controllers/sale_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../controllers/client_controller.dart';
 import '../../controllers/debt_history_controller.dart'; // Import the DebtHistoryController
+import '../../controllers/profile_controller.dart';
 import '../../models/client_model.dart';
 import '../../models/debtHistory_model.dart';
 
@@ -19,6 +20,7 @@ class DebtHistoryScreen extends StatefulWidget {
 
 class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   final DebtHistoryController _debtHistoryController = Get.find();
+  final ProfileController _profileController = Get.find();
 
   @override
   void initState() {
@@ -141,9 +143,10 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
 
 class DebtCard extends StatelessWidget {
   final DebtHistory debt;
-  static final ClientController _clientController = Get.find();
   final BusinessController _businessController = Get.find();
   final DebtHistoryController _debtHistoryController = Get.find();
+  final ProfileController _profileController = Get.find();
+  final ClientController _clientController = Get.find();
   final SaleController saleController = Get.find();
 
   DebtCard({required this.debt});
@@ -354,6 +357,19 @@ class DebtCard extends StatelessWidget {
   }
 
   void _showDebtPaymentDialog(BuildContext context, DebtHistory debt) {
+    // CRITICAL SECURITY CHECK: Verify user has permission to manage debt
+    if (!_profileController.hasPermission('manage_debt')) {
+      Get.snackbar(
+        'Access Denied',
+        'You do not have permission to manage debt payments',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+    
     final TextEditingController paymentController = TextEditingController();
 
     showDialog(

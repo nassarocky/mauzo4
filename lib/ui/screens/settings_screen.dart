@@ -1029,6 +1029,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
+                        'Role'.tr,
+                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                      Text(
+                        (_profileController.user['role'] ?? 'employee').toString().capitalizeFirst!,
+                        style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 24),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
                         'Version'.tr,
                         style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
                       ),

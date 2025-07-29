@@ -152,9 +152,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canEditProduct = _profileController.hasPermission('edit_products');
 
-    AppBar buildAppBar(BuildContext context, ProductController productController, bool passwordMatches) {
+    AppBar buildAppBar(BuildContext context, ProductController productController) {
       return AppBar(
         elevation: 0,  // Remove elevation for a flat look
         backgroundColor: Colors.white,  // Set background to white
@@ -164,7 +164,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         )),
         iconTheme: IconThemeData(color: Colors.black),  // Set the back icon color to black
         actions: [
-          if (passwordMatches)
+          if (canEditProduct)
             IconButton(
               icon: const Icon(Icons.add),
               onPressed: () {
@@ -183,7 +183,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
               productController.toggleUnderstockFilter();  // Toggle the understock filter
             },
           )),
-          if (passwordMatches)
+          if (canEditProduct)
             IconButton(
               icon: Image.asset(
                 'assets/images/excel.png',  // Path to your custom Excel icon
@@ -205,7 +205,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
 
     return Scaffold(
-      appBar: buildAppBar(context, _productController, passwordMatches),
+      appBar: buildAppBar(context, _productController),
       body: Obx(
             () {
           // Sort products: services first

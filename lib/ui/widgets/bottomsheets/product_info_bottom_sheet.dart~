@@ -82,7 +82,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canEditProduct = _profileController.hasPermission('edit_products');
     return Wrap(
       children: [
         Padding(
@@ -221,11 +221,9 @@ class ProductInfoBottomSheet extends StatelessWidget {
                             ],
                           ),
                         ),
-
-
                         if (product.buyingPrice != null && product.buyingPrice != 0) ...[
                           const Divider(),
-                          if(passwordMatches)
+                          if(canEditProduct)
                           Padding(
                             padding: const EdgeInsets.only(top: 4.0),
                             child: Row(
@@ -249,7 +247,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                           ),
                           // Conditionally display expireDate
 
-                          if (product.expireDate != null) ...[
+                          if(canEditProduct && product.expireDate != null) ...[
                             const Divider(),
                             Padding(
                               padding: const EdgeInsets.only(top: 4.0),
@@ -283,17 +281,17 @@ class ProductInfoBottomSheet extends StatelessWidget {
                                     '${'location'.tr}:',
                                   ),
                                   const SizedBox(width: 4),
-    Flexible(
-    child: Text(
-     product.location.toString(),
-    style: h6(
-    Theme.of(context)
-        .textTheme
-        .bodyLarge!
-        .color,
-    ),
-    ),
-    ),
+                                  Flexible(
+                                    child: Text(
+                                      product.location.toString(),
+                                      style: h6(
+                                        Theme.of(context)
+                                            .textTheme
+                                            .bodyLarge!
+                                            .color,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -323,7 +321,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                                 ],
                               ),
                             ),
-                          ],  if (product.details != null && product.details !='') ...[
+                          ],  if(canEditProduct && product.details != null && product.details !='') ...[
                             const Divider(),
                             Padding(
                               padding: const EdgeInsets.only(top: 4.0),
@@ -364,7 +362,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     child: SecondaryButton(
                       text: 'stock_in_out'.tr,
                       onPressed: () {
-                        if(passwordMatches){
+                        if(canEditProduct){
                           Navigator.pop(context);
                           showDialog(
                             context: context,
@@ -461,7 +459,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     child: SecondaryButton(
                       text: 'edit_product'.tr,
                       onPressed: () {
-                        if(passwordMatches){
+                        if(canEditProduct){
                           Navigator.pushReplacement(
                             context,
                             CupertinoPageRoute(
@@ -479,7 +477,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                 height: 44,
                 child: DeleteSaveButton(
                   onDelete: () {
-                    if(passwordMatches){
+                    if(canEditProduct){
                       showDialog(
                         context: context,
                         builder: (context) => DoubleActionDialog(

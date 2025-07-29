@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:mauzo/controllers/expence_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:sticky_headers/sticky_headers/widget.dart';
 import '../../../controllers/business_controller.dart';
-import '../../../controllers/expence_controller.dart';
 import '../../../models/expences.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
@@ -25,7 +25,7 @@ class ExpenseListScreen extends StatefulWidget {
 class _ExpenseListScreenState extends State<ExpenseListScreen> {
   final ExpenseController _expenseController = Get.find();
   final ProfileController _profileController = Get.find();
-  final BusinessController _businessController = Get.find();// Access ProfileController
+  final BusinessController _businessController = Get.find();
 
   String selectedCategory = 'All';
   DateTimeRange? selectedDateRange;
@@ -46,16 +46,18 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool canManageExpenses = _profileController.hasPermission('manage_expenses');
+    
     return Scaffold(
       backgroundColor: Preferences.getTheme()
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: canManageExpenses ? FloatingActionButton(
         onPressed: () {
           Navigator.pushNamed(context, '/add-expense');
         },
         child: const Icon(Icons.add),
-      ),
+      ) : null,
       appBar: AppBar(
         title: Text('expenses'.tr),
         elevation: 0,

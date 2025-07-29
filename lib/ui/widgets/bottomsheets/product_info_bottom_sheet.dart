@@ -86,7 +86,8 @@ class ProductInfoBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canEditProduct = _profileController.hasPermission('edit_products');
+    final bool canMakeSales = _profileController.hasPermission('make_sales');
     return Wrap(
       children: [
         Padding(
@@ -229,7 +230,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
 
                         if (product.buyingPrice != null && product.buyingPrice != 0) ...[
                           const Divider(),
-                          if(passwordMatches)
+                          if(canEditProduct)
                           Padding(
                             padding: const EdgeInsets.only(top: 4.0),
                             child: Row(
@@ -369,7 +370,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       child: SecondaryButton(
                         text: 'stock_in_out'.tr,
                         onPressed: () {
-                          if(passwordMatches){
+                          if(canEditProduct){
                             Navigator.pop(context);
                             showDialog(
                               context: context,
@@ -406,7 +407,18 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       child: SecondaryButton(
                         text: 'Copy to Store'.tr,
                         onPressed: () {
-                    _productController.copyProductToStore(product.id);
+                          // Check if user has permission to edit products (block agents)
+                          if (!_profileController.hasPermission('edit_products')) {
+                            Get.snackbar(
+                              'Access Denied'.tr,
+                              'You do not have permission to copy products to store'.tr,
+                              backgroundColor: Colors.red,
+                              colorText: Colors.white,
+                              duration: Duration(seconds: 3),
+                            );
+                            return;
+                          }
+                          _productController.copyProductToStore(product.id);
                         },
                       ),
                     ),
@@ -419,7 +431,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       child: SecondaryButton(
                         text: 'Move to Store'.tr,
                         onPressed: () {
-                          if(passwordMatches){
+                          if(canEditProduct){
                             Navigator.pop(context);
                             showDialog(
                               context: context,
@@ -441,6 +453,17 @@ class ProductInfoBottomSheet extends StatelessWidget {
                       child: SecondaryButton(
                         text: 'Transfer Product',
                         onPressed: () async {
+                          // Check if user has permission to transfer products (block agents)
+                          if (!_profileController.hasPermission('transfer_products')) {
+                            Get.snackbar(
+                              'Access Denied'.tr,
+                              'You do not have permission to transfer products'.tr,
+                              backgroundColor: Colors.red,
+                              colorText: Colors.white,
+                              duration: Duration(seconds: 3),
+                            );
+                            return;
+                          }
                           // Get all businesses associated with the user except the current one
                           final businesses = _profileController.user['business'] as List<dynamic>? ?? [];
                           final currentBusinessId = _businessController.businessId.value;
@@ -532,7 +555,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     child: SecondaryButton(
                       text: 'edit_product'.tr,
                       onPressed: () {
-                        if(passwordMatches){
+                        if(canEditProduct){
                           Navigator.pushReplacement(
                             context,
                             CupertinoPageRoute(
@@ -550,7 +573,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                 height: 44,
                 child: DeleteSaveButton(
                   onDelete: () {
-                    if(passwordMatches){
+                    if(canEditProduct){
                       showDialog(
                         context: context,
                         builder: (context) => DoubleActionDialog(
@@ -569,7 +592,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                         ),
                       );}
                   },
-                  onSave: () {
+                  onSave: canMakeSales ? () {
                     if (product.quantity! > 0) {
 
                       Navigator.pushNamed(context, '/sale/add');
@@ -578,6 +601,9 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     } else {
                       errorSnackbar('not_enough'.tr);
                     }
+                  } : () {
+                    // Show permission denied message
+                    errorSnackbar('Permission denied: Cannot make sales'.tr);
                   },
                   text: 'make_sale'.tr,
                 ),

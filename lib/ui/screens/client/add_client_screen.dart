@@ -1,12 +1,9 @@
-import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
-import '../../../utils/image.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/buttons/primary_button.dart';
 
@@ -21,31 +18,45 @@ class _AddClientScreenState extends State<AddClientScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
   final TextEditingController _noteController = TextEditingController();
 
-  File? imageFile;
-  UploadTask? uploadTask;
-  bool isUploading = false;
+  bool isLoading = false;
 
-  Future<String> uploadFile(String folder, File file) async {
-    final path = '$folder/${DateTime.now().millisecondsSinceEpoch}.png';
-    final ref = FirebaseStorage.instance.ref().child(path);
-    uploadTask = ref.putFile(file);
-    final snapshot = await uploadTask!.whenComplete(() => {});
-    final url = await snapshot.ref.getDownloadURL();
-    return url;
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to manage clients
+    if (!_profileController.hasPermission('manage_clients')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddClientScreen without manage_clients permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to add clients',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () async => isUploading ? false : true,
+      onWillPop: () async => isLoading ? false : true,
       child: Scaffold(
         appBar: AppBar(
           backgroundColor:
           Preferences.getTheme() ? darkGrayColor : primaryUltraLightColor,
           elevation: 0,
-          leading: isUploading
+          leading: isLoading
               ? Container()
               : IconButton(
             icon: Icon(
@@ -65,7 +76,7 @@ class _AddClientScreenState extends State<AddClientScreen> {
             ),
           ),
         ),
-        body: isUploading
+        body: isLoading
             ? const Center(child: CircularProgressIndicator())
             : SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
@@ -73,91 +84,6 @@ class _AddClientScreenState extends State<AddClientScreen> {
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                Center(
-                  child: GestureDetector(
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (_) => AlertDialog(
-                          title: Text('select_image_source'.tr),
-                          content: SizedBox(
-                            height: 180,
-                            child: Column(
-                              children: [
-                                ListTile(
-                                  leading: const Icon(Icons.collections),
-                                  title: Text('gallery'.tr),
-                                  onTap: () async {
-                                    imageFile =
-                                    await pickImageFromGallery()
-                                        .then((value) {
-                                      setState(() {
-                                        imageFile = value;
-                                        Navigator.pop(context);
-                                      });
-                                      return null;
-                                    });
-                                  },
-                                ),
-                                ListTile(
-                                  leading: const Icon(Icons.camera),
-                                  title: Text('camera'.tr),
-                                  onTap: () async {
-                                    imageFile =
-                                    await pickImageFromCamera()
-                                        .then((value) {
-                                      setState(() {
-                                        imageFile = value;
-                                        Navigator.pop(context);
-                                      });
-                                      return null;
-                                    });
-                                  },
-                                ),
-                                ListTile(
-                                  leading: const Icon(Icons.close),
-                                  title: Text('delete'.tr),
-                                  onTap: () {
-                                    setState(() {
-                                      imageFile = null;
-                                      Navigator.pop(context);
-                                    });
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    child: imageFile != null
-                        ? Container(
-                      decoration: BoxDecoration(
-                        color: gray200Color,
-                        borderRadius: BorderRadius.circular(100),
-                      ),
-                      width: 72,
-                      height: 72,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(100),
-                        child: Image.file(
-                          imageFile!,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    )
-                        : const CircleAvatar(
-                      radius: 36,
-                      backgroundColor: gray200Color,
-                      child: Icon(
-                        Icons.person,
-                        size: 44,
-                        color: primaryColor,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 30),
                 TextField(
                   controller: _nameController,
                   maxLength: 25,
@@ -221,68 +147,91 @@ class _AddClientScreenState extends State<AddClientScreen> {
                     Expanded(
                       child: PrimaryButton(
                         onPressed: () async {
+                          print('🔵 CLIENT CREATION: Starting client creation process');
+                          
                           try {
                             if (_nameController.text.isEmpty) {
+                              print('❌ CLIENT CREATION: Name field is empty');
                               errorSnackbar('fill_required_fields'.tr);
-                            } else {
-                              setState(() {
-                                isUploading = true;
-                              });
-
-                              String? url = '';
-                              // Await only the image file upload
-                              if (imageFile != null) {
-                                url = await uploadFile('clients', imageFile!);
-                              }
-
-                              final String? businessId = _businessController.business['id'];
-
-                              if (businessId == null) {
-                                print('business ID is null, cannot add client.');
-                                setState(() {
-                                  isUploading = false;
-                                });
-                                return;
-                              }
-
-                              // Firestore operations using `.then()` instead of `await`
-                              firestore
-                                  .collection('clients')
-                                  .doc(businessId)
-                                  .collection('userClients')
-                                  .add({
-                                'name': _nameController.text.trim(),
-                                'owner': businessId,
-                                'debt': 0.0,
-                                'phone': _phoneController.text.trim(),
-                                "image": url,
-                                "note": _noteController.text.trim(),
-                                'date': Timestamp.now(),
-                              }).then((doc) {
-                                // Successfully added to Firestore
-                                setState(() {
-                                  isUploading = false;
-                                });
-
-                                if (mounted) {
-                                  Navigator.pop(context);
-                                }
-                                successSnackbar('client_added'.tr);
-                              }).catchError((error) {
-                                // Handle potential errors
-                                errorSnackbar('something_went_wrong'.tr);
-                                setState(() {
-                                  isUploading = false;
-                                });
-                                Navigator.pop(context);
-                              });
+                              return;
                             }
-                          } catch (e) {
-                            errorSnackbar('something_went_wrong'.tr);
+                            
+                            print('✅ CLIENT CREATION: Name validation passed');
                             setState(() {
-                              isUploading = false;
+                              isLoading = true;
                             });
-                            Navigator.pop(context);
+
+                            final String? businessId = _businessController.business['id'];
+                            print('🔵 CLIENT CREATION: Business ID = $businessId');
+
+                            if (businessId == null) {
+                              print('❌ CLIENT CREATION: Business ID is null');
+                              setState(() {
+                                isLoading = false;
+                              });
+                              errorSnackbar('Business ID is null');
+                              return;
+                            }
+
+                            print('✅ CLIENT CREATION: Business ID validation passed');
+                            
+                            // Create document reference with auto-generated ID (like sales)
+                            final newClientRef = firestore
+                                .collection('clients')
+                                .doc(businessId)
+                                .collection('userClients')
+                                .doc(); // Auto-generated ID
+                            
+                            print('🔵 CLIENT CREATION: Document reference created: ${newClientRef.path}');
+
+                            // Client data to be added
+                            final clientData = {
+                              'name': _nameController.text.trim(),
+                              'owner': businessId,
+                              'debt': 0.0,
+                              'phone': _phoneController.text.trim(),
+                              'note': _noteController.text.trim(),
+                              'date': Timestamp.now(),
+                            };
+                            
+                            print('🔵 CLIENT CREATION: Client data prepared: $clientData');
+                            print('🔵 CLIENT CREATION: Attempting Firestore set operation...');
+
+                            // Use non-blocking .then() pattern like sales (works offline)
+                            newClientRef.set(clientData).then((_) {
+                              print('✅ CLIENT CREATION: Firestore operation completed successfully');
+                              
+                              // Successfully added to Firestore
+                              setState(() {
+                                isLoading = false;
+                              });
+
+                              if (mounted) {
+                                Navigator.pop(context);
+                              }
+                              successSnackbar('client_added'.tr);
+                            }).catchError((error) {
+                              print('❌ CLIENT CREATION: Firestore operation failed: $error');
+                              
+                              errorSnackbar('Failed to add client: $error');
+                              setState(() {
+                                isLoading = false;
+                              });
+                            });
+                            
+                            print('🔵 CLIENT CREATION: Firestore operation initiated (non-blocking)');
+                            
+                          } catch (e) {
+                            print('❌ CLIENT CREATION: Exception caught: $e');
+                            print('❌ CLIENT CREATION: Exception type: ${e.runtimeType}');
+                            print('❌ CLIENT CREATION: Stack trace: ${StackTrace.current}');
+                            
+                            errorSnackbar('Failed to add client: $e');
+                            setState(() {
+                              isLoading = false;
+                            });
+                            
+                            // Don't auto-close on error so user can see the error
                           }
                         }
 ,

@@ -1,0 +1,165 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ✅ Users collection (gmanusers) - UPDATED FOR ADMIN ACCESS
+    match /gmanusers/{userId} {
+      // Allow users to read/write their own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow admins with manage_employees permission to read/write other users
+      allow read, write: if request.auth != null && 
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        hasManageEmployeesPermission();
+    }
+
+    // ✅ Businesses collection
+    match /businesses/{businessId} {
+      // Allow creation of a new business if authenticated
+      allow create: if request.auth != null;
+
+      // Allow read & update if user owns the business (businessId is in gmanusers.business array)
+      allow get, list, update, delete: if isBusinessAllowed(businessId);
+    }
+
+    // ✅ Products collection
+    match /products/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userProducts/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Sales collection
+    match /sales/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userSales/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Invoices collection
+    match /invoices/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userInvoices/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Expenses collection
+    match /expenses/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userExpenses/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Clients collection
+    match /clients/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userClients/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Transactions collection
+    match /transactions/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /usersTransactions/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Store collection
+    match /store/{storeId} {
+      // Anyone authenticated can read/write stores (based on your instructions)
+      allow read, write: if request.auth != null;
+
+      match /userStore/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ✅ Closed Books collection
+    match /closedbooks/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userClosedBooks/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Debt History collection
+    match /debtHistory/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /clientDebtHistory/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+    
+    // ✅ product transfer collection
+    match /product_transfer_requests/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userTransferRequests/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Employees collection - UPDATED FOR ADMIN ACCESS
+    match /employees/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userEmployees/{docId} {
+        // Allow normal business access
+        allow read, write: if isBusinessAllowed(businessId);
+        
+        // Allow admins with manage_employees permission to edit employee records
+        allow read, write: if request.auth != null && 
+          hasManageEmployeesPermission();
+      }
+    }
+
+    // ✅ Recovered collection
+    match /recovered/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userRecovered/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ❌ Deny everything else explicitly
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ✅ Helper Function to check if user is allowed access to a business
+    function isBusinessAllowed(businessId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business;
+    }
+    
+    // ✅ NEW Helper Function to check if user has manage_employees permission
+    function hasManageEmployeesPermission() {
+      let userDoc = get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data;
+      let userRole = userDoc.role;
+      let userPermissions = userDoc.permissions;
+      
+      // Check if user has manage_employees in custom permissions
+      return 'manage_employees' in userPermissions ||
+             // Or if user is owner/manager (they have manage_employees by default)
+             userRole == 'owner' || 
+             userRole == 'manager';
+    }
+  }
+}

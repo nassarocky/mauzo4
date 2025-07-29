@@ -28,7 +28,7 @@ class StoreInfoBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canEditStore = _profileController.hasPermission('edit_products');
     return Wrap(
       children: [
         Padding(
@@ -239,7 +239,8 @@ class StoreInfoBottomSheet extends StatelessWidget {
                                 ],
                               ),
                             ),
-                          ],  if (product.details != null && product.details !='') ...[
+                          ],  
+                          if (canEditStore && product.details != null && product.details !='') ...[
                             const Divider(),
                             Padding(
                               padding: const EdgeInsets.only(top: 4.0),
@@ -280,7 +281,7 @@ class StoreInfoBottomSheet extends StatelessWidget {
                     child: SecondaryButton(
                       text: 'stock_in_out'.tr,
                       onPressed: () {
-                        if(passwordMatches){
+                        if(canEditStore){
                           Navigator.pop(context);
                           showDialog(
                             context: context,

@@ -69,18 +69,18 @@ class _SalesScreenState extends State<SalesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canMakeSales = _profileController.hasPermission('make_sales');
 
     return Scaffold(
       backgroundColor: Preferences.getTheme()
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: canMakeSales ? FloatingActionButton(
         onPressed: () {
           Navigator.pushNamed(context, '/sale/add');
         },
         child: const Icon(Icons.add),
-      ),
+      ) : null,
       appBar: AppBar(
         title: Text(
           'all_sales'.tr,
@@ -90,7 +90,7 @@ class _SalesScreenState extends State<SalesScreen> {
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.black),
         actions: [
-          if(passwordMatches)
+          if(canMakeSales)
             IconButton(
               icon: Image.asset(
                 'assets/images/excel.png',
@@ -210,7 +210,7 @@ class _SalesScreenState extends State<SalesScreen> {
                   const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () {
-                      if (passwordMatches)
+                      if (canMakeSales)
                         showDateRangePicker(
                           context: context,
                           firstDate: DateTime(1900),
@@ -375,12 +375,12 @@ class _SalesScreenState extends State<SalesScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       width: double.maxFinite,
                       height: 48,
-                      color: (passwordMatches || _businessController.business['allowSalesView'])
+                      color: (canMakeSales || _businessController.business['allowSalesView'])
                           ? const Color(0xFFFFEA9F)
                           : const Color(0xFFE5E5E5),
                       child: Row(
                         children: [
-                          if(passwordMatches || _businessController.business['allowSalesView'])
+                          if(canMakeSales || _businessController.business['allowSalesView'])
                             Text(
                               DateFormat("dd.MM.yyyy", 'en_US').format(
                                   salesByDate[index]['sales'][0]
@@ -389,7 +389,7 @@ class _SalesScreenState extends State<SalesScreen> {
                               style: h5(textDarkColor),
                             ),
                           const Spacer(),
-                          if(passwordMatches || _businessController.business['allowSalesView'])
+                          if(canMakeSales || _businessController.business['allowSalesView'])
                             Text(
                               '${'total'.tr}: ${formatCurrency(_saleController.getTotalSalesByDate(
                                 salesByDate[index]['date'],
@@ -435,7 +435,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                           ),
                                         ),
                                         const Spacer(),
-                                        if (passwordMatches && sale.debt == 0.0 && sale.products.isNotEmpty && sale.payment != 0.0)
+                                        if (canMakeSales && sale.debt == 0.0 && sale.products.isNotEmpty && sale.payment != 0.0)
 
                                           PopupMenuButton(
                                             child: Icon(
@@ -567,7 +567,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                               printInvoice(sale, client);
                                             },
                                             icon: const Icon(Icons.print),
-                                            label: const Text("Print"),
+                                            label: Text('print'.tr),
                                           ),
                                           const SizedBox(width: 8),
                                           ElevatedButton.icon(
@@ -575,7 +575,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                               shareInvoice(sale, client);
                                             },
                                             icon: const Icon(Icons.share),
-                                            label: const Text("Share"),
+                                            label: Text('share'.tr),
                                           ),
                                         ],
                                       ),

@@ -11,6 +11,7 @@ class ProfileModel {
   String? image;
   List<dynamic> business;
   final String email;
+  List<dynamic>? permissions;
 
   ProfileModel({
     required this.phone,
@@ -23,6 +24,7 @@ class ProfileModel {
     this.maxBusiness = 0,
     this.business = const [],
     required this.email,
+    this.permissions,
   });
 
   // Factory method to create a ProfileModel from Firestore snapshot
@@ -44,6 +46,7 @@ class ProfileModel {
       date: data['date'],
       image: data['image'] ?? '',
       email: data['email'] ?? '',
+      permissions: data['permissions'],
     );
   }
 
@@ -60,6 +63,7 @@ class ProfileModel {
       'maxBusiness': maxBusiness,
       'business': business,
       'email': email,
+      'permissions': permissions,
     };
   }
 }

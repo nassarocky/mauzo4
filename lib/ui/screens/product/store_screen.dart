@@ -241,9 +241,9 @@ class _StoreScreenState extends State<StoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _profileController.user['role'] == 'owner';
+    final bool canEditStore = _profileController.hasPermission('edit_products');
 
-    AppBar buildAppBar(BuildContext context, StoreController storeController, bool passwordMatches) {
+    AppBar buildAppBar(BuildContext context, StoreController storeController, bool canEditStore) {
       return AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
@@ -272,7 +272,7 @@ class _StoreScreenState extends State<StoreScreen> {
         ),
         iconTheme: const IconThemeData(color: Colors.black),
         actions: [
-          if (passwordMatches)
+          if (canEditStore)
             IconButton(
               icon: Image.asset(
                 'assets/images/excel.png',
@@ -294,8 +294,8 @@ class _StoreScreenState extends State<StoreScreen> {
 
 
     return Scaffold(
-      appBar: buildAppBar(context, _storeController, passwordMatches),
-      floatingActionButton: passwordMatches ? FloatingActionButton.extended(
+      appBar: buildAppBar(context, _storeController, canEditStore),
+      floatingActionButton: canEditStore ? FloatingActionButton.extended(
         onPressed: () {
           _showBulkMovementOptions(context);
         },

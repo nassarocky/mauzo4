@@ -38,6 +38,53 @@ class _CartScreenState extends State<CartScreen> {
   static final BusinessController _businessController = Get.find();
   final TextEditingController _detailsController = TextEditingController();
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Determine the context/purpose of this cart screen
+    String from = 'new_sale';
+    if (widget.userData != null) {
+      from = widget.userData!.name;
+    }
+    
+    // CRITICAL SECURITY CHECK: Context-aware permission verification
+    String requiredPermission;
+    String contextualMessage;
+    
+    switch (from) {
+      case 'invoice':
+        requiredPermission = 'create_invoices';
+        contextualMessage = 'You do not have permission to create invoices';
+        break;
+      case 'transfer':
+        requiredPermission = 'transfer_products';
+        contextualMessage = 'You do not have permission to transfer products';
+        break;
+      default:
+        requiredPermission = 'make_sales';
+        contextualMessage = 'You do not have permission to complete sales transactions';
+        break;
+    }
+    
+    if (!_profileController.hasPermission(requiredPermission)) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access CartScreen ($from) without $requiredPermission permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          contextualMessage,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
+
   @override
   void dispose() {
     Timer.run(() {

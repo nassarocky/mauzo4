@@ -17,6 +17,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sticky_headers/sticky_headers/widget.dart';
 import '../../../controllers/invoice_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../../models/client_model.dart';
 import '../../../models/product_model.dart';
 import '../../../utils/constants.dart';
@@ -61,12 +62,13 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool passwordMatches = _businessController.business['password'] == Preferences.getPassword();
+    final ProfileController _profileController = Get.find();
+final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
     return Scaffold(
       backgroundColor: Preferences.getTheme()
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: canEditInvoices ? FloatingActionButton(
         onPressed: () {
           Navigator.push(
             context,
@@ -76,7 +78,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
           );
         },
         child: const Icon(Icons.add),
-      ),
+      ) : null,
       appBar: AppBar(
         title: Text('all_invoices'.tr),
         elevation: 0,
@@ -499,7 +501,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                                             printInvoice(invoice, client);
                                           },
                                           icon: const Icon(Icons.print),
-                                          label: const Text("Print"),
+                                          label: Text('print'.tr),
                                         ),
                                         const SizedBox(width: 8),
                                         ElevatedButton.icon(
@@ -507,7 +509,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                                             shareInvoice(invoice, client);
                                           },
                                           icon: const Icon(Icons.share),
-                                          label: const Text("Share"),
+                                          label: Text('share'.tr),
                                         ),
                                       ],
                                     ),

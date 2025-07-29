@@ -6,6 +6,7 @@ import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 
 import '../../controllers/product_controller.dart';
+import '../../controllers/profile_controller.dart';
 import '../../utils/preferences.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -16,14 +17,37 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
+  static final SaleController _saleController = Get.find();
+  final BusinessController _businessController = Get.find();
+  final ProductController _productController = Get.find();
+  final ProfileController _profileController = Get.find();
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to view statistics
+    if (!_profileController.hasPermission('view_statistics')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access StatisticsScreen without view_statistics permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to view statistics',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
+
   @override
   void dispose() {
     super.dispose();
   }
-
-  static final SaleController _saleController = Get.find();
-  final BusinessController _businessController = Get.find();
-  final ProductController _productController = Get.find();
 
   double sales = _saleController.getLastWeekSales();
   String time = 'last_week'.tr;

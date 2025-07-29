@@ -388,7 +388,7 @@ exports.deleteUser = onRequest(async (req, res) => {
 
 
 exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => {
-  const { name, email, phone, password, business } = req.body;
+  const { name, email, phone, password, business, role } = req.body;
 
   if (!name) return res.status(400).send('Missing name');
   if (!email) return res.status(400).send('Missing email');
@@ -406,7 +406,7 @@ exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => 
     const userData = {
       id: userId,
       email,
-      role: 'employee',
+      role: role || 'employee', // Use provided role or default to 'employee'
       phone,
       name,
       maxBusiness: 2,
@@ -1963,5 +1963,143 @@ exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (reque
   } catch (error) {
     console.error('acceptTransferRequestV2 error:', error);
     throw new HttpsError('internal', error.message || 'Unknown error');
+  }
+});
+
+// New Cloud Function for batch transfer requests
+exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (request) => {
+  const context = request.auth;
+  if (!context) {
+    throw new HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const { fromBusinessId, toBusinessId, transferRequestId, products } = request.data;
+  if (!fromBusinessId || !toBusinessId || !transferRequestId || !products || !Array.isArray(products)) {
+    throw new HttpsError('invalid-argument', 'Missing required fields or invalid products array');
+  }
+
+  if (products.length === 0) {
+    throw new HttpsError('invalid-argument', 'Products array cannot be empty');
+  }
+
+  try {
+    console.log(`[Batch Transfer] Processing ${products.length} products from ${fromBusinessId} to ${toBusinessId}`);
+    
+    // Process each product in the batch transfer
+    for (const product of products) {
+      const { id: productId, quantity, name: productName } = product;
+      
+      if (!productId || !quantity || quantity <= 0) {
+        throw new HttpsError('invalid-argument', `Invalid product data: ${JSON.stringify(product)}`);
+      }
+
+      console.log(`[Batch Transfer] Processing product: ${productName} (${productId}), quantity: ${quantity}`);
+
+      // 1. Update product stock in sender (fromBusinessId): decrement quantity
+      const fromProductRef = firestore
+        .collection('products').doc(fromBusinessId)
+        .collection('userProducts').doc(productId);
+        
+      await firestore.runTransaction(async (transaction) => {
+        const fromProductSnap = await transaction.get(fromProductRef);
+        if (!fromProductSnap.exists) {
+          throw new HttpsError('not-found', `Product ${productName} not found in sender business`);
+        }
+        
+        const fromProductData = fromProductSnap.data();
+        const fromQty = fromProductData.quantity || 0;
+        
+        if (fromQty < quantity) {
+          throw new HttpsError('failed-precondition', `Not enough stock for ${productName}. Available: ${fromQty}, Requested: ${quantity}`);
+        }
+        
+        // Decrease quantity in source business
+        transaction.update(fromProductRef, { quantity: fromQty - quantity });
+        console.log(`[Batch Transfer] Decreased ${productName} in source: ${fromQty} -> ${fromQty - quantity}`);
+      });
+
+      // 2. Update product stock in receiver (toBusinessId): increment quantity or create product
+      const toProductRef = firestore
+        .collection('products').doc(toBusinessId)
+        .collection('userProducts').doc(productId);
+        
+      await firestore.runTransaction(async (transaction) => {
+        const toProductSnap = await transaction.get(toProductRef);
+        
+        if (!toProductSnap.exists) {
+          // Product doesn't exist in destination - get full product data from source
+          const fromProductSnap = await transaction.get(fromProductRef);
+          if (fromProductSnap.exists) {
+            const sourceProductData = fromProductSnap.data();
+            const newProductData = {
+              ...sourceProductData,
+              quantity: quantity,
+              owner: toBusinessId,
+              id: productId
+            };
+            transaction.set(toProductRef, newProductData);
+            console.log(`[Batch Transfer] Created new product ${productName} in destination with quantity: ${quantity}`);
+          } else {
+            // Fallback: create minimal product data
+            const minimalProductData = {
+              id: productId,
+              name: productName || 'Unknown Product',
+              quantity: quantity,
+              owner: toBusinessId,
+              itemType: product.itemType || 'product',
+              price: 0.0,
+              buyingPrice: 0.0,
+              storeId: '',
+              code: '',
+              discount: 0.0,
+              manufacturer: '',
+              location: '',
+              details: '',
+              understock: 0.0,
+              category: '',
+              total: 0.0,
+              count: 0.0
+            };
+            transaction.set(toProductRef, minimalProductData);
+            console.log(`[Batch Transfer] Created minimal product ${productName} in destination`);
+          }
+        } else {
+          // Product exists in destination - increment quantity
+          const toQty = toProductSnap.data().quantity || 0;
+          transaction.update(toProductRef, { quantity: toQty + quantity });
+          console.log(`[Batch Transfer] Increased ${productName} in destination: ${toQty} -> ${toQty + quantity}`);
+        }
+      });
+    }
+
+    // 3. Update transfer request status to 'accepted' in both businesses
+    const updateData = {
+      status: 'accepted',
+      respondedByUserId: context.uid,
+      respondedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    // Update in destination business
+    await firestore
+      .collection('product_transfer_requests').doc(toBusinessId)
+      .collection('userTransferRequests').doc(transferRequestId)
+      .update(updateData);
+
+    // Update in source business
+    await firestore
+      .collection('product_transfer_requests').doc(fromBusinessId)
+      .collection('userTransferRequests').doc(transferRequestId)
+      .update(updateData);
+
+    console.log(`[Batch Transfer] Successfully completed batch transfer of ${products.length} products`);
+    return { 
+      success: true, 
+      message: `Successfully transferred ${products.length} products from ${fromBusinessId} to ${toBusinessId}`,
+      processedProducts: products.length
+    };
+    
+  } catch (error) {
+    console.error('acceptBatchTransferRequestV2 error:', error);
+    throw new HttpsError('internal', error.message || 'Unknown error occurred during batch transfer');
   }
 });

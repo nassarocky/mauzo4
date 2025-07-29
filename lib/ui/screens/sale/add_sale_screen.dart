@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/ui/screens/cart_screen.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import '../../../models/product_model.dart';
@@ -80,6 +81,7 @@ class _AddSaleScreenState extends State<AddSaleScreen>
 
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
+  final ProfileController _profileController = Get.find();
   final ScrollController _scrollController = ScrollController();
   bool showSearchBar = true;
   bool transferMode = false;

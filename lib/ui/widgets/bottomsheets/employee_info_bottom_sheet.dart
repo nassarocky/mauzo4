@@ -7,6 +7,8 @@ import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/models/profile_model.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
+import 'package:mauzo/ui/widgets/dialogs/edit_employee_permissions_dialog.dart';
+import 'package:mauzo/ui/widgets/dialogs/assign_employee_businesses_dialog.dart';
 
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/employee_controller.dart';
@@ -24,6 +26,7 @@ class EmployeeInfoBottomSheet extends StatelessWidget {
     final EmployeeController employeeController = Get.find();
     final BusinessController businessController = Get.find();
     final ProfileController profileController = Get.find();
+final bool canManageEmployees = profileController.hasPermission('manage_employees');
     final SaleController saleController = Get.find();
     return Wrap(
       alignment: WrapAlignment.center,
@@ -76,6 +79,11 @@ class EmployeeInfoBottomSheet extends StatelessWidget {
                 employee.name,
                 style: h5(Theme.of(context).textTheme.bodyLarge!.color),
               ),
+              const SizedBox(height: 4),
+              Text(
+                'Role: ${(employee.role ?? 'employee').toString().capitalizeFirst!}',
+                style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+              ),
               const SizedBox(height: 12),
               if(employee.role!='owner')
               Text(
@@ -92,6 +100,17 @@ class EmployeeInfoBottomSheet extends StatelessWidget {
                   style: bodyText(
                     Theme.of(context).textTheme.bodyMedium!.color,
                   )),
+              
+              // Display assigned businesses for multi-business employees
+              if (employee.business != null && employee.business!.length > 1) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Assigned to ${employee.business!.length} businesses',
+                  style: bodyText(
+                    Colors.blue[600]!,
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 44),
               SizedBox(
@@ -139,20 +158,35 @@ class EmployeeInfoBottomSheet extends StatelessWidget {
                         ),
                       ),
                     ),
-                /*    const SizedBox(width: 8),
-                    SecondaryButton(
-                      text: 'edit'.tr,
-                      onPressed: () {
-                       Navigator.push(
-                          context,
-                          CupertinoPageRoute(
-                            builder: (context) => EditEmployeeScreen(
+                    if (canManageEmployees) ...[
+                      const SizedBox(width: 8),
+                      SecondaryButton(
+                        text: 'Edit Permissions',
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => EditEmployeePermissionsDialog(
                               employee: employee,
                             ),
-                          ),
-                        );
-                      },
-                    ),*/
+                          );
+                        },
+                      ),
+                    ],
+                    // Multi-business assignment button (only for owners)
+                    if (profileController.user['role'] == 'owner' && employee.role != 'owner') ...[
+                      const SizedBox(width: 8),
+                      SecondaryButton(
+                        text: 'Assign Businesses',
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => AssignEmployeeBusinessesDialog(
+                              employee: employee,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                     const SizedBox(width: 8),
                     Expanded(
                       child: PrimaryButton(

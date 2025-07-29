@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/utils/preferences.dart';
 import '../../../controllers/employee_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../widgets/bottomsheets/employee_info_bottom_sheet.dart';
 import '../../../utils/constants.dart';
 
@@ -17,6 +18,7 @@ class EmployeesScreen extends StatefulWidget {
 
 class _EmployeesScreenState extends State<EmployeesScreen> {
   final EmployeeController _employeeController = Get.find();
+  final ProfileController _profileController = Get.find();
 
 
   @override
@@ -29,12 +31,14 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool canManageEmployees = _profileController.hasPermission('manage_employees');
+    
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
         title: Text('Employees'.tr),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: canManageEmployees ? FloatingActionButton(
         onPressed: () {
           Navigator.pushNamed(
             context,
@@ -42,7 +46,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           );
         },
         child: const Icon(Icons.add),
-      ),
+      ) : null,
       body: Obx(
             () => Padding(
           padding: const EdgeInsets.all(14),

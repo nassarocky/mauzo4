@@ -26,7 +26,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
     final BusinessController businessController = Get.find();
     final ProfileController profileController = Get.find();
     final SaleController saleController = Get.find();
-    final bool passwordMatches = profileController.role.value == 'owner';
+    final bool canEditClient = profileController.hasPermission('edit_clients');
 
     return Wrap(
       alignment: WrapAlignment.center,
@@ -159,7 +159,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (passwordMatches)
+                    if (canEditClient)
                       Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(4),
@@ -196,7 +196,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                         ),
                       ),
                     const SizedBox(width: 8),
-                    if (passwordMatches)
+                    if (canEditClient)
                       SecondaryButton(
                         text: 'edit'.tr,
                         onPressed: () {

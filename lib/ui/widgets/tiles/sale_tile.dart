@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../controllers/business_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../../utils/preferences.dart';
 import '../dialogs/add_to_cart_dialog.dart';
 import '../bottomsheets/actions_bottom_sheet.dart';
@@ -13,6 +14,7 @@ class SaleTile extends StatelessWidget {
 
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
 
   final Product product;
 
@@ -148,6 +150,19 @@ class SaleTile extends StatelessWidget {
                       : IconButton(
                     padding: const EdgeInsets.all(0),
                     onPressed: () {
+                      // CRITICAL SECURITY CHECK: Verify user has permission to make sales
+                      if (!_profileController.hasPermission('make_sales')) {
+                        Get.snackbar(
+                          'Access Denied',
+                          'You do not have permission to add products to cart',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.red,
+                          colorText: Colors.white,
+                          duration: const Duration(seconds: 3),
+                        );
+                        return;
+                      }
+                      
                       if (isService || product.quantity! > 0) {
                         showDialog(
                           barrierDismissible: false,

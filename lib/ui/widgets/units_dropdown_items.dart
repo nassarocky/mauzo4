@@ -4,39 +4,39 @@ List<DropdownMenuItem<String>> getUnitDropdownItems() {
   return [
     DropdownMenuItem(
       value: 'Units',
-      child: Text('Units'),
+      child: Text('units'.tr),
     ),
     DropdownMenuItem(
       value: 'Dozen',
-      child: Text('Dozen'),
+      child: Text('dozen'.tr),
     ),
     DropdownMenuItem(
       value: 'Pair',
-      child: Text('Pair'),
+      child: Text('pair'.tr),
     ),
     DropdownMenuItem(
       value: 'Meter',
-      child: Text('Meter'),
+      child: Text('meter'.tr),
     ),
     DropdownMenuItem(
       value: 'Kilogram',
-      child: Text('Kilogram'),
+      child: Text('kilogram'.tr),
     ),
     DropdownMenuItem(
       value: 'Gram',
-      child: Text('Gram'),
+      child: Text('gram'.tr),
     ),
     DropdownMenuItem(
       value: 'Liter',
-      child: Text('Liter'),
+      child: Text('liter'.tr),
     ),
     DropdownMenuItem(
       value: 'Centimeter',
-      child: Text('Centimeter'),
+      child: Text('centimeter'.tr),
     ),
     DropdownMenuItem(
       value: 'Other',
-      child: Text('Other'),
+      child: Text('other'.tr),
     ),
   ];
 }

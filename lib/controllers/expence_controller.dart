@@ -93,18 +93,41 @@ class ExpenseController extends GetxController {
 
 
   Future<void> addExpense(Expense expense) {
+    print('🔵 EXPENSE CONTROLLER: addExpense called');
+    
     final String? business = _businessController.business['id'];
+    print('🔵 EXPENSE CONTROLLER: Business ID = $business');
 
     if (business == null) {
-      print('business ID is null, cannot add expense.');
+      print('❌ EXPENSE CONTROLLER: Business ID is null, cannot add expense.');
       return Future.value();
     }
 
-    return _firestore
+    print('✅ EXPENSE CONTROLLER: Business ID validation passed');
+    
+    // Create document reference with auto-generated ID (like sales and clients)
+    final newExpenseRef = _firestore
         .collection('expenses')
         .doc(business)
         .collection('userExpenses')
-        .add(expense.toMap());
+        .doc(); // Auto-generated ID
+    
+    print('🔵 EXPENSE CONTROLLER: Document reference created: ${newExpenseRef.path}');
+    print('🔵 EXPENSE CONTROLLER: Expense data: ${expense.toMap()}');
+    print('🔵 EXPENSE CONTROLLER: Attempting Firestore set operation...');
+
+    // Use simple non-blocking pattern like client screen (works offline)
+    newExpenseRef.set(expense.toMap()).then((_) {
+      print('✅ EXPENSE CONTROLLER: Firestore set operation completed successfully');
+    }).catchError((error) {
+      print('❌ EXPENSE CONTROLLER: Firestore set operation failed: $error');
+      print('❌ EXPENSE CONTROLLER: Error type: ${error.runtimeType}');
+    });
+    
+    print('🔵 EXPENSE CONTROLLER: Firestore operation initiated (non-blocking)');
+    
+    // Return immediately resolved future (like client screen)
+    return Future.value();
   }
 
   Future<void> updateExpense(Expense expense) {

@@ -107,7 +107,7 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
           _buildOutgoingRequestsTab(),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: _profileController.hasPermission('transfer_products') ? FloatingActionButton(
         onPressed: () {
           print('[DEBUG] FAB pressed: Navigating to /sale/add with userData=transfer');
           Navigator.pushNamed(context, '/sale/add', arguments: {'userData': UserData('transfer')});
@@ -115,7 +115,7 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
         child: Icon(Icons.add),
         backgroundColor: Preferences.getTheme() ? primaryLightColor : primaryColor,
         tooltip: 'Transfer Products',
-      ),
+      ) : null,
     );
   }
 
@@ -170,11 +170,12 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
           itemCount: _transferController.incomingTransferRequests.length,
           itemBuilder: (context, index) {
             final request = _transferController.incomingTransferRequests[index];
+            final canHandleTransfers = _profileController.hasPermission('transfer_products') || _profileController.user['role'] != 'agent';
             return TransferRequestTile(
               request: request,
               isIncoming: true,
-              onAccept: () => _handleAcceptRequest(request),
-              onReject: () => _handleRejectRequest(request),
+              onAccept: canHandleTransfers ? () => _handleAcceptRequest(request) : null,
+              onReject: canHandleTransfers ? () => _handleRejectRequest(request) : null,
             );
           },
         ),
@@ -246,6 +247,18 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
   }
 
   void _handleAcceptRequest(ProductTransferRequest request) async {
+    // Check if user has permission to accept transfers (block agents)
+    if (!_profileController.hasPermission('transfer_products') && _profileController.user['role'] == 'agent') {
+      Get.snackbar(
+        'Access Denied'.tr,
+        'You do not have permission to accept product transfers'.tr,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: Duration(seconds: 3),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => DoubleActionDialog(
@@ -282,6 +295,18 @@ class _TransferRequestsScreenState extends State<TransferRequestsScreen>
   }
 
   void _handleRejectRequest(ProductTransferRequest request) async {
+    // Check if user has permission to reject transfers (block agents)
+    if (!_profileController.hasPermission('transfer_products') && _profileController.user['role'] == 'agent') {
+      Get.snackbar(
+        'Access Denied'.tr,
+        'You do not have permission to reject product transfers'.tr,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        duration: Duration(seconds: 3),
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => DoubleActionDialog(

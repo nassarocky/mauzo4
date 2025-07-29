@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/dialogs/sort_client_dialog.dart';
 import 'package:mauzo/ui/widgets/search_filter_icon.dart';
@@ -20,6 +21,7 @@ class ClientsScreen extends StatefulWidget {
 
 class _ClientsScreenState extends State<ClientsScreen> {
   final ClientController _clientController = Get.find();
+  final ProfileController _profileController = Get.find();
   final BusinessController _businessController = Get.find();
 
   @override
@@ -32,12 +34,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool canManageClients = _profileController.hasPermission('manage_clients');
+    
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
         title: Text('clients'.tr),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: canManageClients ? FloatingActionButton(
         onPressed: () {
           Navigator.pushNamed(
             context,
@@ -45,7 +49,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
           );
         },
         child: const Icon(Icons.add),
-      ),
+      ) : null,
       body: Obx(
         () => Padding(
           padding: const EdgeInsets.all(14),
@@ -144,7 +148,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                       leading: SizedBox(
                         height: 36,
                         width: 36,
-                        child: client.image != ''
+                        child: (client.image != null && client.image != '')
                             ? ClipRRect(
                           borderRadius: BorderRadius.circular(100),
                           child: CachedNetworkImage(

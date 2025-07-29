@@ -230,9 +230,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     //  loadDeveloperInfo();
-    final bool passwordMatches =
-        _profileController.role.value == 'owner';
-
+    final bool canEditHome = _profileController.hasPermission('edit_home');
+    final bool canEditBusiness = _profileController.hasPermission('edit_business');
 
     return GetBuilder<BusinessController>(
       init: BusinessController(),
@@ -327,7 +326,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return StatefulBuilder(
                 builder: (context, setState) {
                   return AlertDialog(
-                    title: Text('Add New Business'),
+                    title: Text('add_new_business'.tr),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -349,14 +348,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     actions: [
                       if (!isLoading) // Hide actions when loading
                         TextButton(
-                          child: Text('Cancel'),
+                          child: Text('cancel'.tr),
                           onPressed: () {
                             Navigator.of(context).pop();
                           },
                         ),
                       if (!isLoading)
                         TextButton(
-                          child: Text('Save'),
+                          child: Text('save'.tr),
                           onPressed: () async {
                             if (businessNameController.text.isNotEmpty) {
                               setState(() {
@@ -410,7 +409,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
 
                   SizedBox(width: 8),
-                  if(passwordMatches)
+                  // Allow business switching for users with edit_business permission OR multi-business employees
+                  if(canEditBusiness || (_profileController.user['business'] as List).length > 1)
                     GestureDetector(
                       onTap: () {
                         // Simulate a DropdownButton by showing the menu when the icon is clicked
@@ -442,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Icon(Icons.add, color: Colors.blue),
                                   SizedBox(width: 8),
-                                  Text('Add New Business'),
+                                  Text('add_new_business'.tr),
                                 ],
                               ),
                             ),
@@ -459,7 +459,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   context: context,
                                   builder: (BuildContext context) {
                                     return AlertDialog(
-                                      title: Text('Limit Reached'),
+                                      title: Text('business_limit_reached'.tr),
                                       content: Text( '${'max_business_reached_message'.tr} (${_profileController.user['maxBusiness']})',),
                                       actions: [
                                         TextButton(
@@ -467,7 +467,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             print("Dialog closed");
                                             Navigator.of(context).pop();
                                           },
-                                          child: Text('OK'),
+                                          child: Text('ok_caps'.tr),
                                         ),
                                       ],
                                     );
@@ -522,14 +522,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    if(passwordMatches)
+                    if(canEditBusiness)
                       DrawerTile(
                         title: 'Employees'.tr,
                         icon: Icons.people,
                         route: 'addemployee',
                       ),
 
-                    if(passwordMatches)
+                    if(canEditBusiness)
                       DrawerTile(
                         title: 'Generate Reports'.tr,
                         icon: Icons.account_balance,
@@ -545,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.account_balance_wallet,
                       route: 'expenses',
                     ),
-                    if (passwordMatches)
+                    if (canEditBusiness)
                       DrawerTile(
                         title: 'Products in Store'.tr,
                         icon: Icons.production_quantity_limits_rounded,
@@ -569,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       route: 'report',
                     ),*/
 
-                    if(passwordMatches)
+                    if(canEditBusiness)
                     DrawerTile(
                       title: 'Statistics'.tr,
                       icon: Icons.bar_chart,
@@ -612,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 25),
-                if (passwordMatches)
+                if (canEditBusiness)
         InfoTile(
           onTap: () async {
             isBuyingStock = !isBuyingStock; // Toggle the value

@@ -20,7 +20,7 @@ class StoreTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final ProfileController profileController = Get.find();
     final BusinessController businessController = Get.find();
-    final bool passwordMatches = profileController.user['role'] == 'owner';
+    final bool canEditStore = profileController.hasPermission('edit_products');
     return GestureDetector(
       onTap: () {
         showModalBottomSheet(
@@ -134,7 +134,7 @@ class StoreTile extends StatelessWidget {
                   Expanded(
                     child: GestureDetector(
                       onTap: () {
-                        if (passwordMatches) {
+                        if (canEditStore) {
                           showDialog(
                             barrierDismissible: false,
                             context: context,

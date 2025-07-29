@@ -1,9 +1,51 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/models/profile_model.dart';
 import '../utils/constants.dart';
 
 class ProfileController extends GetxController {
+  /// Centralized permission check
+  bool hasPermission(String permission) {
+    final user = this.user;
+    String role = user['role'] ?? '';
+    
+    // Legacy support: treat 'employee' as 'sales_person'
+    if (role == 'employee') role = 'sales_person';
+    
+    // Custom permissions override
+    final List perms = user['permissions'] ?? [];
+    if (perms.contains(permission)) return true;
+    final Map<String, List<String>> rolePermissions = {
+      'owner': ['all'],
+      'manager': [
+        'view_products', 'edit_products', 'make_sales', 'view_sales', 'view_sales_own',
+        'manage_employees', 'manage_clients', 'edit_invoices', 'manage_expenses',
+        'view_reports', 'edit_business', 'edit_home', 'create_invoices', 'transfer_products',
+        'manage_transfers', 'view_statistics', 'manage_categories', 'view_transactions',
+        'manage_debt', 'print_invoices', 'share_invoices', 'buy_products'
+      ],
+      'cashier': [
+        'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
+        'print_invoices', 'share_invoices'
+      ],
+      'sales_person': [
+        'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
+        'print_invoices', 'share_invoices', 'buy_products'
+      ],
+      'agent': [
+        'view_products', 'view_sales', 'view_reports', 'view_statistics'
+      ]
+    };
+    // Owner can do everything
+    if (role == 'owner' || (rolePermissions[role]?.contains('all') ?? false)) {
+      return true;
+    }
+    
+    // Check role-based permissions
+    return rolePermissions[role]?.contains(permission) ?? false;
+  }
+
   final Rx<Map<String, dynamic>> _user = Rx<Map<String, dynamic>>({});
   Map<String, dynamic> get user => _user.value;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -18,13 +60,18 @@ class ProfileController extends GetxController {
     emailId.value = '';
     role.value='';// Reset the reactive businessId
   }
+  
+  /// Refresh user data from Firestore (useful after admin updates)
+  Future<void> refreshUserData() async {
+    await updateUserData();
+  }
+  
+
   updateUserData() async {
     try {
       String uid = _auth.currentUser?.uid ?? '';
 
       if (uid.isNotEmpty) {
-        print('Authenticated profile user id: $uid'); // Debugging line
-
         var snapshot = await firestore
             .collection('gmanusers')
             .doc(uid) // ✅ correct document reference
@@ -44,19 +91,18 @@ class ProfileController extends GetxController {
             'id': user.id,
             'date': user.date,
             'email': user.email, // you can store the email here
+            'permissions': user.permissions, // Include permissions in user data
           };
 
           role.value = user.role;
         } else {
-          print('No user found with the provided uid: $uid');
+          errorSnackbar('No user found with the provided uid: $uid');
         }
       } else {
         errorSnackbar('User is not authenticated.');
-        print('User is not authenticated.');
       }
     } catch (e) {
       errorSnackbar('Error: $e');
-      print('Error: $e');
     }
 
     update();

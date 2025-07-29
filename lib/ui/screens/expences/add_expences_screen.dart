@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../controllers/expence_controller.dart';
+import '../../../controllers/profile_controller.dart';
 import '../../../models/expences.dart';
 
 class AddExpenseScreen extends StatefulWidget {
@@ -17,8 +18,31 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   String _selectedCategory = 'Food'.tr;
   final ExpenseController _expenseController = Get.find();
+  final ProfileController _profileController = Get.find();
 
   bool _isLoading = false; // Variable to track loading state
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // CRITICAL SECURITY CHECK: Verify user has permission to manage expenses
+    if (!_profileController.hasPermission('manage_expenses')) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddExpenseScreen without manage_expenses permission');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'You do not have permission to add expenses',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,10 +133,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     ? CircularProgressIndicator() // Show loading indicator
                     : ElevatedButton(
                   onPressed: () {
+                    print('🔵 EXPENSE CREATION: Starting expense creation process');
+                    
                     if (_formKey.currentState!.validate()) {
+                      print('✅ EXPENSE CREATION: Form validation passed');
+                      
                       setState(() {
                         _isLoading = true; // Start loading
                       });
+                      
                       final expense = Expense(
                         id: Uuid().v4(),
                         title: _titleController.text,
@@ -120,18 +149,29 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         date: Timestamp.now(), // Automatically add the current date and time
                         category: _selectedCategory,
                       );
+                      
+                      print('🔵 EXPENSE CREATION: Expense object created: ${expense.toMap()}');
+                      print('🔵 EXPENSE CREATION: Calling ExpenseController.addExpense...');
+                      
                       _expenseController.addExpense(expense).then((_) {
+                        print('✅ EXPENSE CREATION: ExpenseController.addExpense completed successfully');
+                        
                         setState(() {
                           _isLoading = false; // Stop loading
                         });
                         Navigator.pop(context); // Go back after adding the expense
                       }).catchError((error) {
+                        print('❌ EXPENSE CREATION: ExpenseController.addExpense failed: $error');
+                        print('❌ EXPENSE CREATION: Error type: ${error.runtimeType}');
+                        
                         setState(() {
                           _isLoading = false; // Stop loading on error
                         });
                         // Show an error message if the expense fails to save
                         Get.snackbar('Error', 'Failed to add expense: $error');
                       });
+                    } else {
+                      print('❌ EXPENSE CREATION: Form validation failed');
                     }
                   },
                   child: Text('Save Expense'.tr),

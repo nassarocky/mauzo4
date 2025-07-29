@@ -289,8 +289,64 @@ class Languages extends Translations {
           'language': 'Language',
           'select_language': 'Select language',
           // ! support
-          'support_description': 'Need any assistance? Feel free to contact us',
-        },
+          'support_description': 'Need help? Feel free to contact us.',
+      
+      // ! Units and measurements
+      'units': 'Units',
+      'dozen': 'Dozen',
+      'pair': 'Pair',
+      'meter': 'Meter',
+      'kilogram': 'Kilogram',
+      'gram': 'Gram',
+      'liter': 'Liter',
+      'centimeter': 'Centimeter',
+      'other': 'Other',
+      
+      // ! Business management
+      'add_new_business': 'Add New Business',
+      'select_business': 'Select Business',
+      'business_limit_reached': 'Limit Reached',
+      'business_limit_message': 'You have reached the maximum number of businesses allowed.',
+      
+      // ! Employee roles
+      'owner': 'Owner',
+      'manager': 'Manager',
+      'cashier': 'Cashier',
+      'sales_person': 'Sales Person',
+      'agent': 'Agent',
+      
+      // ! Permissions and access
+      'access_denied': 'Access Denied',
+      'edit_employee_permissions': 'Edit Employee Permissions',
+      'save_assignments': 'Save Assignments',
+      
+      // ! Product transfers
+      'select_target_business': 'Select Target Business',
+      'proceed_to_transfer': 'Proceed to Transfer',
+      'transfer': 'Transfer',
+      'next': 'Next',
+      
+      // ! Reports and documents
+      'generate_product_report': 'Generate Product Report',
+      'generate_pdf_report': 'Generate PDF Report',
+      'print': 'Print',
+      'share': 'Share',
+      
+      // ! Services and features
+      'services': 'Services',
+      'scan_barcode': 'Scan Barcode',
+      'nunua_vocha': 'Buy Voucher',
+      'thibitisha_malipo': 'Confirm Payment',
+      
+      // ! Authentication
+      'reset_password': 'Reset Password',
+      'send_reset_link': 'Send Reset Link',
+      'privacy_policy': 'Privacy Policy',
+      
+      // ! Common actions
+      'go_back': 'Go Back',
+      'ok_caps': 'OK',
+    },
     'sw_TZ':{
       // ! generic
       'ok': 'Sawa',
@@ -614,6 +670,62 @@ class Languages extends Translations {
       'select_language': 'Chagua lugha',
       // ! support
       'support_description': 'Unahitaji msaada? Jisikie huru kuwasiliana nasi.',
+      
+      // ! Units and measurements
+      'units': 'Vipimo',
+      'dozen': 'Dazeni',
+      'pair': 'Jozi',
+      'meter': 'Mita',
+      'kilogram': 'Kilogramu',
+      'gram': 'Gramu',
+      'liter': 'Lita',
+      'centimeter': 'Sentimita',
+      'other': 'Nyingine',
+      
+      // ! Business management
+      'add_new_business': 'Ongeza Biashara Mpya',
+      'select_business': 'Chagua Biashara',
+      'business_limit_reached': 'Kikomo Kimefikiwa',
+      'business_limit_message': 'Umefika idadi ya juu ya biashara zinazoruhusiwa.',
+      
+      // ! Employee roles
+      'owner': 'Mmiliki',
+      'manager': 'Meneja',
+      'cashier': 'Mhudumu',
+      'sales_person': 'Muuzaji',
+      'agent': 'Wakala',
+      
+      // ! Permissions and access
+      'access_denied': 'Ufikiaji Umekataliwa',
+      'edit_employee_permissions': 'Hariri Ruhusa za Mfanyakazi',
+      'save_assignments': 'Hifadhi Magawo',
+      
+      // ! Product transfers
+      'select_target_business': 'Chagua Biashara ya Lengo',
+      'proceed_to_transfer': 'Endelea na Uhamishaji',
+      'transfer': 'Hamisha',
+      'next': 'Ifuatayo',
+      
+      // ! Reports and documents
+      'generate_product_report': 'Tengeneza Ripoti ya Bidhaa',
+      'generate_pdf_report': 'Tengeneza Ripoti ya PDF',
+      'print': 'Chapisha',
+      'share': 'Shiriki',
+      
+      // ! Services and features
+      'services': 'Huduma',
+      'scan_barcode': 'Skani Msimbo',
+      'nunua_vocha': 'Nunua Vocha',
+      'thibitisha_malipo': 'Thibitisha Malipo',
+      
+      // ! Authentication
+      'reset_password': 'Weka Upya Nywila',
+      'send_reset_link': 'Tuma Kiungo cha Kuweka Upya',
+      'privacy_policy': 'Sera ya Faragha',
+      
+      // ! Common actions
+      'go_back': 'Rudi Nyuma',
+      'ok_caps': 'SAWA',
     },
         'es_ES': {
           // ! generic

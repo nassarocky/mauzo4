@@ -44,6 +44,51 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // CRITICAL SECURITY CHECK: Verify user has permission to buy products
+    if (!_profileController.hasPermission('buy_products')) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('Access Denied'),
+          elevation: 0,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.lock,
+                size: 64,
+                color: Colors.red,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Access Denied',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'You do not have permission to access the product buying cart',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+              SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('Go Back'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
     String from = 'Add product';
     if (widget.userData != null) {
       from = widget.userData!.name; // Use null-safe operator
