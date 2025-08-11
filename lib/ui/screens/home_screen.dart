@@ -12,6 +12,7 @@ import '../../controllers/business_controller.dart';
 import '../../controllers/business_list_controller.dart';
 import '../../controllers/cart_controller.dart';
 import '../../controllers/client_controller.dart';
+import '../../controllers/supplier_controller.dart';
 import '../../controllers/debt_history_controller.dart';
 import '../../controllers/expence_controller.dart';
 import '../../controllers/invoice_controller.dart';
@@ -293,25 +294,27 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.delete<ProductController>(force: true);
           Get.delete<TransactionController>(force: true);
           Get.delete<ClientController>(force: true);
+          Get.delete<SupplierController>(force: true);
           Get.delete<SaleController>(force: true);
           Get.delete<ExpenseController>(force: true);
           Get.delete<CartController>(force: true);
           Get.delete<EmployeeController>(force: true);
           Get.delete<ClosedBooksController>(force: true);
-          // Recreate controllersProductTransferController
+          // Recreate controllers - ORDER MATTERS: Dependencies must be initialized first
           Get.put<ProductTransferController>(ProductTransferController());
           Get.put<StoreController>(StoreController());
-          Get.put<BoughtController>(BoughtController());
           Get.put<BusinessListController>(BusinessListController());
           Get.put<InvoiceController>(InvoiceController());
           Get.put<DebtHistoryController>(DebtHistoryController());
           Get.put<ProductController>(ProductController());
-          Get.put<ExpenseController>(ExpenseController());
+          Get.put<ExpenseController>(ExpenseController()); // Must be before BoughtController
           Get.put<TransactionController>(TransactionController());
           Get.put<ClientController>(ClientController());
+          Get.put<SupplierController>(SupplierController());
           Get.put<SaleController>(SaleController());
           Get.put<CartController>(CartController());
           Get.put<EmployeeController>(EmployeeController());
+          Get.put<BoughtController>(BoughtController()); // Depends on ExpenseController
           Get.put<ClosedBooksController>(ClosedBooksController());
         }
 
@@ -338,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           TextField(
                             controller: businessNameController,
                             decoration: InputDecoration(
-                              hintText: 'Business Name',
+                              hintText: 'business_name'.tr,
                               counterText: '', // Hides the character counter at the bottom
                             ),
                             maxLength: 25, // Set the maximum length to 25 characters

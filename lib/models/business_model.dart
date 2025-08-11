@@ -4,6 +4,7 @@ class BusinessModel {
   final String id;
   final String ownerId;
   final List<String> categories;
+  final List<String> expenseCategories;
   final List<String> manufacturer;
   final List<String> location;
   final String phone;
@@ -34,6 +35,7 @@ class BusinessModel {
     required this.id,
     this.ownerId = '',
     this.categories = const [],
+    this.expenseCategories = const [],
     this.manufacturer = const [],
     this.location = const [],
     required this.phone,
@@ -80,6 +82,7 @@ class BusinessModel {
       secondaryCurrency: data['secondaryCurrency'] ?? '',
       date: data['date'],
       categories: List<String>.from(data['categories'] ?? const []),
+      expenseCategories: List<String>.from(data['expenseCategories'] ?? const []),
       manufacturer: List<String>.from(data['manufacturer'] ?? const []),
       location: List<String>.from(data['location'] ?? const []),
       debtEnabled: data['debtEnabled'] ?? true,
@@ -103,6 +106,7 @@ class BusinessModel {
       'id': id,
       'ownerId': ownerId,
       'categories': categories,
+      'expenseCategories': expenseCategories,
       'manufacturer': manufacturer,
       'location': location,
       'phone': phone,

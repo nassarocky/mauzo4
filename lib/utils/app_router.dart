@@ -5,6 +5,7 @@ import 'package:mauzo/ui/screens/categories_screen.dart';
 import 'package:mauzo/ui/screens/auth/register_screen.dart';
 import 'package:mauzo/ui/screens/client/add_client_screen.dart';
 import 'package:mauzo/ui/screens/expences/add_expences_screen.dart';
+import 'package:mauzo/ui/screens/expences/edit_expense_screen.dart';
 import 'package:mauzo/ui/screens/my_account_screen.dart';
 import 'package:mauzo/ui/screens/product/add_product_screen.dart';
 import 'package:mauzo/ui/screens/product/store_screen.dart';
@@ -55,6 +56,11 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) =>   ReportScreen());
       case '/add-expense':
     return CupertinoPageRoute(builder: (_) => AddExpenseScreen());
+      case '/edit-expense':
+        return CupertinoPageRoute(
+          builder: (_) => EditExpenseScreen(),
+          settings: settings, // Pass settings to ensure arguments are available
+        );
       case '/home':
         return CupertinoPageRoute(
           builder: (_) => const HomeScreen());

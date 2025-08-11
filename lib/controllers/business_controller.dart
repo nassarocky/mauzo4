@@ -65,6 +65,7 @@ class BusinessController extends GetxController {
           _business.value = {
             'name': business.name,
             'categories': business.categories,
+            'expenseCategories': business.expenseCategories,
             'units': business.additionalList1,
             'manufacturer': business.manufacturer,
             'location': business.location,

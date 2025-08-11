@@ -20,7 +20,7 @@ class ProfileController extends GetxController {
       'owner': ['all'],
       'manager': [
         'view_products', 'edit_products', 'make_sales', 'view_sales', 'view_sales_own',
-        'manage_employees', 'manage_clients', 'edit_invoices', 'manage_expenses',
+        'manage_clients', 'manage_suppliers', 'edit_invoices', 'manage_expenses',
         'view_reports', 'edit_business', 'edit_home', 'create_invoices', 'transfer_products',
         'manage_transfers', 'view_statistics', 'manage_categories', 'view_transactions',
         'manage_debt', 'print_invoices', 'share_invoices', 'buy_products'

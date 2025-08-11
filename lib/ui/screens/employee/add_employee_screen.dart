@@ -87,23 +87,7 @@ class AddEmployeeScreen extends StatefulWidget {
 }
 
 class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
-  String _selectedRole = 'cashier';
-  final List<String> _allPermissions = [
-    'edit_products',
-    'view_products',
-    'make_sales',
-    'view_sales',
-    'manage_employees',
-    'view_purchases',
-    'edit_clients',
-    'edit_invoices',
-    'edit_home',
-    'edit_business',
-    'view_reports',
-    'statistics',
-    // Add more as needed
-  ];
-  final Set<String> _selectedPermissions = <String>{};
+  String _selectedRole = 'sales_person';
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -371,30 +355,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                     });
                   },
                 ),
-                const SizedBox(height: 16),
-                // Custom permissions selection
-                InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Custom Permissions',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _allPermissions.map((perm) => CheckboxListTile(
-                      value: _selectedPermissions.contains(perm),
-                      title: Text(perm),
-                      onChanged: (checked) {
-                        setState(() {
-                          if (checked == true) {
-                            _selectedPermissions.add(perm);
-                          } else {
-                            _selectedPermissions.remove(perm);
-                          }
-                        });
-                      },
-                    )).toList(),
-                  ),
-                ),
+
                 const SizedBox(height: 24),
                 Row(
                   children: [

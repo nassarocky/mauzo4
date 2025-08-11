@@ -146,7 +146,7 @@ class _AddClientScreenState extends State<AddClientScreen> {
                   children: [
                     Expanded(
                       child: PrimaryButton(
-                        onPressed: () async {
+                        onPressed: () {
                           print('🔵 CLIENT CREATION: Starting client creation process');
                           
                           try {
@@ -195,31 +195,20 @@ class _AddClientScreenState extends State<AddClientScreen> {
                             };
                             
                             print('🔵 CLIENT CREATION: Client data prepared: $clientData');
-                            print('🔵 CLIENT CREATION: Attempting Firestore set operation...');
-
-                            // Use non-blocking .then() pattern like sales (works offline)
-                            newClientRef.set(clientData).then((_) {
-                              print('✅ CLIENT CREATION: Firestore operation completed successfully');
-                              
-                              // Successfully added to Firestore
-                              setState(() {
-                                isLoading = false;
-                              });
-
-                              if (mounted) {
-                                Navigator.pop(context);
-                              }
-                              successSnackbar('client_added'.tr);
-                            }).catchError((error) {
-                              print('❌ CLIENT CREATION: Firestore operation failed: $error');
-                              
-                              errorSnackbar('Failed to add client: $error');
-                              setState(() {
-                                isLoading = false;
-                              });
+                            
+                            // Use the same pattern as working sales creation
+                            createClient(newClientRef, clientData);
+                            
+                            // Reset loading state immediately (don't wait for Firestore)
+                            setState(() {
+                              isLoading = false;
                             });
                             
-                            print('🔵 CLIENT CREATION: Firestore operation initiated (non-blocking)');
+                            // Navigate back immediately for offline UX
+                            if (mounted) {
+                              Navigator.pop(context);
+                            }
+                            successSnackbar('client_added'.tr);
                             
                           } catch (e) {
                             print('❌ CLIENT CREATION: Exception caught: $e');
@@ -233,8 +222,7 @@ class _AddClientScreenState extends State<AddClientScreen> {
                             
                             // Don't auto-close on error so user can see the error
                           }
-                        }
-,
+                        },
                         text: 'save'.tr,
                       ),
                     ),
@@ -246,5 +234,30 @@ class _AddClientScreenState extends State<AddClientScreen> {
         ),
       ),
     );
+  }
+
+  // Create client using the same pattern as working sales creation
+  void createClient(DocumentReference clientRef, Map<String, dynamic> clientData) {
+    print('🔵 CLIENT CREATION: Starting createClient function');
+    
+    clientRef.set(clientData).then((_) {
+      print('✅ CLIENT CREATION: Firestore operation completed successfully');
+      
+      // Update client with its ID (like sales do)
+      updateClientId(clientRef);
+    }).catchError((error) {
+      print('❌ CLIENT CREATION: Firestore operation failed: $error');
+      // Error handling - but UI already updated, so just log
+    });
+    
+    print('🔵 CLIENT CREATION: Firestore operation initiated (non-blocking)');
+  }
+
+  // Update client ID (following sales pattern)
+  void updateClientId(DocumentReference clientRef) {
+    clientRef.update({'id': clientRef.id}).catchError((error) {
+      print('❌ CLIENT CREATION: Failed to update client ID: $error');
+      // Don't show error to user for ID update failure
+    });
   }
 }

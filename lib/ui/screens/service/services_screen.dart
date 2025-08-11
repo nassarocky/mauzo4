@@ -11,7 +11,7 @@ class ServicesScreen extends StatelessWidget {
     final List<Service> services = [];
     return Scaffold(
       appBar: AppBar(
-        title: Text('Services'),
+        title: Text('services'.tr),
       ),
       body: ListView.builder(
         itemCount: services.length,

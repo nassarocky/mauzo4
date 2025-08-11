@@ -164,7 +164,7 @@ class _SelectClientScreenState extends State<SelectClientScreen> {
                       leading: SizedBox(
                         height: 36,
                         width: 36,
-                        child: client.image != ''
+                        child: (client.image != null && client.image != '')
                             ? ClipRRect(
                           borderRadius: BorderRadius.circular(100),
                           child: Image.network(

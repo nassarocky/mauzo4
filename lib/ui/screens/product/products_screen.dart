@@ -327,7 +327,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   padding: const EdgeInsets.all(16.0),
                   child: ElevatedButton.icon(
                     icon: Icon(Icons.shopping_cart),
-                    label: Text('Proceed to Transfer'),
+                    label: Text('proceed_to_transfer'.tr),
                     onPressed: selectedProductIds.isEmpty
                         ? null
                         : () {

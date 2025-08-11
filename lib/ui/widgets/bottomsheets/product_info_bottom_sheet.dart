@@ -488,7 +488,7 @@ class ProductInfoBottomSheet extends StatelessWidget {
                               return StatefulBuilder(
                                 builder: (context, setState) {
                                   return AlertDialog(
-                                    title: Text('Select Target Business'),
+                                    title: Text('select_target_business'.tr),
                                     content: DropdownButton<String>(
                                       value: dropdownValue,
                                       isExpanded: true,
@@ -507,11 +507,11 @@ class ProductInfoBottomSheet extends StatelessWidget {
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context, null),
-                                        child: Text('Cancel'),
+                                        child: Text('cancel'.tr),
                                       ),
                                       TextButton(
                                         onPressed: () => Navigator.pop(context, dropdownValue),
-                                        child: Text('Next'),
+                                        child: Text('next'.tr),
                                       ),
                                     ],
                                   );

@@ -5,6 +5,7 @@ import 'package:mauzo/models/product_model.dart';
 import 'package:mauzo/utils/preferences.dart';
 
 import '../models/client_model.dart';
+import '../models/supplier_model.dart';
 import 'business_controller.dart';
 
 class CartController extends GetxController {
@@ -136,6 +137,17 @@ class CartController extends GetxController {
 
   void clearClient() {
     client = null;
+    update();
+  }
+
+  // * SUPPLIER
+  Supplier? supplier;
+  void setSupplier(Supplier supplier) {
+    this.supplier = supplier;
+  }
+
+  void clearSupplier() {
+    supplier = null;
     update();
   }
 

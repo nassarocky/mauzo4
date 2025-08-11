@@ -17,11 +17,8 @@ import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
 import '../controllers/profile_controller.dart';
 import 'business_controller.dart';
-import 'expence_controller.dart';
-
 class BoughtController extends GetxController {
   final BusinessController _businessController = Get.find();
-  final ExpenseController expenceController = Get.find();
   final ClientController clientController = Get.find();
   final ProductController productController = Get.find();
 

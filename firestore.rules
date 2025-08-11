@@ -148,6 +148,20 @@ service cloud.firestore {
       }
     }
 
+    // ✅ Expenses collection
+    match /expenses/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userExpenses/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+      
+      // Allow access to settings subcollection for custom categories
+      match /settings/{settingId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
     // ❌ Deny everything else explicitly
     match /{document=**} {
       allow read, write: if false;

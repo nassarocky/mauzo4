@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -199,7 +200,7 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Generate Product Report')),
+      appBar: AppBar(title: Text('generate_product_report'.tr)),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -209,7 +210,7 @@ class _ReportScreenState extends State<ReportScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return CircularProgressIndicator();
                 return DropdownButton<String>(
-                  hint: Text('Select Business'),
+                  hint: Text('select_business'.tr),
                   value: _selectedBusinessId,
                   items: snapshot.data!.map((doc) {
                     return DropdownMenuItem<String>(
@@ -242,7 +243,7 @@ class _ReportScreenState extends State<ReportScreen> {
               Text(_errorMessage, style: TextStyle(color: Colors.red)),
             ElevatedButton(
               onPressed: _isLoading ? null : _generateReport,
-              child: Text('Generate PDF Report'),
+              child: Text('generate_pdf_report'.tr),
             ),
           ],
         ),

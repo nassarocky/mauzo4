@@ -11,7 +11,7 @@ class ResetPasswordScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Reset Password")),
+      appBar: AppBar(title: Text('reset_password'.tr)),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -35,7 +35,7 @@ class ResetPasswordScreen extends StatelessWidget {
                   Get.snackbar("Error", "Please enter your email");
                 }
               },
-              child: Text("Send Reset Link"),
+              child: Text('send_reset_link'.tr),
             ),
           ],
         ),

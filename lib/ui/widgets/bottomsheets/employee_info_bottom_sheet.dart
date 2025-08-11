@@ -118,7 +118,7 @@ final bool canManageEmployees = profileController.hasPermission('manage_employee
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if(employee.role!='owner')
+                    if(employee.role!='owner' && canManageEmployees)
                     Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(4),

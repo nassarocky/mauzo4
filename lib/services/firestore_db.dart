@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/models/business_model.dart';
 import 'package:mauzo/models/client_model.dart';
+import 'package:mauzo/models/supplier_model.dart';
 import 'package:mauzo/models/profile_model.dart';
 import 'package:mauzo/models/sale_model.dart';
 import '../controllers/business_controller.dart';
@@ -408,6 +409,32 @@ class FirestoreDb {
     })
         .handleError((error) {
       print('Error fetching Employee: $error');
+    });
+  }
+
+  Stream<List<Supplier>> getSuppliers() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is null, returning empty suppliers.');
+      return Stream.value([]);
+    }
+
+    print('Fetching suppliers for business: $business');
+
+    return firestore
+        .collection('suppliers')
+        .doc(business)
+        .collection('userSuppliers')
+        .snapshots()
+        .map((snapshot) {
+      print('Received suppliers with ${snapshot.docs.length} documents');
+      return snapshot.docs.map((doc) {
+        print('Processing supplier with ID: ${doc.id}');
+        return Supplier.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching suppliers: $error');
     });
   }
 

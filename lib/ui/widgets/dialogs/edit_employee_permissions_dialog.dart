@@ -120,8 +120,8 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
 
       // Show success message
       Get.snackbar(
-        'Success',
-        'Employee permissions updated successfully\nRole: $selectedRole\nPermissions: ${selectedPermissions.length} custom permissions',
+        'success'.tr,
+        '${'employee_permissions_updated'.tr}\n${'role_colon'.tr} $selectedRole\n${'permissions_colon'.tr} ${selectedPermissions.length} ${'custom_permissions_count'.tr}',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.green,
         colorText: Colors.white,
@@ -134,8 +134,8 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
     } catch (e, stackTrace) {
       // Show error message
       Get.snackbar(
-        'Update Failed',
-        'Failed to update permissions: ${e.toString()}',
+        'error'.tr,
+        '${'something_went_wrong'.tr}: ${e.toString()}',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red,
         colorText: Colors.white,
@@ -166,7 +166,7 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
               children: [
                 Expanded(
                   child: Text(
-                    'Edit Employee Permissions',
+                    'edit_employee_permissions'.tr,
                     style: h5(Theme.of(context).textTheme.bodyLarge!.color),
                   ),
                 ),
@@ -189,7 +189,7 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
             Row(
               children: [
                 Text(
-                  'Role',
+                  'role'.tr,
                   style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
                 ),
                 const SizedBox(width: 8),
@@ -216,7 +216,7 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'Role Guide',
+                          'view_role_guide'.tr,
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.blue[600],
@@ -286,12 +286,12 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Custom Permissions',
+                            'custom_permissions'.tr,
                             style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
                           ),
                           if (selectedPermissions.isNotEmpty)
                             Text(
-                              '${selectedPermissions.length} permission(s) selected',
+                              '${selectedPermissions.length} ${'permission_selected'.tr}',
                               style: bodyText(primaryColor),
                             ),
                         ],
@@ -322,7 +322,7 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
             if (showCustomPermissions) ...[
               const SizedBox(height: 12),
               Text(
-                'These permissions override role-based permissions',
+                'permissions_override_note'.tr,
                 style: bodyText(textPlaceholderColor),
               ),
               const SizedBox(height: 12),
@@ -343,7 +343,7 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
                       
                       return CheckboxListTile(
                         title: Text(
-                          permission.replaceAll('_', ' ').capitalizeFirst!,
+                          permission.tr,
                           style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
                         ),
                         value: isSelected,
@@ -374,14 +374,14 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
               children: [
                 Expanded(
                   child: SecondaryButton(
-                    text: 'Cancel',
+                    text: 'cancel'.tr,
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: PrimaryButton(
-                    text: isLoading ? 'Saving...' : 'Save Changes',
+                    text: isLoading ? 'saving'.tr : 'save_changes'.tr,
                     onPressed: isLoading ? () {} : () => _saveChanges(),
                   ),
                 ),

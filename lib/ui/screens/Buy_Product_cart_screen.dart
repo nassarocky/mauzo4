@@ -6,6 +6,7 @@ import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/ui/screens/sale/edit_sale.screen.dart';
 import '../../controllers/cart_controller.dart';
 import '../../controllers/client_controller.dart';
+import '../../controllers/supplier_controller.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../utils/constants.dart';
@@ -27,6 +28,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   final CartController _cartController = Get.find();
   final ProductController _productController = Get.find();
   final ClientController _clientController = Get.find();
+  final SupplierController _supplierController = Get.find();
   final ProfileController _profileController = Get.find();
   static final BusinessController _businessController = Get.find();
 
@@ -158,6 +160,52 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                     ),
                   ),
                 ),
+                // Supplier Selection Field
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: SizedBox(
+                    height: 44,
+                    child: TextField(
+                      onTap: () {
+                        Navigator.pushNamed(context, '/supplier/select')
+                            .then(
+                              (value) {
+                                if (value != null) {
+                                  _cartController.setSupplier(value);
+                                }
+                                setState(() {});
+                              },
+                        );
+                      },
+                      readOnly: true,
+                      decoration: InputDecoration(
+                        contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 10),
+                        hintText: _cartController.supplier?.name ??
+                            'select_supplier'.tr,
+                        hintStyle: bodyText(
+                            _cartController.supplier != null
+                                ? Theme.of(context).textTheme.bodyLarge!.color
+                                : textPlaceholderColor),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                          borderSide: BorderSide(
+                            color: Preferences.getTheme()
+                                ? mediumGrayColor
+                                : borderColor,
+                          ),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        suffixIcon:
+                        const Icon(Icons.keyboard_arrow_right),
+                        prefixIcon: const Icon(Icons.business),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   padding: const EdgeInsets.all(16),
@@ -617,6 +665,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   void clearCartData() {
     _cartController.clearCart();
     _cartController.clearClient();
+    _cartController.clearSupplier();
     _cartController.clearComment();
     _cartController.clearDiscount();
     _cartController.clearPayments();
