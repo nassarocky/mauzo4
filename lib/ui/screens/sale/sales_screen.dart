@@ -435,7 +435,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                           ),
                                         ),
                                         const Spacer(),
-                                        if (canMakeSales && sale.debt == 0.0 && sale.products.isNotEmpty && sale.payment != 0.0)
+                                        if ((_profileController.hasPermission('edit_sales') || _profileController.hasPermission('delete_sales')) && sale.debt == 0.0 && sale.products.isNotEmpty && sale.payment != 0.0)
 
                                           PopupMenuButton(
                                             child: Icon(
@@ -454,19 +454,22 @@ class _SalesScreenState extends State<SalesScreen> {
                                             },
                                             itemBuilder: (BuildContext context) =>
                                             <PopupMenuEntry<String>>[
-                                              PopupMenuItem<String>(
-                                                value: 'Delete',
-                                                child: Text(
-                                                  'delete'.tr,
-                                                  style: bodyText(redColor),
+                                              if (_profileController.hasPermission('delete_sales'))
+                                                PopupMenuItem<String>(
+                                                  value: 'Delete',
+                                                  child: Text(
+                                                    'delete'.tr,
+                                                    style: bodyText(redColor),
+                                                  ),
                                                 ),
-                                              ), PopupMenuItem<String>(
-                                              value: 'Edit',
-                                              child: Text(
-                                                'edit'.tr,
-                                                style: bodyText(redColor),
-                                              ),
-                                            )
+                                              if (_profileController.hasPermission('edit_sales'))
+                                                PopupMenuItem<String>(
+                                                  value: 'Edit',
+                                                  child: Text(
+                                                    'edit'.tr,
+                                                    style: bodyText(redColor),
+                                                  ),
+                                                )
                                             ],
                                           )
                                         ,

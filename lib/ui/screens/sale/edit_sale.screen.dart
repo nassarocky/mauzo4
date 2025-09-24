@@ -51,9 +51,8 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
   void initState() {
     super.initState();
     
-    // CRITICAL SECURITY CHECK: Verify user has permission to make sales
-    if (!_profileController.hasPermission('make_sales')) {
-      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditSaleScreen without make_sales permission');
+    // CRITICAL SECURITY CHECK: Verify user has permission to edit sales
+    if (!_profileController.hasPermission('edit_sales')) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         Get.snackbar(

@@ -172,8 +172,8 @@ class DebtHistoryController extends GetxController {
             // Ensure payment['date'] is of type Timestamp
             if (payment['date'] is Timestamp) {
               Timestamp paymentTimestamp = payment['date'];
-              // Check if the payment date is after the startTimestamp
-              if (paymentTimestamp.compareTo(startTimestamp) > 0) {
+              // Check if the payment date is within the selected window (start, end)
+              if (paymentTimestamp.compareTo(startTimestamp) > 0 && paymentTimestamp.compareTo(endDate) < 0) {
                 totalPayments += payment['amount'];
               }
             } else {

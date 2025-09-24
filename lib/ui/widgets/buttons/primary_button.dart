@@ -10,7 +10,7 @@ class PrimaryButton extends StatelessWidget {
   }) : super(key: key);
 
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Color color;
 
   @override

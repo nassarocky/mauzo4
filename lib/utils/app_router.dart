@@ -34,14 +34,23 @@ import '../ui/screens/employee/employee_screen.dart';
 import '../ui/screens/expences/expences_list_screen.dart';
 import '../ui/screens/invoices/invoices_screen.dart';
 import 'package:mauzo/ui/screens/service/services_screen.dart';
-
+import '../ui/screens/supplier/suppliers_screen.dart';
+import '../ui/screens/supplier/add_supplier_screen.dart';
+import '../ui/screens/supplier/edit_supplier_screen.dart';
+import '../ui/screens/supplier/select_supplier_screen.dart';
+import '../ui/screens/supplier_debt_screen.dart';
 import '../ui/screens/sale/edit_sale.screen.dart';
+import '../ui/screens/pay_role_management_screen.dart';
+import '../ui/screens/select_employee_for_pay_role_screen.dart';
+import '../ui/screens/payment_management_screen.dart';
 
 class AppRouter {
   static Route onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
       case '/debt':
         return CupertinoPageRoute(builder: (_) => DebtHistoryScreen());
+      case '/supplier-debt':
+        return CupertinoPageRoute(builder: (_) => const SupplierDebtScreen());
       case '/login':
         return CupertinoPageRoute(builder: (_) => const LoginScreen());
       case '/addemployee':
@@ -103,6 +112,16 @@ class AppRouter {
       case '/client/add':
         return CupertinoPageRoute(
           builder: (_) => const AddClientScreen());
+      case '/suppliers':
+        return CupertinoPageRoute(builder: (_) => const SuppliersScreen());
+      case '/supplier/select':
+        return CupertinoPageRoute(builder: (_) => const SelectSupplierScreen());
+      case '/supplier/add':
+        return CupertinoPageRoute(
+          builder: (_) => const AddSupplierScreen());
+      case '/supplier/edit':
+        return CupertinoPageRoute(
+          builder: (_) => const EditSupplierScreen());
       case '/employee/add':
         return CupertinoPageRoute(
             builder: (_) =>  AddEmployeeScreen());
@@ -116,6 +135,12 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) =>  AccountScreen());
       case '/services':
         return CupertinoPageRoute(builder: (_) => const ServicesScreen());
+      case '/pay-roles':
+        return CupertinoPageRoute(builder: (_) => const PayRoleManagementScreen());
+      case '/select-employee-pay-role':
+        return CupertinoPageRoute(builder: (_) => const SelectEmployeeForPayRoleScreen());
+      case '/payment-management':
+        return CupertinoPageRoute(builder: (_) => const PaymentManagementScreen());
       default:
         return CupertinoPageRoute(
           builder: (_) => const LoadingScreen(),

@@ -192,36 +192,39 @@ exports.makePayment = onRequest(async (req, res) => {
 
 
 // Callable Functionconst allowedOrigins = ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"];
-                    exports.loginAdmin = onRequest(async (req, res) => {
-                      // Set CORS headers
-                      res.set("Access-Control-Allow-Origin", "*");
-                      res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-                      res.set("Access-Control-Allow-Headers", "Content-Type");
+    exports.loginAdmin = onRequest(async (req, res) => {
+      // Set CORS headers
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+      res.set("Access-Control-Allow-Headers", "Content-Type");
 
-                      // Handle preflight (OPTIONS) request
-                      if (req.method === "OPTIONS") {
-                        return res.status(204).send(""); // No Content
-                      }
+      // Handle preflight (OPTIONS) request
+      if (req.method === "OPTIONS") {
+        return res.status(204).send(""); // No Content
+      }
 
-                      try {
-                        // Validate request method
-                        if (req.method !== "POST") {
-                          return res.status(405).json({ message: "Method not allowed. Use POST." });
-                        }
+      try {
+        // Validate request method
+        if (req.method !== "POST") {
+          return res.status(405).json({ message: "Method not allowed. Use POST." });
+        }
 
-                        const { username, password } = req.body;
+        const { username, password } = req.body;
 
-                        // Check if username and password match the admin credentials
-                        if (username === "admin" && password === "wanasa1243") {
-                          return res.status(200).json({ message: "Login successful!" });
-                        } else {
-                          return res.status(401).json({ message: "Invalid username or password." });
-                        }
-                      } catch (error) {
-                        console.error("Error in loginAdmin:", error);
-                        return res.status(500).json({ error: "Internal Server Error" });
-                      }
-                    });
+        // Accept two different credentials
+        if (
+          (username === "admin" && password === "wanasa1243") ||
+          (username === "luth" && password === "luth1234")
+        ) {
+          return res.status(200).json({ message: "Login successful!" });
+        } else {
+          return res.status(401).json({ message: "Invalid username or password." });
+        }
+      } catch (error) {
+        console.error("Error in loginAdmin:", error);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+    });
 
 
                      // Add your allowed origins here
@@ -1562,6 +1565,8 @@ async function handleCheckoutConfirmation(message, business, from, customerPhone
 
   if (message === '1') {
     try {
+      // In a real implementation, you would process payment here
+      // This is a mock implementation
       await handleCheckout(business.id, customerPhone, from, lang);
       await userStateRef.set({
         step: 'checkout_complete',
@@ -1754,7 +1759,7 @@ async function handleCartOperation(productName, action, businessId, customerPhon
           quantity: 1
         }],
         total: product.price,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: admin.firestore.Timestamp.now()
       });
     } else {
       const cart = cartDoc.data();
@@ -1772,7 +1777,7 @@ async function handleCartOperation(productName, action, businessId, customerPhon
       }
 
       cart.total = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      cart.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+      cart.updatedAt = admin.firestore.Timestamp.now();
 
       await cartRef.update(cart);
     }
@@ -1928,6 +1933,11 @@ exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (reque
       .collection('userTransferRequests').doc(transferRequestId)
       .update({ status: 'accepted', respondedAt: admin.firestore.FieldValue.serverTimestamp() });
 
+    // Declare variables to capture data from transactions
+    let fromProductData = null;
+    let fromQty = 0;
+    let toQty = 0;
+
     // 2. Update product stock in sender (fromBusinessId): decrement quantity
     const fromProductRef = firestore
       .collection('products').doc(fromBusinessId)
@@ -1937,7 +1947,8 @@ exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (reque
       if (!fromProductSnap.exists) {
         throw new HttpsError('not-found', 'Product not found in sender business');
       }
-      const fromQty = fromProductSnap.data().quantity || 0;
+      fromProductData = fromProductSnap.data();
+      fromQty = fromProductData.quantity || 0;
       if (fromQty < quantity) {
         throw new HttpsError('failed-precondition', 'Not enough stock in sender business');
       }
@@ -1951,18 +1962,95 @@ exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (reque
     await firestore.runTransaction(async (transaction) => {
       const toProductSnap = await transaction.get(toProductRef);
       if (!toProductSnap.exists) {
-        // If product does not exist in receiver, create it with the transferred quantity
-        transaction.set(toProductRef, { quantity: quantity });
+        // Product doesn't exist in destination - use the source product data we already have
+        if (fromProductData) {
+          const newProductData = {
+            ...fromProductData,
+            quantity: quantity,
+            owner: toBusinessId,
+            id: productId
+          };
+          transaction.set(toProductRef, newProductData);
+          console.log(`Created new product ${fromProductData.name} in destination with quantity: ${quantity}`);
+        } else {
+          // Fallback: create minimal product data (should rarely happen)
+          const minimalProductData = {
+            id: productId,
+            name: 'Unknown Product',
+            quantity: quantity,
+            owner: toBusinessId,
+            itemType: 'product',
+            price: 0.0,
+            buyingPrice: 0.0,
+            storeId: '',
+            code: '',
+            discount: 0.0,
+            manufacturer: '',
+            location: '',
+            details: '',
+            understock: 0.0,
+            category: '',
+            total: 0.0,
+            count: 0.0
+          };
+          transaction.set(toProductRef, minimalProductData);
+          console.log(`Created minimal product ${productId} in destination`);
+        }
+        toQty = 0; // New product, so previous quantity is 0
       } else {
-        const toQty = toProductSnap.data().quantity || 0;
+        // Product exists in destination - increment quantity
+        toQty = toProductSnap.data().quantity || 0;
         transaction.update(toProductRef, { quantity: toQty + quantity });
+        console.log(`Increased product in destination: ${toQty} -> ${toQty + quantity}`);
       }
     });
+
+    // 4. Record transaction in sender business (removal)
+    const sourceTransactionRef = firestore
+      .collection('transactions')
+      .doc(fromBusinessId)
+      .collection('usersTransactions')
+      .doc();
+
+    const sourceTransaction = {
+      transactionId: sourceTransactionRef.id,
+      productId: productId,
+      quantity: fromQty - quantity, // New quantity after removal
+      previousQuantity: fromQty,
+      transactionType: 'removal',
+      transactionOrigin: 'Product Transfer Out',
+      timestamp: admin.firestore.Timestamp.now(),
+      userId: context.uid,
+      price: fromProductData?.price || 0.0
+    };
+
+    await sourceTransactionRef.set(sourceTransaction);
+
+    // 5. Record transaction in receiver business (addition)
+    const destTransactionRef = firestore
+      .collection('transactions')
+      .doc(toBusinessId)
+      .collection('usersTransactions')
+      .doc();
+
+    const destTransaction = {
+      transactionId: destTransactionRef.id,
+      productId: productId,
+      quantity: toQty + quantity, // New quantity after addition
+      previousQuantity: toQty,
+      transactionType: 'addition',
+      transactionOrigin: 'Product Transfer In',
+      timestamp: admin.firestore.Timestamp.now(),
+      userId: context.uid,
+      price: fromProductData?.price || 0.0
+    };
+
+    await destTransactionRef.set(destTransaction);
 
     return { success: true };
   } catch (error) {
     console.error('acceptTransferRequestV2 error:', error);
-    throw new HttpsError('internal', error.message || 'Unknown error');
+    throw new HttpsError('internal', error.message || 'Unknown error occurred');
   }
 });
 
@@ -1995,6 +2083,10 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
 
       console.log(`[Batch Transfer] Processing product: ${productName} (${productId}), quantity: ${quantity}`);
 
+      let fromProductData = null;
+      let fromQty = 0;
+      let toQty = 0;
+
       // 1. Update product stock in sender (fromBusinessId): decrement quantity
       const fromProductRef = firestore
         .collection('products').doc(fromBusinessId)
@@ -2006,8 +2098,8 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
           throw new HttpsError('not-found', `Product ${productName} not found in sender business`);
         }
         
-        const fromProductData = fromProductSnap.data();
-        const fromQty = fromProductData.quantity || 0;
+        fromProductData = fromProductSnap.data();
+        fromQty = fromProductData.quantity || 0;
         
         if (fromQty < quantity) {
           throw new HttpsError('failed-precondition', `Not enough stock for ${productName}. Available: ${fromQty}, Requested: ${quantity}`);
@@ -2039,6 +2131,7 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
             };
             transaction.set(toProductRef, newProductData);
             console.log(`[Batch Transfer] Created new product ${productName} in destination with quantity: ${quantity}`);
+            toQty = 0;
           } else {
             // Fallback: create minimal product data
             const minimalProductData = {
@@ -2062,17 +2155,60 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
             };
             transaction.set(toProductRef, minimalProductData);
             console.log(`[Batch Transfer] Created minimal product ${productName} in destination`);
+            toQty = 0;
           }
         } else {
           // Product exists in destination - increment quantity
-          const toQty = toProductSnap.data().quantity || 0;
+          toQty = toProductSnap.data().quantity || 0;
           transaction.update(toProductRef, { quantity: toQty + quantity });
           console.log(`[Batch Transfer] Increased ${productName} in destination: ${toQty} -> ${toQty + quantity}`);
         }
       });
+
+      // 3. Record transaction in sender business (removal)
+      const sourceTransactionRef = firestore
+        .collection('transactions')
+        .doc(fromBusinessId)
+        .collection('usersTransactions')
+        .doc();
+
+      const sourceTransaction = {
+        transactionId: sourceTransactionRef.id,
+        productId: productId,
+        quantity: fromQty - quantity, // New quantity after removal
+        previousQuantity: fromQty,
+        transactionType: 'removal',
+        transactionOrigin: 'Batch Transfer Out',
+        timestamp: admin.firestore.Timestamp.now(),
+        userId: context.uid,
+        price: fromProductData?.price || 0.0
+      };
+
+      await sourceTransactionRef.set(sourceTransaction);
+
+      // 4. Record transaction in receiver business (addition)
+      const destTransactionRef = firestore
+        .collection('transactions')
+        .doc(toBusinessId)
+        .collection('usersTransactions')
+        .doc();
+
+      const destTransaction = {
+        transactionId: destTransactionRef.id,
+        productId: productId,
+        quantity: toQty + quantity, // New quantity after addition
+        previousQuantity: toQty,
+        transactionType: 'addition',
+        transactionOrigin: 'Batch Transfer In',
+        timestamp: admin.firestore.Timestamp.now(),
+        userId: context.uid,
+        price: fromProductData?.price || 0.0
+      };
+
+      await destTransactionRef.set(destTransaction);
     }
 
-    // 3. Update transfer request status to 'accepted' in both businesses
+    // 5. Update transfer request status to 'accepted' in both businesses
     const updateData = {
       status: 'accepted',
       respondedByUserId: context.uid,
@@ -2101,5 +2237,122 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
   } catch (error) {
     console.error('acceptBatchTransferRequestV2 error:', error);
     throw new HttpsError('internal', error.message || 'Unknown error occurred during batch transfer');
+  }
+});
+
+exports.updateUserDetailsV2 = onCall(async (request) => {
+  try {
+    const { userId, updateData } = request.data;
+    
+    // Validate required parameters
+    if (!userId) {
+      throw new HttpsError("invalid-argument", "userId is required");
+    }
+    
+    if (!updateData || typeof updateData !== 'object') {
+      throw new HttpsError("invalid-argument", "updateData must be a valid object");
+    }
+
+    // Define allowed fields that can be updated
+    const allowedFields = [
+      'name', 
+      'email', 
+      'phone', 
+      'role', 
+      'maxBusiness', 
+      'image', 
+      'business'
+    ];
+    
+    // Filter updateData to only include allowed fields
+    const filteredUpdateData = {};
+    Object.keys(updateData).forEach(key => {
+      if (allowedFields.includes(key)) {
+        filteredUpdateData[key] = updateData[key];
+      }
+    });
+    
+    if (Object.keys(filteredUpdateData).length === 0) {
+      throw new HttpsError("invalid-argument", "No valid fields to update");
+    }
+
+    // Check if user exists in gmanusers collection
+    const userRef = firestore.collection('gmanusers').doc(userId);
+    const userDoc = await userRef.get();
+    
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found in gmanusers collection");
+    }
+
+    const currentUserData = userDoc.data();
+    
+    // Update gmanusers collection
+    await userRef.update(filteredUpdateData);
+    
+    // If user has businesses, update their records in employees subcollections
+    if (currentUserData.business && Array.isArray(currentUserData.business)) {
+      const businessUpdatePromises = currentUserData.business.map(async (businessId) => {
+        const employeeRef = firestore
+          .collection('employees')
+          .doc(businessId)
+          .collection('userEmployees')
+          .doc(userId);
+        
+        // Check if employee record exists before updating
+        const employeeDoc = await employeeRef.get();
+        if (employeeDoc.exists) {
+          return employeeRef.update(filteredUpdateData);
+        }
+        return Promise.resolve();
+      });
+      
+      await Promise.all(businessUpdatePromises);
+    }
+
+    // If business array was updated, handle employee collection changes
+    if (filteredUpdateData.business && Array.isArray(filteredUpdateData.business)) {
+      const oldBusinesses = currentUserData.business || [];
+      const newBusinesses = filteredUpdateData.business;
+      
+      // Remove user from businesses they're no longer part of
+      const removedBusinesses = oldBusinesses.filter(id => !newBusinesses.includes(id));
+      const removePromises = removedBusinesses.map(businessId => {
+        return firestore
+          .collection('employees')
+          .doc(businessId)
+          .collection('userEmployees')
+          .doc(userId)
+          .delete();
+      });
+      
+      // Add user to new businesses
+      const addedBusinesses = newBusinesses.filter(id => !oldBusinesses.includes(id));
+      const addPromises = addedBusinesses.map(businessId => {
+        const updatedUserData = { ...currentUserData, ...filteredUpdateData };
+        return firestore
+          .collection('employees')
+          .doc(businessId)
+          .collection('userEmployees')
+          .doc(userId)
+          .set(updatedUserData, { merge: true });
+      });
+      
+      await Promise.all([...removePromises, ...addPromises]);
+    }
+
+    return {
+      success: true,
+      message: "User details updated successfully",
+      updatedFields: Object.keys(filteredUpdateData)
+    };
+
+  } catch (error) {
+    console.error("Error updating user details:", error);
+    
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    
+    throw new HttpsError("internal", `Failed to update user details: ${error.message}`);
   }
 });

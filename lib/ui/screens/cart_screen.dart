@@ -55,8 +55,14 @@ class _CartScreenState extends State<CartScreen> {
     
     switch (from) {
       case 'invoice':
-        requiredPermission = 'create_invoices';
-        contextualMessage = 'You do not have permission to create invoices';
+        // Check if we're editing an existing invoice or creating a new one
+        if (_cartController.editInvoice == 'edit') {
+          requiredPermission = 'edit_invoices';
+          contextualMessage = 'You do not have permission to edit invoices';
+        } else {
+          requiredPermission = 'create_invoices';
+          contextualMessage = 'You do not have permission to create invoices';
+        }
         break;
       case 'transfer':
         requiredPermission = 'transfer_products';

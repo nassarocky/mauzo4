@@ -98,6 +98,74 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
     return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
   }
 
+  Future<void> _saveSupplier() async {
+    try {
+      if (_nameController.text.isEmpty || _phoneController.text.isEmpty) {
+        errorSnackbar('fill_required_fields'.tr);
+        return;
+      }
+      
+      if (_emailController.text.isNotEmpty && !isValidEmail(_emailController.text)) {
+        errorSnackbar('Invalid email format.');
+        return;
+      }
+
+      setState(() {
+        isUploading = true;
+      });
+
+      String? imageUrl = '';
+      if (imageFile != null) {
+        imageUrl = await uploadFile('suppliers', imageFile!);
+      }
+
+      final String? businessId = _businessController.business['id'];
+      if (businessId == null) {
+        print('Business ID is null, cannot add supplier.');
+        setState(() {
+          isUploading = false;
+        });
+        return;
+      }
+
+      // Create supplier document
+      await firestore
+          .collection('suppliers')
+          .doc(businessId)
+          .collection('userSuppliers')
+          .add({
+        'owner': businessId,
+        'name': _nameController.text,
+        'company': _companyController.text.isEmpty ? null : _companyController.text,
+        'phone': _phoneController.text,
+        'email': _emailController.text.isEmpty ? null : _emailController.text,
+        'address': _addressController.text.isEmpty ? null : _addressController.text,
+        'taxNumber': _taxNumberController.text.isEmpty ? null : _taxNumberController.text,
+        'note': _noteController.text.isEmpty ? null : _noteController.text,
+        'image': imageUrl,
+        'date': DateTime.now(),
+        'debt': 0.0,
+        'advance': 0.0,
+        'advanceTransactions': [],
+      });
+
+      setState(() {
+        isUploading = false;
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      successSnackbar('Supplier added successfully.');
+    } catch (e) {
+      setState(() {
+        isUploading = false;
+      });
+      errorSnackbar('something_went_wrong'.tr);
+      print('Error adding supplier: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -313,72 +381,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                 children: [
                   Expanded(
                     child: PrimaryButton(
-                      onPressed: isUploading ? null : () async {
-                        try {
-                          if (_nameController.text.isEmpty || _phoneController.text.isEmpty) {
-                            errorSnackbar('fill_required_fields'.tr);
-                            return;
-                          }
-                          
-                          if (_emailController.text.isNotEmpty && !isValidEmail(_emailController.text)) {
-                            errorSnackbar('Invalid email format.');
-                            return;
-                          }
-
-                          setState(() {
-                            isUploading = true;
-                          });
-
-                          String? imageUrl = '';
-                          if (imageFile != null) {
-                            imageUrl = await uploadFile('suppliers', imageFile!);
-                          }
-
-                          final String? businessId = _businessController.business['id'];
-                          if (businessId == null) {
-                            print('Business ID is null, cannot add supplier.');
-                            setState(() {
-                              isUploading = false;
-                            });
-                            return;
-                          }
-
-                          // Create supplier document
-                          await firestore
-                              .collection('suppliers')
-                              .doc(businessId)
-                              .collection('userSuppliers')
-                              .add({
-                            'owner': businessId,
-                            'name': _nameController.text,
-                            'company': _companyController.text.isEmpty ? null : _companyController.text,
-                            'phone': _phoneController.text,
-                            'email': _emailController.text.isEmpty ? null : _emailController.text,
-                            'address': _addressController.text.isEmpty ? null : _addressController.text,
-                            'taxNumber': _taxNumberController.text.isEmpty ? null : _taxNumberController.text,
-                            'note': _noteController.text.isEmpty ? null : _noteController.text,
-                            'image': imageUrl,
-                            'date': DateTime.now(),
-                            'debt': 0.0,
-                            'advance': 0.0,
-                            'advanceTransactions': [],
-                          });
-
-                          setState(() {
-                            isUploading = false;
-                          });
-
-                          if (mounted) {
-                            Navigator.pop(context);
-                          }
-                          successSnackbar('Supplier added successfully.');
-                        } catch (e) {
-                          setState(() {
-                            isUploading = false;
-                          });
-                          errorSnackbar('something_went_wrong'.tr);
-                          print('Error adding supplier: $e');
-                        }
+                      onPressed: isUploading ? null : () {
+                        _saveSupplier();
                       },
                       text: isUploading ? 'saving'.tr : 'save'.tr,
                     ),

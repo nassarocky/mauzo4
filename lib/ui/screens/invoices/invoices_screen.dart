@@ -325,7 +325,8 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
                                           ),
                                         ),
                                         const Spacer(),
-                                        PopupMenuButton(
+                                        if (_profileController.hasPermission('edit_invoices') || _profileController.hasPermission('sale_invoices') || _profileController.hasPermission('delete_invoices'))
+                                          PopupMenuButton(
                                           child: Icon(
                                             Icons.more_vert,
                                             color: Preferences.getTheme()
@@ -346,7 +347,7 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
                                           },
                                           itemBuilder: (BuildContext context) =>
                                           <PopupMenuEntry<String>>[
-                                            if (invoice.frominvoice == false)
+                                            if (invoice.frominvoice == false && _profileController.hasPermission('edit_invoices'))
                                               PopupMenuItem<String>(
                                                 value: 'Edit',
                                                 child: Text(
@@ -359,7 +360,7 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
                                                   ),
                                                 ),
                                               ),
-                                            if (invoice.frominvoice == false)
+                                            if (invoice.frominvoice == false && _profileController.hasPermission('sale_invoices'))
                                               PopupMenuItem<String>(
                                                 value: 'Sale',
                                                 child: Text(
@@ -372,13 +373,14 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
                                                   ),
                                                 ),
                                               ),
-                                            PopupMenuItem<String>(
-                                              value: 'Delete',
-                                              child: Text(
-                                                'delete'.tr,
-                                                style: bodyText(redColor),
+                                            if (_profileController.hasPermission('delete_invoices'))
+                                              PopupMenuItem<String>(
+                                                value: 'Delete',
+                                                child: Text(
+                                                  'delete'.tr,
+                                                  style: bodyText(redColor),
+                                                ),
                                               ),
-                                            ),
                                           ],
                                         ),
                                       ],

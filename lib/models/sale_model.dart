@@ -7,6 +7,8 @@ class Sale {
   final bool frominvoice;
   final String client;
   final String clientname;
+  final String? supplier;
+  final String? suppliername;
   final String employeeId;
   final String employeeName;
   final Timestamp date;
@@ -22,6 +24,8 @@ class Sale {
     required this.id,
     required this.client,
     required this.clientname,
+    this.supplier,
+    this.suppliername,
     required this.employeeId,
     required this.employeeName,
     required this.owner,
@@ -44,6 +48,8 @@ class Sale {
       frominvoice: data?['frominvoice'] ?? false,
       client: data?['client'] ?? '',
       clientname: data?['clientname'] ?? 'Unnamed Client',
+      supplier: data?['supplier'],
+      suppliername: data?['suppliername'],
       employeeId: data?['employeeId'] ?? '',
       employeeName: data?['employeeName'] ?? '',
       products: data?['products'] ?? [],

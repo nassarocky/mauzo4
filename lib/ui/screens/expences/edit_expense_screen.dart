@@ -21,6 +21,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
 
   bool _isLoading = false;
   Expense? _expense;
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -63,6 +64,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
               _selectedCategory = availableCategories.isNotEmpty ? availableCategories.first : 'Food';
               print('⚠️ EditExpenseScreen: Expense category "${expense.category}" not found in available categories. Using "$_selectedCategory" instead.');
             }
+            _selectedDate = expense.date.toDate(); // Fix Timestamp to DateTime conversion errors
           });
         } else {
           // No expense provided - show error and go back
@@ -355,6 +357,73 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  // Date field
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: [Colors.white, Colors.grey.shade50],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.calendar_today, color: Colors.blue.shade600, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Date'.tr,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blue.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _selectedDate != null
+                                      ? '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'
+                                      : 'Select Date'.tr,
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  final DateTime? pickedDate = await showDatePicker(
+                                    context: context,
+                                    initialDate: _selectedDate ?? DateTime.now(),
+                                    firstDate: DateTime(2020),
+                                    lastDate: DateTime(2030),
+                                  );
+                                  if (pickedDate != null) {
+                                    setState(() {
+                                      _selectedDate = pickedDate;
+                                    });
+                                  }
+                                },
+                                child: Text('Select Date'.tr),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   // Category field
                   Card(
                     elevation: 4,
@@ -487,7 +556,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                             id: _expense!.id,
                             title: _titleController.text,
                             amount: double.parse(_amountController.text),
-                            date: _expense!.date, // Keep original date
+                            date: _selectedDate != null ? Timestamp.fromDate(_selectedDate!) : _expense!.date, // Convert DateTime to Timestamp
                             category: _selectedCategory,
                             addedBy: _expense!.addedBy, // Keep original creator
                             addedByName: _expense!.addedByName, // Keep original creator name

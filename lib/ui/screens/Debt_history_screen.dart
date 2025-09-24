@@ -21,12 +21,266 @@ class DebtHistoryScreen extends StatefulWidget {
 class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   final DebtHistoryController _debtHistoryController = Get.find();
   final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
 
   @override
   void initState() {
     super.initState();
     // Set default filter to Pending
     _debtHistoryController.setFilterStatus(["PENDING"]);
+  }
+
+  void _showEditDebtDialog(BuildContext context, DebtHistory debt) {
+    if (!_profileController.hasPermission('manage_debt')) {
+      Get.snackbar('Access Denied', 'You do not have permission to manage debt payments', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+
+    final TextEditingController remainingCtrl = TextEditingController(text: debt.remainingDebtAmount.toStringAsFixed(2));
+    final TextEditingController commentCtrl = TextEditingController(text: debt.comment);
+    DateTime selectedDate = debt.dateIncurred.toDate();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Obx(() => AlertDialog(
+          title: Text('Edit Debt'.tr),
+          content: _debtHistoryController.isLoading.value
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: remainingCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(labelText: 'Remaining Debt Amount'.tr),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: commentCtrl,
+                        decoration: InputDecoration(labelText: 'Comment'.tr),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today, size: 18),
+                          const SizedBox(width: 8),
+                          Text(DateFormat('yyyy-MM-dd – HH:mm').format(selectedDate)),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate,
+                                firstDate: DateTime(2015),
+                                lastDate: DateTime(2101),
+                              );
+                              if (date != null) {
+                                // Preserve time
+                                selectedDate = DateTime(date.year, date.month, date.day, selectedDate.hour, selectedDate.minute);
+                                (context as Element).markNeedsBuild();
+                              }
+                            },
+                            icon: const Icon(Icons.edit_calendar),
+                            label: Text('Change Date'.tr),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+          actions: [
+            if (!_debtHistoryController.isLoading.value)
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Cancel'.tr),
+              ),
+            if (!_debtHistoryController.isLoading.value)
+              ElevatedButton(
+                onPressed: () async {
+                  final newRemaining = double.tryParse(remainingCtrl.text.trim());
+                  if (newRemaining == null || newRemaining < 0) {
+                    Get.snackbar('Invalid amount', 'Remaining debt must be a non-negative number', backgroundColor: Colors.red, colorText: Colors.white);
+                    return;
+                  }
+                  await _updateDebtTransaction(context, debt, newRemaining, commentCtrl.text.trim(), Timestamp.fromDate(selectedDate));
+                },
+                child: Text('Save'.tr),
+              ),
+          ],
+        ));
+      },
+    );
+  }
+
+  Future<void> _updateDebtTransaction(BuildContext context, DebtHistory debt, double newRemaining, String newComment, Timestamp newDate) async {
+    final salesCollection = FirebaseFirestore.instance
+        .collection('sales')
+        .doc(_businessController.business['id'])
+        .collection('userSales');
+
+    final debtHistoryCollection = FirebaseFirestore.instance
+        .collection('debtHistory')
+        .doc(_businessController.business['id'])
+        .collection('clientDebtHistory');
+
+    final clientCollection = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(_businessController.business['id'])
+        .collection('userClients');
+
+    _debtHistoryController.isLoading.value = true;
+
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final saleRef = salesCollection.doc(debt.id);
+      final debtRef = debtHistoryCollection.doc(debt.id);
+      final clientRef = clientCollection.doc(debt.client);
+
+      final saleSnap = await transaction.get(saleRef);
+      final debtSnap = await transaction.get(debtRef);
+      final clientSnap = await transaction.get(clientRef);
+
+      if (!saleSnap.exists) {
+        throw Exception("Sale with ID ${debt.id} does not exist.");
+      }
+      if (!debtSnap.exists) {
+        throw Exception("Debt history with ID ${debt.id} does not exist.");
+      }
+      if (!clientSnap.exists) {
+        throw Exception("Client with ID ${debt.client} does not exist.");
+      }
+
+      final oldRemaining = (debtSnap.get('remainingDebtAmount') ?? 0.0).toDouble();
+      final delta = newRemaining - oldRemaining;
+
+      final Map<String, dynamic> saleUpdates = {'debt': newRemaining};
+      if (newRemaining <= 0) {
+        saleUpdates['date'] = Timestamp.now();
+      }
+      transaction.update(saleRef, saleUpdates);
+
+      final debtUpdates = <String, dynamic>{
+        'remainingDebtAmount': newRemaining,
+        'comment': newComment,
+        'dateIncurred': newDate,
+        'status': newRemaining <= 0 ? 'PAID' : 'PENDING',
+      };
+      transaction.update(debtRef, debtUpdates);
+
+      if (delta != 0) {
+        final currentClientDebt = (clientSnap.get('debt') ?? 0.0).toDouble();
+        final newClientDebt = currentClientDebt + delta; // delta can be +/-
+        transaction.update(clientRef, {'debt': newClientDebt});
+      }
+    }).then((_) {
+      _debtHistoryController.isLoading.value = false;
+      Navigator.pop(context);
+      Get.snackbar('Success', 'Debt updated successfully', backgroundColor: Colors.green, colorText: Colors.white);
+    }).catchError((error) {
+      _debtHistoryController.isLoading.value = false;
+      Get.snackbar('Error', 'Failed to update debt: $error', backgroundColor: Colors.red, colorText: Colors.white);
+    });
+  }
+
+  void _confirmDeleteDebt(BuildContext context, DebtHistory debt) {
+    if (!_profileController.hasPermission('manage_debt')) {
+      Get.snackbar('Access Denied', 'You do not have permission to delete debts', backgroundColor: Colors.red, colorText: Colors.white);
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Debt'.tr),
+        content: Text('This will clear the remaining debt for this sale, add the remaining amount to the Paid value of the sale, and remove the debt record.\n\nClient: ${debt.name}\nRemaining: ${debt.remainingDebtAmount.toStringAsFixed(2)}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel'.tr),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteDebtTransaction(context, debt);
+            },
+            child: Text('Delete'.tr),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteDebtTransaction(BuildContext context, DebtHistory debt) async {
+    final salesCollection = FirebaseFirestore.instance
+        .collection('sales')
+        .doc(_businessController.business['id'])
+        .collection('userSales');
+
+    final debtHistoryCollection = FirebaseFirestore.instance
+        .collection('debtHistory')
+        .doc(_businessController.business['id'])
+        .collection('clientDebtHistory');
+
+    final clientCollection = FirebaseFirestore.instance
+        .collection('clients')
+        .doc(_businessController.business['id'])
+        .collection('userClients');
+
+    _debtHistoryController.isLoading.value = true;
+
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final saleRef = salesCollection.doc(debt.id);
+      final debtRef = debtHistoryCollection.doc(debt.id);
+      final clientRef = clientCollection.doc(debt.client);
+
+      final saleSnap = await transaction.get(saleRef);
+      final debtSnap = await transaction.get(debtRef);
+      final clientSnap = await transaction.get(clientRef);
+
+      if (!saleSnap.exists) {
+        throw Exception("Sale with ID ${debt.id} does not exist.");
+      }
+      if (!debtSnap.exists) {
+        throw Exception("Debt history with ID ${debt.id} does not exist.");
+      }
+      if (!clientSnap.exists) {
+        throw Exception("Client with ID ${debt.client} does not exist.");
+      }
+
+      final remaining = (debtSnap.get('remainingDebtAmount') ?? 0.0).toDouble();
+
+      // Clear sale debt, add remaining to paid value, and record adjustment
+      transaction.update(saleRef, {
+        'debt': 0.0,
+        'payment': FieldValue.increment(remaining),
+        'date': Timestamp.now(),
+        'debtAdjustments': FieldValue.arrayUnion([
+          {
+            'amount': remaining,
+            'date': Timestamp.now(),
+            'by': _profileController.user['name'] ?? _profileController.user['id'] ?? '',
+            'type': 'debt_delete_adjustment',
+          }
+        ]),
+      });
+
+      // Remove debt history
+      transaction.delete(debtRef);
+
+      // Adjust client aggregate debt
+      final currentClientDebt = (clientSnap.get('debt') ?? 0.0).toDouble();
+      final newClientDebt = currentClientDebt - remaining;
+      transaction.update(clientRef, {'debt': newClientDebt});
+    }).then((_) {
+      _debtHistoryController.isLoading.value = false;
+      Get.snackbar('Deleted', 'Debt record deleted; amount added to sale payment and client debt updated', backgroundColor: Colors.green, colorText: Colors.white);
+    }).catchError((error) {
+      _debtHistoryController.isLoading.value = false;
+      Get.snackbar('Error', 'Failed to delete debt: $error', backgroundColor: Colors.red, colorText: Colors.white);
+    });
   }
 
   @override
@@ -130,7 +384,11 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                 itemCount: _debtHistoryController.filteredDebtHistories.length,
                 itemBuilder: (context, index) {
                   final debt = _debtHistoryController.filteredDebtHistories[index];
-                  return DebtCard(debt: debt);
+                  return DebtCard(
+                    debt: debt,
+                    onEditDebt: (d) => _showEditDebtDialog(context, d),
+                    onDeleteDebt: (d) => _confirmDeleteDebt(context, d),
+                  );
                 },
               );
             }),
@@ -143,13 +401,15 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
 
 class DebtCard extends StatelessWidget {
   final DebtHistory debt;
+  final void Function(DebtHistory debt) onEditDebt;
+  final void Function(DebtHistory debt) onDeleteDebt;
   final BusinessController _businessController = Get.find();
   final DebtHistoryController _debtHistoryController = Get.find();
   final ProfileController _profileController = Get.find();
   final ClientController _clientController = Get.find();
   final SaleController saleController = Get.find();
 
-  DebtCard({required this.debt});
+  DebtCard({required this.debt, required this.onEditDebt, required this.onDeleteDebt});
 
   @override
   Widget build(BuildContext context) {
@@ -196,15 +456,32 @@ class DebtCard extends StatelessWidget {
                       saleController.selectedDateRange = null;
                       saleController.filterSalesById(debt.id);
                       Navigator.pushNamed(context, '/sales');
+                    } else if (value == 'edit_debt') {
+                      onEditDebt(debt);
+                    } else if (value == 'delete_debt') {
+                      onDeleteDebt(debt);
                     }
                   },
                   itemBuilder: (BuildContext context) {
-                    return [
+                    final items = <PopupMenuEntry<String>>[
                       PopupMenuItem<String>(
                         value: 'view_orders',
                         child: Text('View Orders'.tr),
                       ),
                     ];
+                    if (_profileController.hasPermission('manage_debt')) {
+                      items.addAll([
+                        PopupMenuItem<String>(
+                          value: 'edit_debt',
+                          child: Text('Edit Debt'.tr),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'delete_debt',
+                          child: Text('Delete Debt'.tr),
+                        ),
+                      ]);
+                    }
+                    return items;
                   },
                   icon: const Icon(Icons.more_vert),
                 ),
@@ -472,7 +749,10 @@ class DebtCard extends StatelessWidget {
 
       final newSaleRef = salesCollection.doc(newSaleData['id']);
       transaction.set(newSaleRef, newSaleData);
-      transaction.update(oldSaleRef, {'debt': newRemainingDebt});
+      transaction.update(oldSaleRef, {
+        'debt': newRemainingDebt,
+        'date': Timestamp.now(),
+      });
 
       final newPaymentRecord = {
         'amount': paymentAmount,

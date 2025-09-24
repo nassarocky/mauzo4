@@ -6,11 +6,15 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/client_controller.dart';
+import 'package:mauzo/controllers/supplier_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/models/client_model.dart';
+import 'package:mauzo/models/supplier_model.dart';
+import 'package:mauzo/models/sale_model.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/screens/sale/edit_sale.screen.dart';
+import 'package:mauzo/ui/screens/Buy_Product_cart_screen.dart';
 import 'package:mauzo/ui/widgets/dashed_seperator.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sticky_headers/sticky_headers/widget.dart';
@@ -37,6 +41,7 @@ class BoughtScreen extends StatefulWidget {
 class _boughtControllerState extends State<BoughtScreen> {
   final BoughtController _boughtController = Get.find();
   final ClientController _clientController = Get.find();
+  final SupplierController _supplierController = Get.find();
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
@@ -62,8 +67,37 @@ class _boughtControllerState extends State<BoughtScreen> {
       return;
     }
     
-    Timer.run(() {
-      _boughtController.setSalesByDate();
+    // Check for supplier filter arguments from navigation
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final arguments = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      if (arguments != null && arguments.containsKey('supplierId')) {
+        final String supplierId = arguments['supplierId'];
+        final String supplierName = arguments['supplierName'] ?? 'Unknown Supplier';
+        
+        print('DEBUG: Applying supplier filter for ID: $supplierId, Name: $supplierName');
+        
+        // Apply supplier filter after ensuring data is loaded
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          print('DEBUG: Sales count: ${_boughtController.sales.length}');
+          print('DEBUG: Suppliers count: ${_supplierController.suppliers.length}');
+          
+          // Check if any sales have this supplier ID
+          final matchingSales = _boughtController.sales.where((sale) => sale.supplier == supplierId).toList();
+          print('DEBUG: Found ${matchingSales.length} sales with supplier ID: $supplierId');
+          
+          _boughtController.setFilterClients([supplierId]);
+          
+          // Force a refresh of the filtered sales
+          Future.delayed(const Duration(milliseconds: 100), () {
+            print('DEBUG: Filtered sales count: ${_boughtController.filteredSales.length}');
+          });
+        });
+      }
+      
+      // Always initialize the sales data
+      Timer.run(() {
+        _boughtController.setSalesByDate();
+      });
     });
   }
 
@@ -179,7 +213,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                         isScrollControlled: true,
                         context: context,
                         builder: (context) {
-                          return const SelectClientsBottomSheet();
+                          return const SelectSuppliersBottomSheet();
                         },
                       );
                     },
@@ -200,12 +234,12 @@ class _boughtControllerState extends State<BoughtScreen> {
                         children: [
                           Text(
                             _boughtController.filterClients.length ==
-                                _clientController.clients.length ||
+                                _supplierController.suppliers.length ||
                                 _boughtController.filterClients.isEmpty
-                                ? 'all_clients'.tr
+                                ? 'all_suppliers'.tr
                                 : _boughtController.filterClients.length == 1
-                                ? '${_boughtController.filterClients.length} ${'client'.tr.toLowerCase()}'
-                                : '${_boughtController.filterClients.length} ${'clients'.tr.toLowerCase()}',
+                                ? '${_boughtController.filterClients.length} ${'supplier'.tr.toLowerCase()}'
+                                : '${_boughtController.filterClients.length} ${'suppliers'.tr.toLowerCase()}',
                             style: bodyText(
                               Theme.of(context).textTheme.bodyMedium!.color,
                             ),
@@ -341,8 +375,9 @@ class _boughtControllerState extends State<BoughtScreen> {
                         children: List.from(
                           salesByDate[index]['sales'].map(
                                 (sale) {
-                              final client = _clientController
-                                  .getClient(sale.client);
+                              final supplier = sale.supplier != null && sale.supplier!.isNotEmpty 
+                                  ? _supplierController.getSupplier(sale.supplier!)
+                                  : null;
                               final time = sale.date.toDate();
 
                               return Container(
@@ -367,7 +402,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                           ),
                                         ),
                                         const Spacer(),
-                                        if (sale.debt == 0 && canViewPurchases)
+                                        if (_profileController.hasPermission('buy_products'))
                                           PopupMenuButton(
                                             child: Icon(
                                               Icons.more_vert,
@@ -377,10 +412,19 @@ class _boughtControllerState extends State<BoughtScreen> {
                                             onSelected: (value) {
                                               if (value == 'Delete') {
                                                 _boughtController.deleteSale(sale);
+                                              } else if (value == 'Edit') {
+                                                editPurchase(sale, supplier, context, time);
                                               }
                                             },
                                             itemBuilder: (BuildContext context) =>
                                             <PopupMenuEntry<String>>[
+                                              PopupMenuItem<String>(
+                                                value: 'Edit',
+                                                child: Text(
+                                                  'edit'.tr,
+                                                  style: bodyText(redColor),
+                                                ),
+                                              ),
                                               PopupMenuItem<String>(
                                                 value: 'Delete',
                                                 child: Text(
@@ -403,15 +447,9 @@ class _boughtControllerState extends State<BoughtScreen> {
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          sale.client == ''
-                                              ? 'unnamed_client'.tr
-                                              : _clientController
-                                              .getClient(
-                                              sale.client)
-                                              .id ==
-                                              ''
-                                              ? 'unnamed_client'.tr
-                                              : client.name,
+                                          supplier == null
+                                              ? 'unnamed_supplier'.tr
+                                              : supplier.name,
                                           style: bodyText(
                                               Theme.of(context)
                                                   .textTheme
@@ -510,7 +548,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                       children: [
                                         ElevatedButton.icon(
                                           onPressed: () {
-                                            printInvoice(sale, client);
+                                            printInvoice(sale, supplier);
                                           },
                                           icon: const Icon(Icons.print),
                                           label: Text('print'.tr),
@@ -518,7 +556,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                                         const SizedBox(width: 8),
                                         ElevatedButton.icon(
                                           onPressed: () {
-                                            shareInvoice(sale, client);
+                                            shareInvoice(sale, supplier);
                                           },
                                           icon: const Icon(Icons.share),
                                           label: Text('share'.tr),
@@ -614,7 +652,7 @@ class _boughtControllerState extends State<BoughtScreen> {
     );
   }
 
-  Future<void> printInvoice(invoice, Client client) async {
+  Future<void> printInvoice(invoice, Supplier? supplier) async {
     final pdf = pw.Document();
     final currency = _businessController.business['mainCurrency'];
 
@@ -639,7 +677,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      pw.Text('Client: ${client.name}', style: pw.TextStyle(fontSize: 18)),
+                      pw.Text('Supplier: ${supplier?.name ?? 'Unknown Supplier'}', style: pw.TextStyle(fontSize: 18)),
                       pw.Text(DateFormat('yyyy-MM-dd').format(DateTime.now()) + ' ' + DateFormat('kk:mm').format(DateTime.now()), style: pw.TextStyle(fontSize: 18)),
                     ],
                   ),
@@ -703,7 +741,7 @@ class _boughtControllerState extends State<BoughtScreen> {
     );
   }
 
-  Future<void> shareInvoice(invoice, Client client) async {
+  Future<void> shareInvoice(invoice, Supplier? supplier) async {
     final pdf = pw.Document();
     final currency = _businessController.business['mainCurrency'];
 
@@ -728,7 +766,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      pw.Text('Client: ${client.name}', style: pw.TextStyle(fontSize: 18)),
+                      pw.Text('Supplier: ${supplier?.name ?? 'Unknown Supplier'}', style: pw.TextStyle(fontSize: 18)),
                       pw.Text(DateFormat('yyyy-MM-dd').format(DateTime.now()) + ' ' + DateFormat('kk:mm').format(DateTime.now()), style: pw.TextStyle(fontSize: 18)),
                     ],
                   ),
@@ -806,74 +844,75 @@ class _boughtControllerState extends State<BoughtScreen> {
 
 
 
-  void editSale(sale, Client client, BuildContext context, time) {
+  void editPurchase(Sale purchase, Supplier? supplier, BuildContext context, DateTime time) {
     List<Product> products = [];
-    for (final product in sale.products) {
-      for (int quantity = 0; quantity < product['quantity']; quantity++) {
-        if (_productController.getProduct(product['id']).id == '') {
-          products.add(
-            Product(
-              id: product['id'],
-              name: product['name'],
-              price: product['price'],
-              discount: product['discount'],
-              quantity: 1,
-              code: '',
-              owner: '',
-            ),
-          );
-        } else {
-          products.add(_productController.getProduct(product['id']));
-        }
+
+    for (final product in purchase.products) {
+      Product existingProduct = _productController.getProduct(product['id']);
+
+      if (existingProduct.id == '') {
+        products.add(
+          Product(
+            id: product['id'],
+            name: product['name'],
+            price: product['price'],
+            discount: product['discount'],
+            quantity: (product['quantity'] as num).toDouble(),
+            count: (product['quantity'] as num).toDouble(),
+            code: '',
+            owner: '',
+          ),
+        );
+      } else {
+        existingProduct.count = (product['quantity'] as num).toDouble();
+        products.add(existingProduct);
       }
     }
-    _cartController.client = client;
 
-    _cartController.setDiscount(sale.discount);
-    if (sale.payment > 0) {
-      _cartController.addPayment(
-        sale.payment,
-        _businessController.business['mainCurrency'],
-      );
+    if (supplier != null) {
+      _cartController.supplier = supplier;
+    }
+    _cartController.setDiscount(purchase.discount);
+
+    if (purchase.payment > 0) {
+      _cartController.addPayment(purchase.payment, _businessController.business['mainCurrency']);
     }
 
-    _cartController.setComment(sale.comment);
-    _cartController.setProducts(products, sale.products);
+    _cartController.setComment(purchase.comment);
+    _cartController.setProducts(products, purchase.products);
+    _cartController.passedArgument = purchase.id;
+    _cartController.origin = 'edit_purchase';
 
     Navigator.push(
       context,
       CupertinoPageRoute(
-        builder: (context) => EditSaleScreen(
-          sale: sale,
-          title:
-          ('${'sale'.tr} ${DateFormat("dd.MM.yyyy", 'en_US').format(time)} ${DateFormat("hh:mm a", 'en_US').format(time)}'),
-        ),
+        builder: (context) => const BuyProductCartScreen(),
       ),
     );
   }
 }
 
-class SelectClientsBottomSheet extends StatefulWidget {
-  const SelectClientsBottomSheet({Key? key}) : super(key: key);
+class SelectSuppliersBottomSheet extends StatefulWidget {
+  const SelectSuppliersBottomSheet({Key? key}) : super(key: key);
 
   @override
-  State<SelectClientsBottomSheet> createState() =>
-      _SelectClientsBottomSheetState();
+  State<SelectSuppliersBottomSheet> createState() =>
+      _SelectSuppliersBottomSheetState();
 }
 
-class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
-  List<String> localFilterClients = [];
+class _SelectSuppliersBottomSheetState extends State<SelectSuppliersBottomSheet> {
+  List<String> localFilterSuppliers = [];
   final BoughtController _boughtController = Get.find();
 
   @override
   void initState() {
-    localFilterClients = [..._boughtController.filterClients];
+    localFilterSuppliers = [..._boughtController.filterClients]; // Note: BoughtController still uses filterClients for now
     super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ClientController clientController = Get.find();
+    final SupplierController supplierController = Get.find();
     return SingleChildScrollView(
       child: Column(
         children: [
@@ -883,7 +922,7 @@ class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'clients'.tr,
+                  'suppliers'.tr,
                   style: h5(Theme.of(context).textTheme.bodyLarge!.color),
                 ),
                 GestureDetector(
@@ -922,7 +961,7 @@ class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
               blendMode: BlendMode.dstOut,
               child: ListView.builder(
                 shrinkWrap: true,
-                itemCount: clientController.clients.length,
+                itemCount: supplierController.suppliers.length,
                 itemBuilder: (_, index) {
                   return CheckboxListTile(
                     visualDensity: VisualDensity.compact,
@@ -931,21 +970,21 @@ class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
                         ? primaryLightColor
                         : primaryColor,
                     title: Text(
-                      clientController.clients[index].name,
+                      supplierController.suppliers[index].name,
                     ),
-                    value: localFilterClients
-                        .contains(clientController.clients[index].id),
+                    value: localFilterSuppliers
+                        .contains(supplierController.suppliers[index].id),
                     onChanged: (value) {
                       setState(
                             () {
-                          if (localFilterClients
-                              .contains(clientController.clients[index].id)) {
-                            localFilterClients.remove(
-                              clientController.clients[index].id,
+                          if (localFilterSuppliers
+                              .contains(supplierController.suppliers[index].id)) {
+                            localFilterSuppliers.remove(
+                              supplierController.suppliers[index].id,
                             );
                           } else {
-                            localFilterClients
-                                .add(clientController.clients[index].id);
+                            localFilterSuppliers
+                                .add(supplierController.suppliers[index].id);
                           }
                         },
                       );
@@ -982,10 +1021,10 @@ class _SelectClientsBottomSheetState extends State<SelectClientsBottomSheet> {
                   child: PrimaryButton(
                     text: 'apply'.tr,
                     onPressed: () {
-                      _boughtController.setFilterClients(localFilterClients);
+                      _boughtController.setFilterClients(localFilterSuppliers);
                       Navigator.pop(context);
                     },
-                  ),
+                  )
                 )
               ],
             ),

@@ -43,14 +43,50 @@ class BusinessListController extends GetxController {
       // ✅ Step 1: Get the authenticated user's UID
       String? userId = _profileController.user['id'];
 
-
-
       if (userId == null) {
         print("[ERROR] No authenticated user found.");
+        Get.snackbar(
+          'Error',
+          'No authenticated user found',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
         return;
       }
 
       print("[DEBUG] Authenticated userId: $userId");
+
+      // ✅ Step 1.5: Check if user is owner and hasn't exceeded maxBusiness limit
+      String userRole = _profileController.user['role'] ?? '';
+      int maxBusiness = _profileController.user['maxBusiness'] ?? 0;
+      List<dynamic> currentBusinesses = _profileController.user['business'] ?? [];
+
+      // Only owners can create new businesses
+      if (userRole != 'owner') {
+        print("[ERROR] Only owners can create new businesses. Current role: $userRole");
+        Get.snackbar(
+          'Permission Denied',
+          'Only business owners can create new businesses',
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return;
+      }
+
+      // Check if user has reached maxBusiness limit
+      if (currentBusinesses.length >= maxBusiness) {
+        print("[ERROR] User has reached maxBusiness limit: ${currentBusinesses.length}/$maxBusiness");
+        Get.snackbar(
+          'Limit Reached',
+          'You have reached your maximum business limit ($maxBusiness). Contact support to increase your limit.',
+          backgroundColor: Colors.orange,
+          colorText: Colors.white,
+          duration: Duration(seconds: 5),
+        );
+        return;
+      }
+
+      print("[DEBUG] Permission check passed. Role: $userRole, Businesses: ${currentBusinesses.length}/$maxBusiness");
 
       // ✅ Step 2: Generate a new business ID
       String newBusinessId = FirebaseFirestore.instance.collection('businesses').doc().id;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 
@@ -23,15 +24,24 @@ class TransactionController extends GetxController {
     super.onInit();
 
     try {
+      // Check if required controllers are available
+      final BusinessController businessController = Get.find<BusinessController>();
+      final ProfileController profileController = Get.find<ProfileController>();
+      
+      if (businessController.businessId.value.isEmpty) {
+        print("BusinessController not ready, skipping transaction stream initialization");
+        return;
+      }
+
       _transactionSubscription = FirestoreDb().getTransactions().listen((data)
       {
-
         transactions.value = data;
         searchTransactions.value = data;
         filteredtransactions.value = data;
       });
     } catch (e) {
       print("Error binding transaction stream: $e");
+      // Don't throw the error, just log it
     }
   }
 

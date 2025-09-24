@@ -17,13 +17,14 @@ class ProfileController extends GetxController {
     final List perms = user['permissions'] ?? [];
     if (perms.contains(permission)) return true;
     final Map<String, List<String>> rolePermissions = {
-      'owner': ['all'],
+      'owner': ['all', 'manage_payroll', 'manage_employees'],
       'manager': [
         'view_products', 'edit_products', 'make_sales', 'view_sales', 'view_sales_own',
         'manage_clients', 'manage_suppliers', 'edit_invoices', 'manage_expenses',
         'view_reports', 'edit_business', 'edit_home', 'create_invoices', 'transfer_products',
         'manage_transfers', 'view_statistics', 'manage_categories', 'view_transactions',
-        'manage_debt', 'print_invoices', 'share_invoices', 'buy_products'
+        'manage_debt', 'print_invoices', 'share_invoices', 'buy_products', 'edit_sales', 'delete_sales',
+        'delete_invoices', 'sale_invoices', 'manage_supplier_debt'
       ],
       'cashier': [
         'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
@@ -31,7 +32,7 @@ class ProfileController extends GetxController {
       ],
       'sales_person': [
         'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
-        'print_invoices', 'share_invoices', 'buy_products'
+        'print_invoices', 'share_invoices', 'buy_products', 'sale_invoices'
       ],
       'agent': [
         'view_products', 'view_sales', 'view_reports', 'view_statistics'
@@ -44,6 +45,17 @@ class ProfileController extends GetxController {
     
     // Check role-based permissions
     return rolePermissions[role]?.contains(permission) ?? false;
+  }
+
+  /// Check if user is manager or owner (for sensitive operations like editing/deleting sales)
+  bool isManagerOrOwner() {
+    final user = this.user;
+    String role = user['role'] ?? '';
+    
+    // Legacy support: treat 'employee' as 'sales_person'
+    if (role == 'employee') role = 'sales_person';
+    
+    return role == 'owner' || role == 'manager';
   }
 
   final Rx<Map<String, dynamic>> _user = Rx<Map<String, dynamic>>({});

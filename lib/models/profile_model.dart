@@ -41,7 +41,7 @@ class ProfileModel {
       name: data['name'] ?? 'Unnamed Profile',
       role: data['role'] ?? '',
       password: data['password'] ?? '',
-      maxBusiness: data['maxBusiness'] != null ? data['maxBusiness'].toInt() : 0,
+      maxBusiness: data['maxBusiness'] != null ? int.tryParse(data['maxBusiness'].toString()) ?? 0 : 0,
       business: data['business'] ?? const [],
       date: data['date'],
       image: data['image'] ?? '',

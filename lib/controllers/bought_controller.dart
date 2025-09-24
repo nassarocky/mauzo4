@@ -367,7 +367,7 @@ void clearBought(){
     }
     if (filterClients.isNotEmpty) {
       filteredSales.value = filteredSales.where((sale) {
-        return filterClients.contains(sale.client);
+        return filterClients.contains(sale.supplier);
       }).toList();
     }
     if (filterEmployee.isNotEmpty) {

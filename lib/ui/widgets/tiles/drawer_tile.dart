@@ -8,11 +8,13 @@ class DrawerTile extends StatelessWidget {
     required this.route,
     required this.title,
     required this.icon,
+    this.isSubItem = false,
   }) : super(key: key);
 
   final String route;
   final String title;
   final IconData icon;
+  final bool isSubItem;
 
   @override
   Widget build(BuildContext context) {
@@ -21,20 +23,24 @@ class DrawerTile extends StatelessWidget {
         Navigator.pushNamed(context, '/$route');
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        padding: EdgeInsets.symmetric(
+          vertical: isSubItem ? 12 : 16, 
+          horizontal: isSubItem ? 32 : 16,
+        ),
         child: Row(
           children: [
             Icon(
               icon,
-              color: iconGrayColor,
+              color: isSubItem ? iconGrayColor.withOpacity(0.7) : iconGrayColor,
+              size: isSubItem ? 20 : 24,
             ),
             const SizedBox(width: 16),
             Text(
               title,
               style: TextStyle(
                 color: Theme.of(context).textTheme.bodyLarge!.color,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
+                fontSize: isSubItem ? 14 : 16,
+                fontWeight: isSubItem ? FontWeight.w400 : FontWeight.w500,
               ),
             ),
           ],

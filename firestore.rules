@@ -23,7 +23,7 @@ service cloud.firestore {
       allow get, list, update, delete: if isBusinessAllowed(businessId);
     }
 
-    // ✅ Products collection
+    // ✅ Products collection - FIXED FOR TRANSFERS
     match /products/{businessId} {
       allow get, list: if isBusinessAllowed(businessId);
 
@@ -35,9 +35,10 @@ service cloud.firestore {
         allow read: if isBusinessAllowed(businessId);
         
         // SPECIAL: Allow cross-business READ access for transfer operations
-        // Users can read products from other businesses if there's a pending transfer request
+        // Users can read products from other businesses if they belong to any business
         allow read: if request.auth != null && 
-          hasValidTransferRequest(businessId, docId);
+          exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business.size() > 0;
       }
     }
 
@@ -73,6 +74,15 @@ service cloud.firestore {
       allow get, list: if isBusinessAllowed(businessId);
 
       match /userClients/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+    
+    // ✅ Suppliers collection
+    match /suppliers/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userSuppliers/{docId} {
         allow read, write: if isBusinessAllowed(businessId);
       }
     }
@@ -148,17 +158,62 @@ service cloud.firestore {
       }
     }
 
-    // ✅ Expenses collection
-    match /expenses/{businessId} {
-      allow get, list: if isBusinessAllowed(businessId);
-
-      match /userExpenses/{docId} {
-        allow read, write: if isBusinessAllowed(businessId);
-      }
+    // ✅ Pay Roles collection - Manager/Owner access
+    match /payRoles/{payRoleId} {
+      // Allow listing for users with payroll permission
+      allow list: if request.auth != null && hasManagePayrollPermission();
       
-      // Allow access to settings subcollection for custom categories
-      match /settings/{settingId} {
-        allow read, write: if isBusinessAllowed(businessId);
+      // Allow creating pay roles if user has permission and businessId belongs to them
+      allow create: if request.auth != null && 
+        hasManagePayrollPermission() &&
+        request.resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business;
+      
+      // Allow reading, updating, deleting if user has permission and businessId belongs to them
+      allow read, update, delete: if request.auth != null && 
+        hasManagePayrollPermission() &&
+        resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business;
+    }
+
+    // ✅ Payment Records collection - Payroll access (owner/manager/manage_payroll)
+    match /paymentRecords/{paymentId} {
+      // Important: list queries must not reference resource, so split permissions
+      // Allow listing the collection (including queries) if user has payroll access
+      allow list: if request.auth != null && hasManagePayrollPermission();
+      
+      // Allow reading a single document and updating/deleting if it belongs to user's businesses
+      allow get, update, delete: if request.auth != null && hasManagePayrollPermission() &&
+        (resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business);
+      
+      // Allow creating if the incoming document's businessId belongs to user's businesses
+      allow create: if request.auth != null && hasManagePayrollPermission() &&
+        (request.resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business);
+    }
+
+    // ✅ Employee Losses collection - Payroll access (owner/manager/manage_payroll)
+    match /employeeLosses/{businessId} {
+      // Allow listing for users with payroll permission
+      allow list: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
+      
+      // Allow reading the business document if user has payroll permission
+      allow get: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
+
+      match /userLosses/{lossId} {
+        // Allow all operations if user has payroll permission and business access
+        allow read, write: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Early Payments collection - Payroll access (owner/manager/manage_payroll)
+    match /earlyPayments/{businessId} {
+      // Allow listing for users with payroll permission
+      allow list: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
+      
+      // Allow reading the business document if user has payroll permission
+      allow get: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
+
+      match /userPayments/{paymentId} {
+        // Allow all operations if user has payroll permission and business access
+        allow read, write: if request.auth != null && hasManagePayrollPermission() && isBusinessAllowed(businessId);
       }
     }
 
@@ -167,68 +222,66 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // ✅ Helper Function to check if user is allowed access to a business
+    // ✅ Helper Functions
     function isBusinessAllowed(businessId) {
       return request.auth != null &&
         exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
         businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business;
     }
     
-    // ✅ Helper Function to check if user has manage_employees permission
     function hasManageEmployeesPermission() {
-      let userDoc = get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data;
-      let userRole = userDoc.role;
-      let userPermissions = userDoc.permissions;
-      
-      // Check if user has manage_employees in custom permissions
-      return 'manage_employees' in userPermissions ||
-             // Or if user is owner/manager (they have manage_employees by default)
-             userRole == 'owner' || 
-             userRole == 'manager';
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        (
+          (
+            get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.permissions != null &&
+            'manage_employees' in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.permissions
+          ) ||
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner' ||
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'manager'
+        );
     }
     
-    // 🔒 ULTRA SECURE: Check if admin is in same business as target user
+    function hasManagePayrollPermission() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        (
+          (
+            get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.permissions != null &&
+            'manage_payroll' in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.permissions
+          ) ||
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner' ||
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'manager'
+        );
+    }
+    
     function isAdminInSameBusinessAsTarget(targetUserId) {
-      // First check if current user has manage_employees permission
-      if (!hasManageEmployeesPermission()) {
-        return false;
-      }
-      
-      // Get admin user's business list
-      let adminDoc = get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data;
-      let adminBusinesses = adminDoc.business;
-      
-      // Get target user's business list
-      let targetDoc = get(/databases/$(database)/documents/gmanusers/$(targetUserId)).data;
-      let targetBusinesses = targetDoc.business;
-      
-      // Check if they share at least one business
-      return hasSharedBusiness(adminBusinesses, targetBusinesses);
+      return request.auth != null &&
+        hasManageEmployeesPermission() &&
+        exists(/databases/$(database)/documents/gmanusers/$(targetUserId)) &&
+        get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business.hasAny(
+          get(/databases/$(database)/documents/gmanusers/$(targetUserId)).data.business
+        );
     }
     
-    // 🔒 Helper function to check if two business arrays have any overlap
-    function hasSharedBusiness(adminBusinesses, targetBusinesses) {
-      // Check if any business ID appears in both arrays
-      return adminBusinesses.hasAny(targetBusinesses);
+    // ✅ Helper Function to check if user is owner
+    function isOwner() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner';
     }
     
-    // 🔄 Helper function to validate cross-business product access for transfers
-    function hasValidTransferRequest(fromBusinessId, productId) {
-      // Get user's current business(es)
-      let userDoc = get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data;
-      let userBusinesses = userDoc.business;
-      
-      // Check if user has any business that could be receiving a transfer
-      return userBusinesses.hasAny([fromBusinessId]) || 
-             hasIncomingTransferForProduct(userBusinesses, fromBusinessId, productId);
-    }
-    
-    // 🔄 Helper function to check if there's an incoming transfer for a specific product
-    function hasIncomingTransferForProduct(userBusinesses, fromBusinessId, productId) {
-      // This is a simplified check - in practice, you might want to check for actual pending transfers
-      // For now, we'll allow cross-business reads if the user belongs to any business
-      // This provides reasonable security while enabling transfer functionality
-      return userBusinesses.size() > 0;
+    // ✅ Helper Function to check if user is owner of the business in pay role
+    function isOwnerOfPayRoleBusiness() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner' &&
+        (
+          (request.method == 'create' && 
+           request.resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business) ||
+          (request.method in ['get', 'update', 'delete'] && 
+           resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business)
+        );
     }
   }
 }

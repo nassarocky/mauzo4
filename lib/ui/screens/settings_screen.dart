@@ -13,7 +13,7 @@ import 'package:mauzo/ui/widgets/bottomsheets/discount_allow_bottom_sheet.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import '../../controllers/Transaction_controller.dart';
+import '../../controllers/transaction_controller.dart';
 import '../../controllers/bought_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../controllers/business_list_controller.dart';

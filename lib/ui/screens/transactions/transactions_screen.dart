@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
-import 'package:mauzo/controllers/Transaction_controller.dart';
+import 'package:mauzo/controllers/transaction_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../models/product_model.dart';
 import '../../../models/stock_transaction.dart';

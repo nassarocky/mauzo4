@@ -7,6 +7,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/controllers/theme_controller.dart';
+import 'package:mauzo/controllers/pay_role_controller.dart';
+import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
@@ -39,11 +41,33 @@ class AuthController extends GetxController {
       if (Preferences.isLoggedIn()) {
         await _profileController.updateUserData();
         await _businessController.updateBusinessData();
+        
+        // Initialize automatic payment generation after user data is loaded
+        _initializePaymentGeneration();
+        
         Get.offAllNamed('/home');
       } else if (user == null) {
         Get.offAllNamed('/login');
       }
     });
+  }
+
+  void _initializePaymentGeneration() async {
+    try {
+      // Import controllers dynamically to avoid circular dependencies
+      final payRoleController = Get.put(PayRoleController());
+      final paymentController = Get.put(PaymentController());
+      
+      // Wait a bit for controllers to initialize
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // Initialize automatic payment generation
+      await paymentController.initializeAutomaticPayments();
+      
+      print('Automatic payment generation initialized');
+    } catch (e) {
+      print('Error initializing automatic payment generation: $e');
+    }
   }
   // Reset password method
   Future<void> resetPassword(String email) async {

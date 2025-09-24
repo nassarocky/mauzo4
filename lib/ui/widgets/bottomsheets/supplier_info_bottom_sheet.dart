@@ -222,8 +222,12 @@ class SupplierInfoBottomSheet extends StatelessWidget {
                       child: PrimaryButton(
                         text: 'view_purchases'.tr,
                         onPressed: () {
-                          // TODO: Navigate to purchases filtered by this supplier
-                          Navigator.pushNamed(context, '/purchases');
+                          // Navigate to BoughtScreen with supplier filter
+                          Navigator.pushNamed(
+                            context, 
+                            '/bought',
+                            arguments: {'supplierId': supplier.id, 'supplierName': supplier.name}
+                          );
                         },
                       ),
                     ),

@@ -188,7 +188,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     double netProfit = totalSales - totalSalesBuying - expenses;
     double totalPurchase = 0.0;
     double totalDiscounts = 0.0;
-    String currency = "TZS";
+    String currency = _businessController.business['mainCurrency'] ?? "TZS";
 
     DateTime startDate = startTimestamp.toDate();
 
@@ -200,6 +200,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalDebt: totalDebt,
       debt: debt,
       reserveDouble1: purchases,
+      reserveDouble2: totalSalesBuying,
       expenses: expenses,
       startDate: startDate,
       endDate: endDate,
@@ -296,16 +297,19 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     return Table(
       border: TableBorder.all(color: Colors.grey),
       children: [
-        _buildTableRow('${'TOTAL SALES:'.tr}', book.totalPayment, _businessController.business['mainCurrency']),
-        _buildTableRow('${'PRODUCTS PURCHASES:'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
-        _buildTableRow('${'DEBT:'.tr}', book.debt, _businessController.business['mainCurrency']),
+        _buildTableRow('${'TOTAL SALES (Accrual):'.tr}', book.totalSales, _businessController.business['mainCurrency']),
+        _buildTableRow('${'TOTAL PAYMENTS (Cash In):'.tr}', book.totalPayment, _businessController.business['mainCurrency']),
+        _buildTableRow('${'COGS (Buying Price):'.tr}', book.reserveDouble2 ?? 0.0, _businessController.business['mainCurrency']),
+        _buildTableRow('${'PRODUCT PURCHASES:'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
+        _buildTableRow('${'DEBT (Created in Period):'.tr}', book.debt, _businessController.business['mainCurrency']),
+        _buildTableRow('${'DEBT COLLECTED (from previous periods):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
-          '${'TOTAL CASH IN HAND (total payments - expenses-Product Purchases)'.tr}',
+          '${'TOTAL CASH IN HAND (total payments - expenses - product purchases)'.tr}',
           (book.totalPayment - book.expenses - (book.reserveDouble1 ?? 0.0)),
           _businessController.business['mainCurrency'],
         ),
-        _buildTableRow('${'ESTIMATED PROFIT (total sales + Debt - buying price - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
+        _buildTableRow('${'ESTIMATED PROFIT (sales - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
       ],
     );
   }
@@ -400,24 +404,26 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey),
       children: [
-        //  _buildPDFTableRow('TOTAL SALES:'.tr, book.totalSales, book.currency),
-        _buildPDFTableRow('TOTAL SALES:'.tr, book.totalPayment, book.currency),
+        _buildPDFTableRow('TOTAL SALES (Accrual):'.tr, book.totalSales, book.currency),
+        _buildPDFTableRow('TOTAL PAYMENTS (Cash In):'.tr, book.totalPayment, book.currency),
+        _buildPDFTableRow('COGS (Buying Price):'.tr, book.reserveDouble2 ?? 0.0, book.currency),
         _buildPDFTableRow(
             'PRODUCT PURCHASES:'.tr,
             book.reserveDouble1 ?? 0.0, // Use the double value directly or default to 0.0
             book.currency
         ),
 
-        _buildPDFTableRow('DEBT:'.tr, book.debt, book.currency),
+        _buildPDFTableRow('DEBT (Created in Period):'.tr, book.debt, book.currency),
+        _buildPDFTableRow('DEBT COLLECTED (from previous periods):'.tr, book.debtCollected, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
-          'TOTAL CASH IN HAND (total payments - expenses - purchases)'.tr,
+          'TOTAL CASH IN HAND (total payments - expenses - product purchases)'.tr,
           (book.totalPayment  - book.expenses - (book.reserveDouble1 ?? 0.0)),
           book.currency,
         ),
 
         _buildPDFTableRow(
-          'ESTIMATED PROFIT (total sales + Debt - buying price - expenses)'.tr,
+          'ESTIMATED PROFIT (sales - COGS - expenses)'.tr,
           book.netProfit,
           book.currency,
         ),
@@ -463,7 +469,7 @@ class ReportCard extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent),
         ),
         subtitle: Text(
-          '${'Total Sales:'.tr}${book.currency} ${book.totalPayment.toStringAsFixed(2)}',
+          '${'Total Payments:'.tr}${book.currency} ${book.totalPayment.toStringAsFixed(2)}',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         trailing: Icon(Icons.arrow_forward_ios, color: Colors.grey),

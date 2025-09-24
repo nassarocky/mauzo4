@@ -1,32 +1,36 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/business_list_controller.dart';
+import 'package:mauzo/controllers/bought_controller.dart';
+import 'package:mauzo/controllers/client_controller.dart';
+import 'package:mauzo/controllers/employee_controller.dart';
+import 'package:mauzo/controllers/expence_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/controllers/sale_controller.dart';
+import 'package:mauzo/controllers/supplier_controller.dart';
+import 'package:mauzo/controllers/supplier_debt_controller.dart';
+import 'package:mauzo/controllers/cart_controller.dart';
+import 'package:mauzo/controllers/debt_history_controller.dart';
+import 'package:mauzo/controllers/invoice_controller.dart';
+import 'package:mauzo/controllers/transaction_controller.dart';
+import 'package:mauzo/controllers/closed_books_controller.dart';
+import 'package:mauzo/controllers/auth_controller.dart';
+import 'package:mauzo/controllers/pay_role_controller.dart';
+import 'package:mauzo/controllers/payment_controller.dart';
+import 'package:mauzo/models/business_model.dart';
+import 'package:mauzo/ui/widgets/tiles/drawer_tile.dart';
+import 'package:mauzo/ui/widgets/drawer/expandable_drawer_section.dart';
+import 'package:mauzo/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:mauzo/controllers/closed_books_controller.dart';
-import 'package:mauzo/controllers/employee_controller.dart';
-import 'package:mauzo/models/business_model.dart';
-import '../../controllers/Transaction_controller.dart';
-import '../../controllers/bought_controller.dart';
-import '../../controllers/business_controller.dart';
-import '../../controllers/business_list_controller.dart';
-import '../../controllers/cart_controller.dart';
-import '../../controllers/client_controller.dart';
-import '../../controllers/supplier_controller.dart';
-import '../../controllers/debt_history_controller.dart';
-import '../../controllers/expence_controller.dart';
-import '../../controllers/invoice_controller.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/product_transfer_controller.dart';
-import '../../controllers/profile_controller.dart';
-import '../../controllers/sale_controller.dart';
 import '../../controllers/store_controller.dart';
-import '../../secret.dart';
-import '../../utils/constants.dart';
 import '../../utils/preferences.dart';
 import '../widgets/dialogs/payment_dialog.dart';
 import '../widgets/screens_card.dart';
-import '../widgets/tiles/drawer_tile.dart';
 import '../widgets/tiles/info_tile.dart';
 
 
@@ -66,6 +70,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
    await _profileController.updateUserEmail(Preferences.getEmail());
     await _businessController.updateBusinessId(Preferences.getBusiness());
+
+    // Initialize controllers
+    Get.put(SupplierController());
 
     // Additional logic after ensuring all controllers are initialized
     if (_businessController.businessId.value.isNotEmpty) {
@@ -272,16 +279,17 @@ class _HomeScreenState extends State<HomeScreen> {
         final ProductController productController = Get.put(ProductController());
         final ExpenseController expenceController = Get.put(ExpenseController());
         final StoreController storeController = Get.put(StoreController());
-        final TransactionController _TransactionController = Get.put(TransactionController());
         final ClientController clientController = Get.put(ClientController());
+
         final SaleController _saleController = Get.put(SaleController());
         final ProductTransferController _transferController = Get.put(ProductTransferController());
         final CartController cartController = Get.put(CartController());
         final EmployeeController _employeeController = Get.put(EmployeeController());
         final DebtHistoryController _debtHistoryController = Get.put(DebtHistoryController());
+        final SupplierDebtController _supplierDebtController = Get.put(SupplierDebtController());
         final ClosedBooksController closedBooksController = Get.put(ClosedBooksController());
         final BoughtController _boughtController = Get.put(BoughtController());
-
+        final TransactionController transactionController = Get.put(TransactionController());
 
         void restartAllControllers() {
           // Delete all controllers
@@ -290,15 +298,16 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.delete<BusinessListController>(force: true);
           Get.delete<BoughtController>(force: true);
           Get.delete<DebtHistoryController>(force: true);
+          Get.delete<BoughtController>(force: true);
           Get.delete<InvoiceController>(force: true);
           Get.delete<ProductController>(force: true);
           Get.delete<TransactionController>(force: true);
           Get.delete<ClientController>(force: true);
-          Get.delete<SupplierController>(force: true);
           Get.delete<SaleController>(force: true);
           Get.delete<ExpenseController>(force: true);
           Get.delete<CartController>(force: true);
-          Get.delete<EmployeeController>(force: true);
+          Get.delete<StoreController>(force: true);
+          Get.delete<ClosedBooksController>(force: true);
           Get.delete<ClosedBooksController>(force: true);
           // Recreate controllers - ORDER MATTERS: Dependencies must be initialized first
           Get.put<ProductTransferController>(ProductTransferController());
@@ -306,10 +315,18 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.put<BusinessListController>(BusinessListController());
           Get.put<InvoiceController>(InvoiceController());
           Get.put<DebtHistoryController>(DebtHistoryController());
+          Get.put<SupplierDebtController>(SupplierDebtController());
           Get.put<ProductController>(ProductController());
           Get.put<ExpenseController>(ExpenseController()); // Must be before BoughtController
-          Get.put<TransactionController>(TransactionController());
           Get.put<ClientController>(ClientController());
+          // Initialize TransactionController after BusinessController is ready
+          try {
+            if (_businessController.businessId.value.isNotEmpty) {
+              Get.put<TransactionController>(TransactionController());
+            }
+          } catch (e) {
+            print('TransactionController restart failed: $e');
+          }
           Get.put<SupplierController>(SupplierController());
           Get.put<SaleController>(SaleController());
           Get.put<CartController>(CartController());
@@ -413,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   SizedBox(width: 8),
                   // Allow business switching for users with edit_business permission OR multi-business employees
-                  if(canEditBusiness || (_profileController.user['business'] as List).length > 1)
+                  if(canEditBusiness || ((_profileController.user['business'] as List<dynamic>?)?.length ?? 0) > 1)
                     GestureDetector(
                       onTap: () {
                         // Simulate a DropdownButton by showing the menu when the icon is clicked
@@ -421,7 +438,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           context: context,
                           position: RelativeRect.fromLTRB(100, 100, 0, 0), // Adjust this for proper positioning
                           items: [
-                            ...businessListController.businesses.map((BusinessModel business) {
+                            ...businessListController.businesses.map((business) {
                               return PopupMenuItem<BusinessModel>(
                                 value: business,
                                 child: Text(business.name),
@@ -429,18 +446,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             }).toList(),
                             // Add the "Add New Business" option
                             PopupMenuItem<BusinessModel>(
-                              value: BusinessModel(
-                                id: 'add_new',
-                                name: 'Add New Business',
-                                phone: '',
-                                tin: 'TIN',
-                                email: '',
-                                reset_time: Timestamp.now(),
-                                subscriptionStatus: '',
-                                mainCurrency: '',
-                                secondaryCurrency: '',
-                                date: DateTime.now(),
-                              ),
+                              value: null,
                               child: Row(
                                 children: [
                                   Icon(Icons.add, color: Colors.blue),
@@ -454,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (newBusiness != null) {
                             if (newBusiness.id == 'add_new') {
                               // Show dialog to add a new business
-                              if (_profileController.user['maxBusiness'] > (_profileController.user['business'] as List).length) {
+                              if (_profileController.user['maxBusiness'] > ((_profileController.user['business'] as List<dynamic>?)?.length ?? 0)) {
                                 showAddBusinessDialog(context);} else {
 
                                 print("Exceeded max business limit");
@@ -525,74 +531,119 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
+                    
+                    // HR & PAYROLL SECTION
                     if(canEditBusiness)
-                      DrawerTile(
-                        title: 'Employees'.tr,
+                      ExpandableDrawerSection(
+                        title: 'HR & Payroll',
                         icon: Icons.people,
-                        route: 'addemployee',
+                        initiallyExpanded: false,
+                        items: [
+                          DrawerMenuItem(
+                            title: 'Employees'.tr,
+                            icon: Icons.person_add,
+                            route: 'addemployee',
+                          ),
+                          if(_profileController.hasPermission('manage_payroll'))
+                            DrawerMenuItem(
+                              title: 'Pay Roles'.tr,
+                              icon: Icons.payment,
+                              route: 'pay-roles',
+                            ),
+                          if(_profileController.hasPermission('manage_payroll'))
+                            DrawerMenuItem(
+                              title: 'Payment Management'.tr,
+                              icon: Icons.account_balance,
+                              route: 'payment-management',
+                            ),
+                        ].where((item) => item != null).cast<DrawerMenuItem>().toList(),
                       ),
 
+                    // INVENTORY & PRODUCTS SECTION
+                    ExpandableDrawerSection(
+                      title: 'Inventory & Products',
+                      icon: Icons.inventory,
+                      initiallyExpanded: false,
+                      items: [
+                        if (canEditBusiness)
+                          DrawerMenuItem(
+                            title: 'Products in Store'.tr,
+                            icon: Icons.production_quantity_limits_rounded,
+                            route: 'store/add',
+                          ),
+                        DrawerMenuItem(
+                          title: 'Transfer Requests'.tr,
+                          icon: Icons.swap_horiz,
+                          route: 'transfer_requests',
+                        ),
+                        if (_businessController.business['purchases']=='true')
+                          DrawerMenuItem(
+                            title: 'Purchases'.tr,
+                            icon: Icons.import_export,
+                            route: 'bought',
+                          ),
+                      ].where((item) => item != null).cast<DrawerMenuItem>().toList(),
+                    ),
+
+                    // FINANCE & ACCOUNTING SECTION
+                    ExpandableDrawerSection(
+                      title: 'Finance & Accounting',
+                      icon: Icons.account_balance,
+                      initiallyExpanded: false,
+                      items: [
+                        DrawerMenuItem(
+                          title: 'expenses'.tr,
+                          icon: Icons.account_balance_wallet,
+                          route: 'expenses',
+                        ),
+                        DrawerMenuItem(
+                          title: 'Debt Records'.tr,
+                          icon: Icons.money,
+                          route: 'debt',
+                        ),
+                        DrawerMenuItem(
+                          title: 'Supplier Debts'.tr,
+                          icon: Icons.account_balance_wallet,
+                          route: 'supplier-debt',
+                        ),
+                        DrawerMenuItem(
+                          title: 'Suppliers'.tr,
+                          icon: Icons.local_shipping,
+                          route: 'suppliers',
+                        ),
+                      ],
+                    ),
+
+                    // REPORTS & ANALYTICS SECTION
                     if(canEditBusiness)
-                      DrawerTile(
-                        title: 'Generate Reports'.tr,
-                        icon: Icons.account_balance,
-                        route: 'reports',
+                      ExpandableDrawerSection(
+                        title: 'Reports & Analytics',
+                        icon: Icons.analytics,
+                        initiallyExpanded: false,
+                        items: [
+                          DrawerMenuItem(
+                            title: 'Generate Reports'.tr,
+                            icon: Icons.description,
+                            route: 'reports',
+                          ),
+                          DrawerMenuItem(
+                            title: 'Statistics'.tr,
+                            icon: Icons.bar_chart,
+                            route: 'statistics',
+                          ),
+                        ],
                       ),
 
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 20.0),
                       child: Divider(),
                     ),
-                    DrawerTile(
-                      title: 'expenses'.tr,
-                      icon: Icons.account_balance_wallet,
-                      route: 'expenses',
-                    ),
-                    if (canEditBusiness)
-                      DrawerTile(
-                        title: 'Products in Store'.tr,
-                        icon: Icons.production_quantity_limits_rounded,
-                        route: 'store/add',
-                      ),
 
-
-                    DrawerTile(
-                      title: 'Debt Records'.tr,
-                      icon: Icons.money,
-                      route: 'debt',
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20.0),
-                      child: Divider(),
-                    ),
-/*
-                    DrawerTile(
-                      title: 'Products report'.tr,
-                      icon: Icons.money,
-                      route: 'report',
-                    ),*/
-
-                    if(canEditBusiness)
-                    DrawerTile(
-                      title: 'Statistics'.tr,
-                      icon: Icons.bar_chart,
-                      route: 'statistics',
-                    ),
+                    // SETTINGS & SUPPORT (Direct items)
                     DrawerTile(
                       title: 'Settings'.tr,
                       icon: Icons.settings,
                       route: 'settings',
-                    ),
-                    if (_businessController.business['purchases']=='true')
-                      DrawerTile(
-                        title: 'Purchases'.tr,
-                        icon: Icons.import_export,
-                        route: 'bought',
-                      ),
-                    DrawerTile(
-                      title: 'Transfer Requests'.tr,
-                      icon: Icons.swap_horiz,
-                      route: 'transfer_requests',
                     ),
                     DrawerTile(
                       title: 'Support'.tr,

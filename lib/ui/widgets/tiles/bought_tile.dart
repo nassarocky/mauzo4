@@ -26,7 +26,7 @@ class BoughtTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            product.image != ''
+            (product.image != null && product.image != '')
                 ? Container(
               decoration: BoxDecoration(
                 border: Border.all(color: borderColor),
