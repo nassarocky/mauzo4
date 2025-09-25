@@ -38,6 +38,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   bool _isLoading = false;
   Map<String, dynamic>? _originalPurchaseData;
   DateTime? selectedDate;
+  // Purchase fund source state
+  String _fundSource = 'cash'; // cash | bank | mobile | other
+  String _fundSourceOtherNote = '';
 
   @override
   void initState() {
@@ -63,6 +66,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         setState(() {
           _originalPurchaseData = doc.data() as Map<String, dynamic>;
           selectedDate = (_originalPurchaseData!['date'] as Timestamp).toDate();
+          _fundSource = (_originalPurchaseData!['fundSource'] as String?) ?? 'cash';
+          _fundSourceOtherNote = (_originalPurchaseData!['fundSourceNote'] as String?) ?? '';
         });
       }
     }).catchError((error) {
@@ -205,6 +210,60 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                         prefixIcon: const Icon(Icons.business),
                       ),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Source of Funds Selector
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: _fundSource,
+                        decoration: InputDecoration(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          labelText: 'Source of Funds',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                            borderSide: BorderSide(
+                              color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                            ),
+                          ),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                          DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                          DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                          DropdownMenuItem(value: 'other', child: Text('Other Source')),
+                        ],
+                        onChanged: (val) {
+                          if (val == null) return;
+                          setState(() {
+                            _fundSource = val;
+                            if (_fundSource != 'other') _fundSourceOtherNote = '';
+                          });
+                        },
+                      ),
+                      if (_fundSource == 'other') ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          decoration: InputDecoration(
+                            hintText: 'Describe other source (optional)'.tr,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: BorderSide(
+                                color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          ),
+                          onChanged: (v) => _fundSourceOtherNote = v,
+                        ),
+                      ]
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -708,10 +767,13 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'price': _cartController.productsPrice,
       'buyingPrice': _cartController.productsBuyingPrice,
       'payment': _cartController.payment,
+      'payments': _cartController.payments.map((p) => p.toMap()).toList(),
       'debt': _cartController.remaining,
       'discount': _cartController.discount.value,
       'comment': _cartController.comment,
       'date': selectedDate ?? DateTime.now(),
+      'fundSource': _fundSource,
+      'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
     };
 
     // Call functions separately without `then`
@@ -766,10 +828,13 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'price': _cartController.productsPrice,
       'buyingPrice': _cartController.productsBuyingPrice,
       'payment': _cartController.payment,
+      'payments': _cartController.payments.map((p) => p.toMap()).toList(),
       'debt': _cartController.remaining,
       'discount': _cartController.discount.value,
       'comment': _cartController.comment,
       'date': selectedDate ?? DateTime.now(),
+      'fundSource': _fundSource,
+      'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
     };
 
     purchaseRef.update(updatedData).then((_) {

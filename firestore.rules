@@ -47,7 +47,13 @@ service cloud.firestore {
       allow get, list: if isBusinessAllowed(businessId);
 
       match /userSales/{docId} {
-        allow read, write: if isBusinessAllowed(businessId);
+        // Read always allowed for business members
+        allow read: if isBusinessAllowed(businessId);
+        // Create/Update must validate optional payments[] schema
+        allow create, update: if isBusinessAllowed(businessId) &&
+          isValidPaymentsArray(request.resource.data.payments);
+        // Delete allowed for business members
+        allow delete: if isBusinessAllowed(businessId);
       }
     }
 
@@ -56,7 +62,10 @@ service cloud.firestore {
       allow get, list: if isBusinessAllowed(businessId);
 
       match /userInvoices/{docId} {
-        allow read, write: if isBusinessAllowed(businessId);
+        allow read: if isBusinessAllowed(businessId);
+        allow create, update: if isBusinessAllowed(businessId) &&
+          isValidPaymentsArray(request.resource.data.payments);
+        allow delete: if isBusinessAllowed(businessId);
       }
     }
 
@@ -154,7 +163,10 @@ service cloud.firestore {
       allow get, list: if isBusinessAllowed(businessId);
 
       match /userRecovered/{docId} {
-        allow read, write: if isBusinessAllowed(businessId);
+        allow read: if isBusinessAllowed(businessId);
+        allow create, update: if isBusinessAllowed(businessId) &&
+          isValidPaymentsArray(request.resource.data.payments);
+        allow delete: if isBusinessAllowed(businessId);
       }
     }
 
@@ -227,6 +239,25 @@ service cloud.firestore {
       return request.auth != null &&
         exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
         businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business;
+    }
+
+    // Validate an optional payments[] array where each item may include
+    // amount (number >= 0), currency (non-empty string), and method in ['cash','bank','mobile']
+    function isValidPaymentsArray(payments) {
+      // If 'payments' is missing or not a list, accept (backward compatible)
+      return !(payments is list) || payments.all(p =>
+        p is map &&
+        // method optional but if present must be valid
+        (!('method' in p) || isValidPaymentMethod(p.method)) &&
+        // amount optional but if present must be number >= 0
+        (!('amount' in p) || ((p.amount is int || p.amount is float) && p.amount >= 0)) &&
+        // currency optional but if present must be a non-empty string
+        (!('currency' in p) || (p.currency is string && p.currency != ""))
+      );
+    }
+
+    function isValidPaymentMethod(method) {
+      return method == 'cash' || method == 'bank' || method == 'mobile';
     }
     
     function hasManageEmployeesPermission() {

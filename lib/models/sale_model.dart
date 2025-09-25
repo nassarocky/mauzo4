@@ -19,6 +19,12 @@ class Sale {
   final double debt;
   final double discount;
   final String comment;
+  // Optional detailed payments breakdown (each item: {amount,currency,method})
+  final List<Map<String, dynamic>> payments;
+  // Optional purchase fund source (e.g., cash, bank, mobile, other)
+  final String? fundSource;
+  // Optional note/description when fundSource is 'other'
+  final String? fundSourceNote;
 
   Sale({
     required this.id,
@@ -38,6 +44,9 @@ class Sale {
     required this.debt,
     required this.discount,
     required this.comment,
+    this.payments = const [],
+    this.fundSource,
+    this.fundSourceNote,
   });
   static Sale fromSnapshot(DocumentSnapshot snapshot) {
     var data = snapshot.data() as Map<String, dynamic>?;
@@ -60,6 +69,9 @@ class Sale {
       debt: (data?['debt'] ?? 0.0).toDouble(),            // Converts to double
       discount: (data?['discount'] ?? 0.0).toDouble(),    // Converts to double
       comment: data?['comment'] ?? '',
+      payments: List<Map<String, dynamic>>.from(data?['payments'] ?? const []),
+      fundSource: data?['fundSource'],
+      fundSourceNote: data?['fundSourceNote'],
     );
   }
 

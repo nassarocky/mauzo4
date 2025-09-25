@@ -201,36 +201,414 @@ class _HomeScreenState extends State<HomeScreen> {
     double purchases = _boughtController.getTotalSalesFromTimestamp(resetTime,Timestamp.now());
     //  double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(resetTime);
     double totalExpenses = expenseController.getTotalExpensesFromTimestamp(resetTime,Timestamp.now());
-    double netTotal = totalPayments  - totalExpenses-purchases;
+    // Only deduct purchases funded by CASH from the cash-in-hand calculation
+    final String mainCurrency = _businessController.business['mainCurrency'];
+    double purchasesCashDeduction = 0.0;
+    for (final b in _boughtController.sales) {
+      if (b.date is Timestamp) {
+        final Timestamp bt = b.date;
+        if (bt.compareTo(resetTime) > 0 && bt.compareTo(Timestamp.now()) < 0) {
+          // Deduct only if purchase fund source is explicitly cash
+          if (b.fundSource == 'cash') {
+            if (b.payments.isNotEmpty) {
+              // Sum all payments (regardless of method) because the source was cash
+              for (final p in b.payments) {
+                final dynamic rawAmount = p['amount'];
+                final double amt = rawAmount is int ? rawAmount.toDouble() : (rawAmount is num ? rawAmount.toDouble() : 0.0);
+                final String currency = (p['currency'] ?? mainCurrency).toString();
+                final double amtMain = currency == mainCurrency ? amt : amt * Preferences.getExchangeRateResult();
+                purchasesCashDeduction += amtMain;
+              }
+            } else {
+              // Fallback to aggregate payment amount
+              if (b.payment > 0) {
+                purchasesCashDeduction += b.payment;
+              }
+            }
+          }
+        }
+      }
+    }
+    double netTotal = totalPayments  - totalExpenses - purchasesCashDeduction;
+
+    // Compute payment totals by method within the same time window
+    double cashTotal = 0.0;
+    double bankTotal = 0.0;
+    double mobileTotal = 0.0;
+    // mainCurrency already defined above
+
+    for (final sale in _saleController.sales) {
+      if (sale.date is Timestamp) {
+        final Timestamp saleTs = sale.date;
+        if (saleTs.compareTo(resetTime) > 0 && saleTs.compareTo(Timestamp.now()) < 0) {
+          if (sale.payments.isNotEmpty) {
+            for (final p in sale.payments) {
+              final dynamic rawAmount = p['amount'];
+              final double amt = rawAmount is int
+                  ? rawAmount.toDouble()
+                  : (rawAmount is num ? rawAmount.toDouble() : 0.0);
+              final String currency = (p['currency'] ?? mainCurrency).toString();
+              final String method = (p['method'] ?? 'cash').toString();
+              final double amtMain = currency == mainCurrency
+                  ? amt
+                  : amt * Preferences.getExchangeRateResult();
+
+              if (method == 'bank') {
+                bankTotal += amtMain;
+              } else if (method == 'mobile') {
+                mobileTotal += amtMain;
+              } else {
+                cashTotal += amtMain;
+              }
+            }
+          } else {
+            // Backward compatibility: attribute aggregated payment to cash
+            cashTotal += sale.payment;
+          }
+        }
+      }
+    }
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Sales and Expenses'.tr),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${'TOTAL SALES:'.tr} ${formatCurrency(totalPayments, _businessController.business['mainCurrency'])}'),
-              Text('${'DEBT:'.tr} ${formatCurrency(debt, _businessController.business['mainCurrency'])}'),
-              Text('${'PRODUCT PURCHASES:'.tr} ${formatCurrency(purchases, _businessController.business['mainCurrency'])}'),
-              Text('${'EXPENSES:'.tr} ${formatCurrency(totalExpenses, _businessController.business['mainCurrency'])}'),
-              Text('${'TOTAL CASH IN HAND:'.tr} ${formatCurrency(netTotal, _businessController.business['mainCurrency'])}'),
-
-            ],
-          ),
-          actions: [
-
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('Close'.tr),
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.blue.shade50,
+                  Colors.white,
+                  Colors.green.shade50,
+                ],
+              ),
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header with gradient
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                    gradient: LinearGradient(
+                      colors: [Colors.blue.shade600, Colors.blue.shade800],
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.analytics, color: Colors.white, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Sales and Expenses Analysis'.tr,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Content
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        // Total Sales Card
+                        _buildAnalyticsCard(
+                          icon: Icons.trending_up,
+                          iconColor: Colors.green,
+                          title: 'TOTAL SALES'.tr,
+                          amount: formatCurrency(totalPayments, _businessController.business['mainCurrency']),
+                          gradient: [Colors.green.shade50, Colors.green.shade100],
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Payment Methods Section
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.payment, color: Colors.blue.shade600, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Payment Methods Breakdown',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey.shade700,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              _buildPaymentMethodRow(
+                                icon: Icons.money,
+                                iconColor: Colors.green.shade600,
+                                method: 'Cash',
+                                amount: formatCurrency(cashTotal, _businessController.business['mainCurrency']),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildPaymentMethodRow(
+                                icon: Icons.account_balance,
+                                iconColor: Colors.blue.shade600,
+                                method: 'Bank',
+                                amount: formatCurrency(bankTotal, _businessController.business['mainCurrency']),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildPaymentMethodRow(
+                                icon: Icons.phone_android,
+                                iconColor: Colors.orange.shade600,
+                                method: 'Mobile (Lipa Namba)',
+                                amount: formatCurrency(mobileTotal, _businessController.business['mainCurrency']),
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Other Metrics
+                        _buildAnalyticsCard(
+                          icon: Icons.account_balance_wallet,
+                          iconColor: Colors.orange,
+                          title: 'DEBT'.tr,
+                          amount: formatCurrency(debt, _businessController.business['mainCurrency']),
+                          gradient: [Colors.orange.shade50, Colors.orange.shade100],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        _buildAnalyticsCard(
+                          icon: Icons.shopping_cart,
+                          iconColor: Colors.purple,
+                          title: 'PRODUCT PURCHASES'.tr,
+                          amount: formatCurrency(purchases, _businessController.business['mainCurrency']),
+                          gradient: [Colors.purple.shade50, Colors.purple.shade100],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        
+                        _buildAnalyticsCard(
+                          icon: Icons.receipt_long,
+                          iconColor: Colors.red,
+                          title: 'EXPENSES'.tr,
+                          amount: formatCurrency(totalExpenses, _businessController.business['mainCurrency']),
+                          gradient: [Colors.red.shade50, Colors.red.shade100],
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Net Total - Special styling
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: netTotal >= 0 
+                                ? [Colors.green.shade600, Colors.green.shade800]
+                                : [Colors.red.shade600, Colors.red.shade800],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (netTotal >= 0 ? Colors.green : Colors.red).withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  netTotal >= 0 ? Icons.account_balance : Icons.warning,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'TOTAL CASH IN HAND'.tr,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      formatCurrency(netTotal, _businessController.business['mainCurrency']),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildAnalyticsCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String amount,
+    required List<Color> gradient,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  amount,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentMethodRow({
+    required IconData icon,
+    required Color iconColor,
+    required String method,
+    required String amount,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(icon, color: iconColor, size: 16),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            method,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ),
+        Text(
+          amount,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade800,
+          ),
+        ),
+      ],
     );
   }
 

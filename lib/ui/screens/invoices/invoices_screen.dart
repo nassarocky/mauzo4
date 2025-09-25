@@ -807,9 +807,20 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
     _cartController.client = client;
 
     _cartController.setDiscount(invoice.discount);
-    if (invoice.payment > 0) {
+    _cartController.clearPayments();
+    if (invoice.payments.isNotEmpty) {
+      for (final p in invoice.payments) {
+        final double amt = (p['amount'] is int)
+            ? (p['amount'] as int).toDouble()
+            : (p['amount'] as num?)?.toDouble() ?? 0.0;
+        if (amt <= 0) continue;
+        final String currency = (p['currency'] ?? _businessController.business['mainCurrency']).toString();
+        final String method = (p['method'] ?? 'cash').toString();
+        _cartController.addPayment(amt, currency, method: method);
+      }
+    } else if (invoice.payment > 0) {
       _cartController.addPayment(
-        invoice.payment,
+        (invoice.payment is int) ? (invoice.payment as int).toDouble() : invoice.payment,
         _businessController.business['mainCurrency'],
       );
     }

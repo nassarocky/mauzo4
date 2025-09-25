@@ -95,8 +95,11 @@ class CartController extends GetxController {
     _products.add(product);
 
 
-    payments.clear();
-    addPayment(remaining, _businessController.business['mainCurrency']);
+    // Preserve existing payments to avoid wiping selected methods during edits.
+    // If no payments yet, initialize with a single payment equal to remaining.
+    if (_payments.isEmpty) {
+      addPayment(remaining, _businessController.business['mainCurrency']);
+    }
   }
 
 
@@ -156,12 +159,13 @@ class CartController extends GetxController {
   final _payments = <Payment>[].obs;
   get payments => _payments;
 
-  void addPayment(double amount, String currency) {
+  void addPayment(double amount, String currency, {String method = 'cash'}) {
     if (_payments.length < 4) {
       _payments.add(
         Payment(
           amount: amount,
           currency: currency,
+          method: method,
         ),
       );
     }

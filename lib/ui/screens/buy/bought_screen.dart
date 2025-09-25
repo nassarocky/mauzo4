@@ -591,28 +591,51 @@ class _boughtControllerState extends State<BoughtScreen> {
                                             ),
                                           )
                                               : const SizedBox(),
-                                          sale.payment == sale.price
-                                              ? Text(
-                                            'paid'.tr,
-                                            style: bodyText(
-                                              greenColor,
-                                            ),
-                                          )
-                                              : sale.payment > 0
-                                              ? Text(
-                                            '${'paid'.tr}: ${formatCurrency(sale.payment, _businessController.business['mainCurrency'])}',
-                                            style: bodyText(
-                                              greenColor,
-                                            ),
-                                          )
-                                              : const SizedBox(),
-                                          sale.debt > 0
-                                              ? Text(
-                                            '${'debt'.tr}: ${formatCurrency(sale.debt, _businessController.business['mainCurrency'])}',
-                                            style: bodyText(
-                                              redColor,
-                                            ),
-                                          )           : const SizedBox(),
+                                          // Bottom summary row: fund source on the left, amount/status on the right
+                                          Builder(builder: (_) {
+                                            final String fundSourceText = (() {
+                                              final fs = sale.fundSource;
+                                              if (fs == 'bank') return 'Bank';
+                                              if (fs == 'mobile') return 'Lipa Namba';
+                                              if (fs == 'cash') return 'Cash';
+                                              if (fs == 'other') {
+                                                final note = sale.fundSourceNote;
+                                                return (note != null && note.isNotEmpty) ? 'Other: ' + note : 'Other';
+                                              }
+                                              return '';
+                                            })();
+
+                                            return Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: fundSourceText.isNotEmpty
+                                                      ? Text(
+                                                          fundSourceText,
+                                                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        )
+                                                      : const SizedBox(),
+                                                ),
+                                                sale.debt == 0
+                                                    ? (sale.payment == sale.price
+                                                        ? Text(
+                                                            'paid'.tr,
+                                                            style: bodyText(greenColor),
+                                                          )
+                                                        : sale.payment > 0
+                                                            ? Text(
+                                                                '${'paid'.tr}: ${formatCurrency(sale.payment, _businessController.business['mainCurrency'])}',
+                                                                style: bodyText(greenColor),
+                                                              )
+                                                            : const SizedBox())
+                                                    : Text(
+                                                        '${'debt'.tr}: ${formatCurrency(sale.debt, _businessController.business['mainCurrency'])}',
+                                                        style: bodyText(redColor),
+                                                      ),
+                                              ],
+                                            );
+                                          }),
                                           sale.employeeId !=null
                                               ? Text(
                                             '${'processed by'.tr}: ${sale.employeeName}',
@@ -873,8 +896,18 @@ class _boughtControllerState extends State<BoughtScreen> {
       _cartController.supplier = supplier;
     }
     _cartController.setDiscount(purchase.discount);
-
-    if (purchase.payment > 0) {
+    _cartController.clearPayments();
+    if (purchase.payments.isNotEmpty) {
+      for (final p in purchase.payments) {
+        final double amt = (p['amount'] is int)
+            ? (p['amount'] as int).toDouble()
+            : (p['amount'] as num?)?.toDouble() ?? 0.0;
+        if (amt <= 0) continue;
+        final String currency = (p['currency'] ?? _businessController.business['mainCurrency']).toString();
+        final String method = (p['method'] ?? 'cash').toString();
+        _cartController.addPayment(amt, currency, method: method);
+      }
+    } else if (purchase.payment > 0) {
       _cartController.addPayment(purchase.payment, _businessController.business['mainCurrency']);
     }
 

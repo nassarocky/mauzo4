@@ -953,6 +953,7 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       'price': _cartController.productsPrice,
       'buyingPrice': _cartController.productsBuyingPrice,
       'payment': _cartController.payment,
+      'payments': _cartController.payments.map((p) => p.toMap()).toList(),
       'debt': _cartController.remaining,
       'discount': _cartController.discount.value,
       'comment': _detailsController.text.trim(),

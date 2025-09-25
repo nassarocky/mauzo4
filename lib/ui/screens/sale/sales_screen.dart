@@ -413,6 +413,22 @@ class _SalesScreenState extends State<SalesScreen> {
                                   .getClient(sale.client);
                               final time = sale.date.toDate();
 
+                              // Build a compact list of unique payment method labels (Cash, Bank, Mobile)
+                              final String methodsText = (() {
+                                if (sale.payments.isEmpty) return '';
+                                final labels = <String>{};
+                                for (final p in sale.payments) {
+                                  final String method = (p['method'] ?? 'cash').toString();
+                                  final String label = method == 'bank'
+                                      ? 'Bank'
+                                      : method == 'mobile'
+                                          ? 'Mobile'
+                                          : 'Cash';
+                                  labels.add(label);
+                                }
+                                return labels.join(', ');
+                              })();
+
                               return Container(
                                 color: Preferences.getTheme()
                                     ? mediumGrayColor
@@ -585,6 +601,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                     ],
 
                                     const SizedBox(height: 12),
+                                    // Payment chips removed to reduce height; methods are shown inline with amount below
                                     SizedBox(
                                       width: double.infinity,
                                       child: Column(
@@ -613,26 +630,37 @@ class _SalesScreenState extends State<SalesScreen> {
                                           )
                                               : const SizedBox(),
 
-                                          sale.debt == 0
-                                              ? (sale.payment == sale.price
-                                              ? Text(
-                                            'paid'.tr,
-                                            style: bodyText(greenColor),
-                                          )
-                                              : sale.payment > 0
-                                              ? Text(
-                                            '${'paid'.tr}: ${formatCurrency(sale.payment, _businessController.business['mainCurrency'])}',
-                                            style: bodyText(greenColor),
-                                          )
-                                              : const SizedBox())
-                                              : const SizedBox(),
-
-                                          sale.debt > 0
-                                              ? Text(
-                                            '${'debt'.tr}: ${formatCurrency(sale.debt, _businessController.business['mainCurrency'])}',
-                                            style: bodyText(redColor),
-                                          )
-                                              : const SizedBox(),
+                                          // Bottom summary row: payment methods on the left, amount/status on the right
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: methodsText.isNotEmpty
+                                                    ? Text(
+                                                        methodsText,
+                                                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      )
+                                                    : const SizedBox(),
+                                              ),
+                                              sale.debt == 0
+                                                  ? (sale.payment == sale.price
+                                                      ? Text(
+                                                          'paid'.tr,
+                                                          style: bodyText(greenColor),
+                                                        )
+                                                      : sale.payment > 0
+                                                          ? Text(
+                                                              '${'paid'.tr}: ${formatCurrency(sale.payment, _businessController.business['mainCurrency'])}',
+                                                              style: bodyText(greenColor),
+                                                            )
+                                                          : const SizedBox())
+                                                  : Text(
+                                                      '${'debt'.tr}: ${formatCurrency(sale.debt, _businessController.business['mainCurrency'])}',
+                                                      style: bodyText(redColor),
+                                                    ),
+                                            ],
+                                          ),
 
                                           sale.employeeId != null
                                               ? Text(
@@ -908,9 +936,22 @@ class _SalesScreenState extends State<SalesScreen> {
 
     _cartController.client = client;
     _cartController.setDiscount(sale.discount);
-
-    if (sale.payment > 0) {
-      _cartController.addPayment(sale.payment, _businessController.business['mainCurrency']);
+    _cartController.clearPayments();
+    if (sale.payments.isNotEmpty) {
+      for (final p in sale.payments) {
+        final double amt = (p['amount'] is int)
+            ? (p['amount'] as int).toDouble()
+            : (p['amount'] as num?)?.toDouble() ?? 0.0;
+        if (amt <= 0) continue;
+        final String currency = (p['currency'] ?? _businessController.business['mainCurrency']).toString();
+        final String method = (p['method'] ?? 'cash').toString();
+        _cartController.addPayment(amt, currency, method: method);
+      }
+    } else if (sale.payment > 0) {
+      _cartController.addPayment(
+        (sale.payment is int) ? (sale.payment as int).toDouble() : sale.payment,
+        _businessController.business['mainCurrency'],
+      );
     }
 
     _cartController.setComment(sale.comment);
@@ -954,10 +995,20 @@ class _SalesScreenState extends State<SalesScreen> {
     _cartController.client = client;
 
     _cartController.setDiscount(sale.discount);
-
-    if (sale.payment > 0) {
+    _cartController.clearPayments();
+    if (sale.payments.isNotEmpty) {
+      for (final p in sale.payments) {
+        final double amt = (p['amount'] is int)
+            ? (p['amount'] as int).toDouble()
+            : (p['amount'] as num?)?.toDouble() ?? 0.0;
+        if (amt <= 0) continue;
+        final String currency = (p['currency'] ?? _businessController.business['mainCurrency']).toString();
+        final String method = (p['method'] ?? 'cash').toString();
+        _cartController.addPayment(amt, currency, method: method);
+      }
+    } else if (sale.payment > 0) {
       _cartController.addPayment(
-        sale.payment,
+        (sale.payment is int) ? (sale.payment as int).toDouble() : sale.payment,
         _businessController.business['mainCurrency'],
       );
     }

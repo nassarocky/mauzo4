@@ -34,6 +34,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
           {
             'amount': payment.amount,
             'currency': payment.currency,
+            'method': payment.method,
             'controller': TextEditingController(
                 text: formatCurrencyWithoutSymbol(payment.amount)),
           },
@@ -44,6 +45,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
       _payments.add({
         'amount': 0,
         'currency': widget.chosenCurrency,
+        'method': 'cash',
         'controller': TextEditingController(),
       });
     }
@@ -124,7 +126,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                     child: Row(
                       children: [
                         SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.55,
+                          width: MediaQuery.of(context).size.width * 0.45,
                           child: TextField(
                             inputFormatters: [
                               ThousandsFormatter(
@@ -181,7 +183,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                         ),
                         Expanded(child: Container()),
                         SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.3,
+                          width: MediaQuery.of(context).size.width * 0.23,
                           child: TextField(
                             onTap: () {
                               showDialog<String>(
@@ -262,7 +264,97 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                               ),
                             ),
                           ),
-                        )
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.23,
+                          child: TextField(
+                            onTap: () {
+                              showDialog<String>(
+                                context: context,
+                                builder: (BuildContext context) => SimpleDialog(
+                                  title: const Text('Payment Method'),
+                                  children: [
+                                    Column(
+                                      children: [
+                                        RadioListTile(
+                                          activeColor: Preferences.getTheme()
+                                              ? primaryLightColor
+                                              : primaryColor,
+                                          value: 'cash',
+                                          groupValue: _payments[i]['method'],
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _payments[i]['method'] = value;
+                                            });
+                                            Navigator.pop(context);
+                                          },
+                                          title: const Text('Cash'),
+                                        ),
+                                        RadioListTile(
+                                          activeColor: Preferences.getTheme()
+                                              ? primaryLightColor
+                                              : primaryColor,
+                                          value: 'bank',
+                                          groupValue: _payments[i]['method'],
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _payments[i]['method'] = value;
+                                            });
+                                            Navigator.pop(context);
+                                          },
+                                          title: const Text('Bank'),
+                                        ),
+                                        RadioListTile(
+                                          activeColor: Preferences.getTheme()
+                                              ? primaryLightColor
+                                              : primaryColor,
+                                          value: 'mobile',
+                                          groupValue: _payments[i]['method'],
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _payments[i]['method'] = value;
+                                            });
+                                            Navigator.pop(context);
+                                          },
+                                          title: const Text('Lipa Namba (Mobile)'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            readOnly: true,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 8, horizontal: 10),
+                              hintText: _payments[i]['method'] == 'cash'
+                                  ? 'Cash'
+                                  : _payments[i]['method'] == 'bank'
+                                      ? 'Bank'
+                                      : 'Lipa Namba',
+                              hintStyle: bodyText(
+                                Theme.of(context).textTheme.bodyLarge!.color,
+                              ),
+                              suffixIcon: const Icon(
+                                Icons.arrow_drop_down,
+                                color: iconGrayColor,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme()
+                                      ? mediumGrayColor
+                                      : borderColor,
+                                ),
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -279,6 +371,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                                 'currency': _payments[paymentsCounter - 1]
                                     ['currency'],
                                 'amount': 0,
+                                'method': 'cash',
                               });
                               paymentsCounter++;
                             } else {
@@ -342,6 +435,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                       _cartController.addPayment(
                         payment['amount'],
                         payment['currency'],
+                        method: (payment['method'] ?? 'cash') as String,
                       );
                     }
 
