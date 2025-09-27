@@ -13,6 +13,8 @@ class SupplierDebt {
   final String comment; // Optional comment or description for the debt record
   final String employeeId; // ID of employee who made the purchase
   final String employeeName; // Name of employee who made the purchase
+  final String? purchaseId; // ID of the purchase transaction that created this debt
+  final List<Map<String, dynamic>>? products; // List of products purchased on debt
 
   SupplierDebt({
     required this.id,
@@ -27,6 +29,8 @@ class SupplierDebt {
     required this.comment,
     required this.employeeId,
     required this.employeeName,
+    this.purchaseId,
+    this.products,
   });
 
   // Factory method to create a SupplierDebt from Firestore snapshot
@@ -46,6 +50,10 @@ class SupplierDebt {
       comment: data?['comment'] ?? '',
       employeeId: data?['employeeId'] ?? '',
       employeeName: data?['employeeName'] ?? '',
+      purchaseId: data?['purchaseId'],
+      products: data?['products'] != null 
+          ? List<Map<String, dynamic>>.from(data!['products']) 
+          : null,
     );
   }
 
@@ -63,6 +71,8 @@ class SupplierDebt {
       'comment': comment,
       'employeeId': employeeId,
       'employeeName': employeeName,
+      if (purchaseId != null) 'purchaseId': purchaseId,
+      if (products != null) 'products': products,
     };
   }
 }

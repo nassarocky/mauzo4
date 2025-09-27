@@ -133,44 +133,58 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       );
     }
     
-    String from = 'Add product';
-    if (widget.userData != null) {
-      from = widget.userData!.name; // Use null-safe operator
-    }
-    String appbartitle=from;
-    if(from=='invoice'){
-      appbartitle='Save Invoice';
-    }
-
     return WillPopScope(
       onWillPop: () async => _isLoading ? false : true,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(appbartitle.tr),
+          backgroundColor:
+              Preferences.getTheme() ? darkGrayColor : primaryUltraLightColor,
+          foregroundColor:
+              Preferences.getTheme() ? primaryUltraLightColor : textDarkColor,
+          title: Text('Buy Products'.tr),
           elevation: 0,
           leading: _isLoading
               ? Container()
               : IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-          ),
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                ),
         ),
+        
         body: _isLoading
             ? const Center(
           child: CircularProgressIndicator(),
         )
             : Obx(
-              () => SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 16),
-                // Supplier Selection Field
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: SizedBox(
+              () {
+                // Ensure a default payment exists so amount is auto-filled
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final String defaultMethod = _fundSource == 'mobile'
+                      ? 'mobile'
+                      : (_fundSource == 'bank' ? 'bank' : 'cash');
+                  if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
+                    final double base = _cartController.productsPrice - _cartController.discount.value;
+                    final double amount = base < 0 ? 0 : base;
+                    _cartController.addPayment(amount, chosenCurrency, method: defaultMethod);
+                  } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != defaultMethod) {
+                    // If the fund source changed, sync the single payment's method
+                    final double base = _cartController.productsPrice - _cartController.discount.value;
+                    final double amount = base < 0 ? 0 : base;
+                    _cartController.clearPayments();
+                    _cartController.addPayment(amount, chosenCurrency, method: defaultMethod);
+                  }
+                });
+                
+                // Supplier selector field
+                return SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: SizedBox(
                     height: 44,
                     child: TextField(
                       onTap: () {
@@ -210,9 +224,10 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                         prefixIcon: const Icon(Icons.business),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                
                 // Source of Funds Selector
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -483,7 +498,12 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                         ),
                         context: context,
                         builder: (BuildContext context) {
-                          return PaymentBottomSheet(chosenCurrency: chosenCurrency);
+                          return PaymentBottomSheet(
+                            chosenCurrency: chosenCurrency,
+                            defaultMethod: _fundSource == 'mobile'
+                                ? 'mobile'
+                                : (_fundSource == 'bank' ? 'bank' : 'cash'),
+                          );
                         },
                       );
                     }
@@ -531,11 +551,22 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                     : Padding(
                   padding:
                   const EdgeInsets.symmetric(horizontal: 20),
-                  child: SizedBox(
+                    child: SizedBox(
                     height: 44,
                     child: TextField(
                       onTap: () {
                         if (_businessController.business['debtEnabled']) {
+                          // Pre-create a default payment so the amount auto-fills in the bottom sheet
+                          if (_cartController.payments.length == 0) {
+                            final String method = _fundSource == 'mobile'
+                                ? 'mobile'
+                                : (_fundSource == 'bank' ? 'bank' : 'cash');
+                            final bool isMain = chosenCurrency == _businessController.business['mainCurrency'];
+                            final double amount = isMain
+                                ? _cartController.remaining
+                                : (_cartController.remaining / Preferences.getExchangeRateResult());
+                            _cartController.addPayment(amount, chosenCurrency, method: method);
+                          }
                           showModalBottomSheet(
                             isScrollControlled: true,
                             shape: const RoundedRectangleBorder(
@@ -545,7 +576,12 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                             ),
                             context: context,
                             builder: (BuildContext context) {
-                              return PaymentBottomSheet(chosenCurrency: chosenCurrency);
+                              return PaymentBottomSheet(
+                                chosenCurrency: chosenCurrency,
+                                defaultMethod: _fundSource == 'mobile'
+                                    ? 'mobile'
+                                    : (_fundSource == 'bank' ? 'bank' : 'cash'),
+                              );
                             },
                           );
                         }
@@ -636,17 +672,72 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                           height: 44,
                           child: PrimaryButton(
                             color: greenColor,
+                            text: 'confirm'.tr,
                             onPressed: () async {
                               if (_cartController.remaining > 0) {
-                                // Supplier selection is optional for purchases
-
+                                // Check if supplier is selected when there's debt
+                                if (_cartController.supplier == null || _cartController.supplier?.id == null || _cartController.supplier?.id == '') {
+                                  // Show error snackbar if supplier is not selected
+                                  Get.snackbar(
+                                    'Error',
+                                    'select_supplier_for_debt'.tr,
+                                    duration: Duration(seconds: 6),
+                                    snackPosition: SnackPosition.TOP,
+                                    backgroundColor: Colors.red,
+                                    colorText: Colors.white,
+                                  );
+                                  showModalBottomSheet(
+                                    context: context,
+                                    shape: const RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.vertical(
+                                        top: Radius.circular(4),
+                                      ),
+                                    ),
+                                    builder: (context) {
+                                      return Container(
+                                        padding: const EdgeInsets.all(20),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.business,
+                                              size: 48,
+                                              color: warningColor,
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'supplier_required'.tr,
+                                              style: h5(textDarkColor),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'supplier_debt_explanation'.tr,
+                                              textAlign: TextAlign.center,
+                                              style: bodyText(textMutedColor),
+                                            ),
+                                            const SizedBox(height: 20),
+                                            PrimaryButton(
+                                              text: 'select_supplier'.tr,
+                                              onPressed: () {
+                                                Navigator.pop(context);
+                                                Navigator.pushNamed(context, '/supplier/select')
+                                                    .then((value) => setState(() {}));
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  );
+                                  return; // Stop the function from proceeding
+                                }
 
                                 // Check if the comment is missing
                                 if (_cartController.comment == null || _cartController.comment!.isEmpty) {
                                   // Show error snackbar for 6 seconds if the comment is not added
                                   Get.snackbar(
                                     'Error',
-                                    'Weka maelezo kuhusu deni',
+                                    'add_debt_description'.tr,
                                     duration: Duration(seconds: 6),
                                     snackPosition: SnackPosition.BOTTOM,
                                     backgroundColor: Colors.red,
@@ -687,9 +778,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                       // Then update the purchase record
                                       updatePurchase(products);
                                     } else {
-                                      addSale(products);
+                                      await addSale(products);
                                       // Only increase bought quantity for new purchases
-                                      increaseBoughtQuantity();
+                                      await increaseBoughtQuantity();
                                     }
                                    
                                     // clear cart
@@ -707,25 +798,20 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                   setState(() {
                                     _isLoading = false;
                                   });
-                                }
-                              
-
-
-                            ,
-                            text: 'confirm'.tr,
+                                },
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
               ],
             ),
-          ),
-        ),
-      ),
-    );
+          ); // end return SingleChildScrollView
+      }, // end Obx builder
+    ), // end Obx
+  ), // end Scaffold
+); // end WillPopScope
   }
 
   void _selectPurchaseDate(BuildContext context) async {
@@ -742,7 +828,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     }
   }
 
-  void addSale(List<dynamic> products) {
+  Future<void> addSale(List<dynamic> products) async {
     final String? businessId = _businessController.business['id'];
     if (businessId == null) {
       errorSnackbar('Business ID is null');
@@ -776,29 +862,84 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
     };
 
+    // Capture values needed for debt creation BEFORE any cart clearing occurs
+    final capturedSupplier = _cartController.supplier; // may be null
+    final double capturedRemaining = _cartController.remaining;
+    final String? capturedComment = _cartController.comment;
+    // Build debt products from products list to avoid dependency on controller later
+    final List<Map<String, dynamic>> capturedDebtProducts = products.map<Map<String, dynamic>>((p) {
+      return {
+        'id': p['id'],
+        'name': p['name'],
+        'quantity': p['quantity'],
+        'price': p['price'],
+      };
+    }).toList();
+
     // Call functions separately without `then`
-    createSale(newSaleRef, saleData, businessId);
+    await createSale(
+      newSaleRef,
+      saleData,
+      businessId,
+      supplierAtPurchase: capturedSupplier,
+      remainingAtPurchase: capturedRemaining,
+      commentAtPurchase: capturedComment,
+      debtProductsAtPurchase: capturedDebtProducts,
+    );
   }
 
-  void createSale(DocumentReference saleRef, Map<String, dynamic> saleData, String businessId) {
-    saleRef.set(saleData).then((_) {
+  Future<void> createSale(
+    DocumentReference saleRef,
+    Map<String, dynamic> saleData,
+    String businessId, {
+    Supplier? supplierAtPurchase,
+    required double remainingAtPurchase,
+    String? commentAtPurchase,
+    required List<Map<String, dynamic>> debtProductsAtPurchase,
+  }) async {
+    await saleRef.set(saleData).then((_) async {
       // After the sale is successfully created, update the sale with its ID
       updateSaleId(saleRef);
       
       // Create supplier debt if there's remaining debt and a supplier is selected
-      if (_cartController.remaining > 0 && _cartController.supplier != null) {
-        _supplierDebtController.createSupplierDebt(
-          supplierId: _cartController.supplier!.id,
-          supplierName: _cartController.supplier!.name,
-          debtAmount: _cartController.remaining,
-          comment: 'Purchase debt from transaction ${saleRef.id}',
-          purchaseId: saleRef.id,
+      print('[DEBUG] Checking if supplier debt should be created');
+      print('[DEBUG] Remaining amount (captured): $remainingAtPurchase');
+      print('[DEBUG] Supplier (captured): ${supplierAtPurchase?.name ?? 'null'}');
+      
+      if (remainingAtPurchase > 0 && supplierAtPurchase != null) {
+        print('[DEBUG] Creating supplier debt for ${supplierAtPurchase.name}');
+        
+        // Update supplier's debt using the SupplierController (similar to client debt)
+        _supplierController.updateDebt(
+          supplierAtPurchase,
+          supplierAtPurchase.debt + remainingAtPurchase,
         );
+        print('[DEBUG] Updated supplier debt via SupplierController');
+        
+        print('[DEBUG] Calling createSupplierDebt with:');
+        print('[DEBUG]   - Supplier ID: ${supplierAtPurchase.id}');
+        print('[DEBUG]   - Supplier Name: ${supplierAtPurchase.name}');
+        print('[DEBUG]   - Debt Amount: $remainingAtPurchase');
+        print('[DEBUG]   - Purchase ID: ${saleRef.id}');
+        print('[DEBUG]   - Products: ${debtProductsAtPurchase.length} items');
+        
+        await _supplierDebtController.createSupplierDebt(
+          supplierId: supplierAtPurchase.id,
+          supplierName: supplierAtPurchase.name,
+          debtAmount: remainingAtPurchase,
+          comment: (commentAtPurchase == null || commentAtPurchase.isEmpty)
+              ? 'Purchase debt from transaction ${saleRef.id}'
+              : commentAtPurchase,
+          purchaseId: saleRef.id,
+          products: debtProductsAtPurchase,
+        );
+      } else {
+        print('[DEBUG] No supplier debt created - either no remaining amount or no supplier selected');
       }
     }).catchError((error) {
       errorSnackbar('Failed to create sale: $error');
     });
-    
+    return;
   }
 
   void updateSaleId(DocumentReference saleRef) {

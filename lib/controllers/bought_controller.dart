@@ -17,6 +17,7 @@ import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
 import '../controllers/profile_controller.dart';
 import 'business_controller.dart';
+import 'package:mauzo/utils/preferences.dart';
 class BoughtController extends GetxController {
   final BusinessController _businessController = Get.find();
   final ClientController clientController = Get.find();
@@ -195,6 +196,19 @@ void clearBought(){
     return salesByDate;
   }
 
+  // New: sum of paid values for a specific date (purchases)
+  double getTotalPaidByDate(DateTime date) {
+    double totalPaidByDate = 0;
+    final target = DateUtils.dateOnly(date);
+    for (var i = 0; i < sales.length; i++) {
+      DateTime saleDate = DateUtils.dateOnly(sales[i].date.toDate());
+      if (saleDate == target) {
+        totalPaidByDate += sales[i].payment;
+      }
+    }
+    return totalPaidByDate;
+  }
+
   double getTotalSalesByDate(DateTime date) {
     double totalSalesByDate = 0;
     date = DateUtils.dateOnly(date);
@@ -275,6 +289,75 @@ void clearBought(){
     }
 
     return totalPayments;
+  }
+
+  // New: Sum of all amounts actually paid to suppliers for purchases in a time window (all methods)
+  double getTotalPurchasePaidFromTimestamp(
+      Timestamp startTimestamp, Timestamp endTimestamp) {
+    double totalPaid = 0.0;
+    final String mainCurrency = _businessController.business['mainCurrency'] ?? 'TZS';
+
+    for (final purchase in sales) {
+      if (purchase.date is Timestamp) {
+        final Timestamp ts = purchase.date;
+        if (ts.compareTo(startTimestamp) > 0 && ts.compareTo(endTimestamp) < 0) {
+          if (purchase.payments.isNotEmpty) {
+            for (final p in purchase.payments) {
+              final dynamic rawAmount = p['amount'];
+              final double amt = rawAmount is int
+                  ? rawAmount.toDouble()
+                  : (rawAmount is num ? rawAmount.toDouble() : 0.0);
+              final String currency = (p['currency'] ?? mainCurrency).toString();
+              final double amtMain = currency == mainCurrency
+                  ? amt
+                  : amt * Preferences.getExchangeRateResult();
+              totalPaid += amtMain;
+            }
+          } else {
+            // Fallback to aggregate payment (assumed main currency)
+            totalPaid += purchase.payment;
+          }
+        }
+      }
+    }
+    return totalPaid;
+  }
+
+  // New: Cash-only amounts paid to suppliers for purchases in a time window
+  double getTotalPurchaseCashPaidFromTimestamp(
+      Timestamp startTimestamp, Timestamp endTimestamp) {
+    double cashPaid = 0.0;
+    final String mainCurrency = _businessController.business['mainCurrency'] ?? 'TZS';
+
+    for (final purchase in sales) {
+      if (purchase.date is Timestamp) {
+        final Timestamp ts = purchase.date;
+        if (ts.compareTo(startTimestamp) > 0 && ts.compareTo(endTimestamp) < 0) {
+          if (purchase.payments.isNotEmpty) {
+            for (final p in purchase.payments) {
+              final String method = (p['method'] ?? 'cash').toString();
+              if (method == 'cash') {
+                final dynamic rawAmount = p['amount'];
+                final double amt = rawAmount is int
+                    ? rawAmount.toDouble()
+                    : (rawAmount is num ? rawAmount.toDouble() : 0.0);
+                final String currency = (p['currency'] ?? mainCurrency).toString();
+                final double amtMain = currency == mainCurrency
+                    ? amt
+                    : amt * Preferences.getExchangeRateResult();
+                cashPaid += amtMain;
+              }
+            }
+          } else {
+            // No detailed breakdown: treat aggregate as cash only if fundSource is cash
+            if ((purchase.fundSource ?? 'cash') == 'cash' && purchase.payment > 0) {
+              cashPaid += purchase.payment;
+            }
+          }
+        }
+      }
+    }
+    return cashPaid;
   }
 
   DateTime parseDateString(String dateString) {

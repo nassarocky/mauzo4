@@ -357,7 +357,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                           ),
                           const Spacer(),
                           Text(
-                            '${'total'.tr}: ${formatCurrency(_boughtController.getTotalSalesByDate(
+                            '${'paid'.tr}: ${formatCurrency(_boughtController.getTotalPaidByDate(
                               salesByDate[index]['date'],
                             ), _businessController.business['mainCurrency'])}',
                             style: const TextStyle(

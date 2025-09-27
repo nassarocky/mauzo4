@@ -85,8 +85,8 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const CartScreen());
       case '/buycart':
         return CupertinoPageRoute(builder: (_) => const BuyProductCartScreen());
-        case '/buy':
-      return CupertinoPageRoute(builder: (_) => const BuyProductScreen());
+      case '/buy':
+        return CupertinoPageRoute(builder: (_) => const BuyProductScreen());
       case '/privacy-policy':
         return CupertinoPageRoute(builder: (_) =>  PrivacyPolicyPage());
       case '/resetPassword':

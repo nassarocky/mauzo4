@@ -190,6 +190,18 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     double totalDiscounts = 0.0;
     String currency = _businessController.business['mainCurrency'] ?? "TZS";
 
+    // Amounts paid to suppliers in the period
+    // - purchasesPaid: all methods (cash, bank, mobile)
+    // - purchasesCashPaid: cash-only for cash-in-hand computation
+    final double purchasesPaid = _boughtController.getTotalPurchasePaidFromTimestamp(
+      startTimestamp,
+      Timestamp.fromDate(endDate),
+    );
+    final double purchasesCashPaid = _boughtController.getTotalPurchaseCashPaidFromTimestamp(
+      startTimestamp,
+      Timestamp.fromDate(endDate),
+    );
+
     DateTime startDate = startTimestamp.toDate();
 
     CloseBook newReport = CloseBook(
@@ -199,7 +211,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalPayment: totalPayment,
       totalDebt: totalDebt,
       debt: debt,
-      reserveDouble1: purchases,
+      reserveDouble1: purchasesPaid,
       reserveDouble2: totalSalesBuying,
       expenses: expenses,
       startDate: startDate,
@@ -207,7 +219,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       finalStock: totalStock,
       debtCollected: debtCollected,
       netProfit: netProfit,
-      totalPurchase: totalPurchase,
+      totalPurchase: purchasesCashPaid,
       totalDiscounts: totalDiscounts,
       currency: currency,
       createdBy: _profileController.user['name'] ?? '',
@@ -300,13 +312,13 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildTableRow('${'TOTAL SALES (Accrual):'.tr}', book.totalSales, _businessController.business['mainCurrency']),
         _buildTableRow('${'TOTAL PAYMENTS (Cash In):'.tr}', book.totalPayment, _businessController.business['mainCurrency']),
         _buildTableRow('${'COGS (Buying Price):'.tr}', book.reserveDouble2 ?? 0.0, _businessController.business['mainCurrency']),
-        _buildTableRow('${'PRODUCT PURCHASES:'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
+        _buildTableRow('${'PURCHASES PAID'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT (Created in Period):'.tr}', book.debt, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT COLLECTED (from previous periods):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
-          '${'TOTAL CASH IN HAND (total payments - expenses - product purchases)'.tr}',
-          (book.totalPayment - book.expenses - (book.reserveDouble1 ?? 0.0)),
+          '${'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr}',
+          (book.totalPayment - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
         _buildTableRow('${'ESTIMATED PROFIT (sales - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
@@ -408,7 +420,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildPDFTableRow('TOTAL PAYMENTS (Cash In):'.tr, book.totalPayment, book.currency),
         _buildPDFTableRow('COGS (Buying Price):'.tr, book.reserveDouble2 ?? 0.0, book.currency),
         _buildPDFTableRow(
-            'PRODUCT PURCHASES:'.tr,
+            'PURCHASES PAID:'.tr,
             book.reserveDouble1 ?? 0.0, // Use the double value directly or default to 0.0
             book.currency
         ),
@@ -417,8 +429,8 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildPDFTableRow('DEBT COLLECTED (from previous periods):'.tr, book.debtCollected, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
-          'TOTAL CASH IN HAND (total payments - expenses - product purchases)'.tr,
-          (book.totalPayment  - book.expenses - (book.reserveDouble1 ?? 0.0)),
+          'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr,
+          (book.totalPayment  - book.expenses - (book.totalPurchase)),
           book.currency,
         ),
 

@@ -201,6 +201,46 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 8),
+                                    // Fund source chip with tooltip (shows note when 'other')
+                                    Tooltip(
+                                      message: expense.fundSource == 'other' && (expense.fundSourceNote.isNotEmpty)
+                                          ? expense.fundSourceNote
+                                          : 'Source of Funds'.tr,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.purple.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.account_balance_wallet,
+                                              size: 12,
+                                              color: Colors.purple[700],
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              expense.fundSource == 'mobile'
+                                                  ? 'Lipa Namba (Mobile)'.tr
+                                                  : (expense.fundSource == 'bank'
+                                                      ? 'Bank'.tr
+                                                      : (expense.fundSource == 'other'
+                                                          ? 'Other Source'.tr
+                                                          : 'Cash'.tr)),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w500,
+                                                color: Colors.purple[700],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
                                     // Only show menu for owners and managers
                                     if (_canEditExpenses())
                                       PopupMenuButton(
@@ -260,7 +300,27 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                                     color: Theme.of(context).textTheme.bodyLarge!.color,
                                   ),
                                 ),
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 8),
+                                if (expense.fundSource == 'other' && (expense.fundSourceNote.isNotEmpty)) ...[
+                                  Row(
+                                    children: [
+                                      Icon(Icons.info_outline, size: 14, color: Colors.purple),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          expense.fundSourceNote,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Theme.of(context).textTheme.bodyMedium!.color?.withOpacity(0.7),
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                const SizedBox(height: 4),
                                 // Amount and person info
                                 Row(
                                   children: [

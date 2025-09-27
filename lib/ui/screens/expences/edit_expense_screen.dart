@@ -22,6 +22,9 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
   bool _isLoading = false;
   Expense? _expense;
   DateTime? _selectedDate;
+  // New: Source of Funds state
+  String _fundSource = 'cash'; // cash | bank | mobile | other
+  String _fundSourceOtherNote = '';
 
   @override
   void initState() {
@@ -65,6 +68,9 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
               print('⚠️ EditExpenseScreen: Expense category "${expense.category}" not found in available categories. Using "$_selectedCategory" instead.');
             }
             _selectedDate = expense.date.toDate(); // Fix Timestamp to DateTime conversion errors
+            // Initialize fund source from existing expense
+            _fundSource = expense.fundSource;
+            _fundSourceOtherNote = expense.fundSourceNote;
           });
         } else {
           // No expense provided - show error and go back
@@ -291,6 +297,94 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                // Source of Funds field
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: [Colors.white, Colors.grey.shade50],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.account_balance_wallet, color: Colors.purple.shade600, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Source of Funds'.tr,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.purple.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: _fundSource,
+                          items: const [
+                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                            DropdownMenuItem(value: 'other', child: Text('Other Source')),
+                          ],
+                          decoration: InputDecoration(
+                            hintText: 'Select source of funds...'.tr,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.purple.shade400, width: 2),
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            prefixIcon: Icon(Icons.account_balance, color: Colors.purple.shade600),
+                          ),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setState(() {
+                              _fundSource = val;
+                              if (_fundSource != 'other') _fundSourceOtherNote = '';
+                            });
+                          },
+                        ),
+                        if (_fundSource == 'other') ...[
+                          const SizedBox(height: 8),
+                          TextField(
+                            decoration: InputDecoration(
+                              hintText: 'Describe other source (optional)'.tr,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.grey.shade300),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.purple.shade400, width: 2),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            onChanged: (v) => _fundSourceOtherNote = v,
+                          ),
+                        ]
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
                   // Amount field
                   Card(
                     elevation: 4,
@@ -560,6 +654,8 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                             category: _selectedCategory,
                             addedBy: _expense!.addedBy, // Keep original creator
                             addedByName: _expense!.addedByName, // Keep original creator name
+                            fundSource: _fundSource,
+                            fundSourceNote: _fundSource == 'other' ? _fundSourceOtherNote : '',
                           );
 
                           _expenseController.updateExpense(updatedExpense).then((_) {

@@ -9,6 +9,11 @@ class Expense {
   String category;
   String? addedBy; // User ID of person who added the expense
   String? addedByName; // Display name of person who added the expense
+  // New: track how the expense was funded
+  // Values: 'cash', 'bank', 'mobile', 'other'
+  String fundSource;
+  // Optional note when fundSource = 'other'
+  String fundSourceNote;
 
   Expense({
     required this.id,
@@ -18,6 +23,8 @@ class Expense {
     required this.category,
     this.addedBy,
     this.addedByName,
+    this.fundSource = 'cash',
+    this.fundSourceNote = '',
   });
 
   factory Expense.fromMap(Map<String, dynamic> data, String id) {
@@ -29,6 +36,8 @@ class Expense {
       category: data['category'],
       addedBy: data['addedBy'], // Backward compatible - null for old expenses
       addedByName: data['addedByName'], // Backward compatible - null for old expenses
+      fundSource: (data['fundSource'] ?? 'cash') as String,
+      fundSourceNote: (data['fundSourceNote'] ?? '') as String,
     );
   }
 
@@ -38,6 +47,8 @@ class Expense {
       'amount': amount,
       'date': date,
       'category': category,
+      'fundSource': fundSource,
+      'fundSourceNote': fundSourceNote,
     };
     
     // Only add addedBy fields if they are not null

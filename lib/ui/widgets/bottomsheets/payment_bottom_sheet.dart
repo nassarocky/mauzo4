@@ -11,7 +11,8 @@ import '../buttons/delete_save_button.dart';
 
 class PaymentBottomSheet extends StatefulWidget {
   final String chosenCurrency;
-  const PaymentBottomSheet({Key? key, required this.chosenCurrency})
+  final String? defaultMethod; // cash | bank | mobile
+  const PaymentBottomSheet({Key? key, required this.chosenCurrency, this.defaultMethod})
       : super(key: key);
 
   @override
@@ -40,13 +41,34 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
           },
         );
       }
+      // If the bottom sheet was opened with a defaultMethod (from inline selector)
+      // and all existing methods are 'cash' (likely auto-initialized), honor the
+      // user's selected method by overriding them. Edit screens don't pass
+      // defaultMethod, so their original methods remain intact.
+      if (widget.defaultMethod != null) {
+        final String dm = widget.defaultMethod!;
+        final bool allCash = _payments.every((p) => (p['method'] ?? 'cash') == 'cash');
+        if (allCash && dm != 'cash') {
+          for (var p in _payments) {
+            p['method'] = dm;
+          }
+        }
+      }
     } else {
       paymentsCounter = 1;
+      // Auto-fill with remaining amount converted to the chosen currency
+      final bool isMainCurrency =
+          widget.chosenCurrency == _profileController.user['mainCurrency'];
+      final double initialAmount = isMainCurrency
+          ? _cartController.remaining
+          : (_cartController.remaining / Preferences.getExchangeRateResult());
       _payments.add({
-        'amount': 0,
+        'amount': initialAmount,
         'currency': widget.chosenCurrency,
-        'method': 'cash',
-        'controller': TextEditingController(),
+        'method': widget.defaultMethod ?? 'cash',
+        'controller': TextEditingController(
+          text: formatCurrencyWithoutSymbol(initialAmount),
+        ),
       });
     }
   }
@@ -265,96 +287,6 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.23,
-                          child: TextField(
-                            onTap: () {
-                              showDialog<String>(
-                                context: context,
-                                builder: (BuildContext context) => SimpleDialog(
-                                  title: const Text('Payment Method'),
-                                  children: [
-                                    Column(
-                                      children: [
-                                        RadioListTile(
-                                          activeColor: Preferences.getTheme()
-                                              ? primaryLightColor
-                                              : primaryColor,
-                                          value: 'cash',
-                                          groupValue: _payments[i]['method'],
-                                          onChanged: (value) {
-                                            setState(() {
-                                              _payments[i]['method'] = value;
-                                            });
-                                            Navigator.pop(context);
-                                          },
-                                          title: const Text('Cash'),
-                                        ),
-                                        RadioListTile(
-                                          activeColor: Preferences.getTheme()
-                                              ? primaryLightColor
-                                              : primaryColor,
-                                          value: 'bank',
-                                          groupValue: _payments[i]['method'],
-                                          onChanged: (value) {
-                                            setState(() {
-                                              _payments[i]['method'] = value;
-                                            });
-                                            Navigator.pop(context);
-                                          },
-                                          title: const Text('Bank'),
-                                        ),
-                                        RadioListTile(
-                                          activeColor: Preferences.getTheme()
-                                              ? primaryLightColor
-                                              : primaryColor,
-                                          value: 'mobile',
-                                          groupValue: _payments[i]['method'],
-                                          onChanged: (value) {
-                                            setState(() {
-                                              _payments[i]['method'] = value;
-                                            });
-                                            Navigator.pop(context);
-                                          },
-                                          title: const Text('Lipa Namba (Mobile)'),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(
-                                  vertical: 8, horizontal: 10),
-                              hintText: _payments[i]['method'] == 'cash'
-                                  ? 'Cash'
-                                  : _payments[i]['method'] == 'bank'
-                                      ? 'Bank'
-                                      : 'Lipa Namba',
-                              hintStyle: bodyText(
-                                Theme.of(context).textTheme.bodyLarge!.color,
-                              ),
-                              suffixIcon: const Icon(
-                                Icons.arrow_drop_down,
-                                color: iconGrayColor,
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(4),
-                                borderSide: BorderSide(
-                                  color: Preferences.getTheme()
-                                      ? mediumGrayColor
-                                      : borderColor,
-                                ),
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -371,7 +303,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                                 'currency': _payments[paymentsCounter - 1]
                                     ['currency'],
                                 'amount': 0,
-                                'method': 'cash',
+                                'method': widget.defaultMethod ?? 'cash',
                               });
                               paymentsCounter++;
                             } else {

@@ -21,6 +21,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final ProfileController _profileController = Get.find();
 
   bool _isLoading = false; // Variable to track loading state
+  // New: Source of Funds state
+  String _fundSource = 'cash'; // cash | bank | mobile | other
+  String _fundSourceOtherNote = '';
 
   @override
   void initState() {
@@ -173,6 +176,93 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     ),
                   ),
                   const SizedBox(height: 32),
+                  // Source of Funds field
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: [Colors.white, Colors.grey.shade50],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.account_balance_wallet, color: Colors.purple.shade600, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Source of Funds'.tr,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.purple.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: _fundSource,
+                            items: const [
+                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                              DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                              DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                              DropdownMenuItem(value: 'other', child: Text('Other Source')),
+                            ],
+                            decoration: InputDecoration(
+                              hintText: 'Select source of funds...'.tr,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.grey.shade300),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: Colors.purple.shade400, width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
+                              prefixIcon: Icon(Icons.account_balance, color: Colors.purple.shade600),
+                            ),
+                            onChanged: (val) {
+                              if (val == null) return;
+                              setState(() {
+                                _fundSource = val;
+                                if (_fundSource != 'other') _fundSourceOtherNote = '';
+                              });
+                            },
+                          ),
+                          if (_fundSource == 'other') ...[
+                            const SizedBox(height: 8),
+                            TextField(
+                              decoration: InputDecoration(
+                                hintText: 'Describe other source (optional)'.tr,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(color: Colors.grey.shade300),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(color: Colors.purple.shade400, width: 2),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              ),
+                              onChanged: (v) => _fundSourceOtherNote = v,
+                            ),
+                          ]
+                        ],
+                      ),
+                    ),
+                  ),
                   // Details field
                   Card(
                     elevation: 4,
@@ -441,6 +531,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                             category: _selectedCategory,
                             addedBy: _profileController.user['id'], // Add user ID who created the expense
                             addedByName: _profileController.user['name'] ?? 'Unknown', // Add user name who created the expense
+                            fundSource: _fundSource,
+                            fundSourceNote: _fundSource == 'other' ? _fundSourceOtherNote : '',
                           );
 
                           print('🔵 EXPENSE CREATION: Expense object created: ${expense.toMap()}');

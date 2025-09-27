@@ -2,12 +2,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/ui/screens/sale/add_sale_screen.dart';
 import 'package:mauzo/ui/screens/sale/edit_sale.screen.dart';
 import '../../controllers/cart_controller.dart';
 import '../../controllers/client_controller.dart';
-import '../../controllers/product_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../models/client_model.dart';
 import '../../utils/constants.dart';
@@ -32,12 +32,14 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final CartController _cartController = Get.find();
-  final ProductController _productController = Get.find();
   final ClientController _clientController = Get.find();
   final ProfileController _profileController = Get.find();
+  final ProductController _productController = Get.find();
   static final BusinessController _businessController = Get.find();
   final TextEditingController _detailsController = TextEditingController();
   bool _isLoading = false;
+  // Payment method selection
+  String _paymentMethod = 'cash'; // Payment method state variable
 
   @override
   void initState() {
@@ -139,10 +141,28 @@ class _CartScreenState extends State<CartScreen> {
           child: CircularProgressIndicator(),
         )
             : Obx(
-              () => SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              () {
+                // Ensure a default payment is present so "Paid" appears automatically
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (from != 'invoice' && from != 'transfer') {
+                    if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
+                      final double base = _cartController.productsPrice - _cartController.discount.value;
+                      final double amount = base < 0 ? 0 : base;
+                      _cartController.addPayment(amount, chosenCurrency, method: _paymentMethod);
+                    } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != _paymentMethod) {
+                      // Update existing payment method if it doesn't match the dropdown selection
+                      _cartController.clearPayments();
+                      final double base = _cartController.productsPrice - _cartController.discount.value;
+                      final double amount = base < 0 ? 0 : base;
+                      _cartController.addPayment(amount, chosenCurrency, method: _paymentMethod);
+                    }
+                  }
+                });
+
+                return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                 if (from != 'transfer')
                 Padding(
                   padding: const EdgeInsets.all(20),
@@ -359,6 +379,34 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                         ),
                       const SizedBox(height: 12),
+                      // Payment Method Selector (for sales)
+                      if (from != 'transfer')
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: DropdownButtonFormField<String>(
+                            value: _paymentMethod,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              labelText: 'Payment Method',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                ),
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                              DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                              DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                            ],
+                            onChanged: (val) {
+                              if (val == null) return;
+                              setState(() => _paymentMethod = val);
+                            },
+                          ),
+                        ),
                       const DashedSeperator(width: 2),
                       const SizedBox(height: 12),
                       Row(
@@ -476,6 +524,7 @@ class _CartScreenState extends State<CartScreen> {
                                 builder: (BuildContext context) {
                                   return DiscountBottomSheet(
                                     chosenCurrency: chosenCurrency,
+                                    defaultMethod: _paymentMethod,
                                   );
                                 },
                               );
@@ -510,6 +559,7 @@ class _CartScreenState extends State<CartScreen> {
                         builder: (BuildContext context) {
                           return PaymentBottomSheet(
                             chosenCurrency: chosenCurrency,
+                            defaultMethod: _paymentMethod,
                           );
                         },
                       );
@@ -577,6 +627,7 @@ class _CartScreenState extends State<CartScreen> {
                             builder: (BuildContext context) {
                               return PaymentBottomSheet(
                                 chosenCurrency: chosenCurrency,
+                                defaultMethod: _paymentMethod,
                               );
                             },
                           );
@@ -971,10 +1022,11 @@ class _CartScreenState extends State<CartScreen> {
                   ),
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
-    );
+    ),
+  );
   }
   void addSale(List<dynamic> products) {
     final String? businessId = _businessController.business['id'];

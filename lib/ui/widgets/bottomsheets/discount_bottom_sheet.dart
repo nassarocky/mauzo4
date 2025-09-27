@@ -11,7 +11,8 @@ import '../buttons/delete_save_button.dart';
 
 class DiscountBottomSheet extends StatefulWidget {
   final String chosenCurrency;
-  const DiscountBottomSheet({Key? key, required this.chosenCurrency})
+  final String? defaultMethod; // cash | bank | mobile
+  const DiscountBottomSheet({Key? key, required this.chosenCurrency, this.defaultMethod})
       : super(key: key);
 
   @override
@@ -98,6 +99,7 @@ class _DiscountBottomSheetState extends State<DiscountBottomSheet> {
                         _cartController.addPayment(
                           _cartController.productsPrice - discount,
                           _businessController.business['mainCurrency'],
+                          method: widget.defaultMethod ?? 'cash',
                         );
                       } else if (widget.chosenCurrency ==
                               _businessController.business['mainCurrency'] &&

@@ -210,7 +210,7 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
             ],
             
             // Payment button for pending debts
-            if (debt.remainingDebtAmount > 0 && _profileController.hasPermission('manage_debt')) ...[
+            if (debt.remainingDebtAmount > 0 && _profileController.hasPermission('manage_supplier_debt')) ...[
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,

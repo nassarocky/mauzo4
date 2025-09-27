@@ -198,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // double totalSales = _saleController.getTotalSalesFromTimestamp(resetTime);
     double totalPayments = _saleController.getTotalPaymentFromTimestamp(resetTime,Timestamp.now());
     double debt = _debtHistoryController.getTotalDebtFromTimestamp(resetTime,Timestamp.now());
-    double purchases = _boughtController.getTotalSalesFromTimestamp(resetTime,Timestamp.now());
+    double purchases = _boughtController.getTotalPurchasePaidFromTimestamp(resetTime,Timestamp.now());
     //  double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(resetTime);
     double totalExpenses = expenseController.getTotalExpensesFromTimestamp(resetTime,Timestamp.now());
     // Only deduct purchases funded by CASH from the cash-in-hand calculation
@@ -229,7 +229,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
-    double netTotal = totalPayments  - totalExpenses - purchasesCashDeduction;
+    double netTotal = 0.0; // will be computed after payment method breakdown
+    bool treatMissingAsCash = false; // toggle to include aggregated sales without breakdown as cash
 
     // Compute payment totals by method within the same time window
     double cashTotal = 0.0;
@@ -262,17 +263,34 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             }
           } else {
-            // Backward compatibility: attribute aggregated payment to cash
-            cashTotal += sale.payment;
+            // No detailed breakdown: skip adding to cash to avoid misclassifying bank/mobile as cash
           }
         }
       }
     }
+    // Now that cashTotal is computed, compute cash-in-hand using only CASH receipts from sales
+    netTotal = cashTotal - totalExpenses - purchasesCashDeduction;
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return Dialog(
+        return StatefulBuilder(builder: (context, setState) {
+          // aggregatedFallback: sum of sales without breakdown (assumed main currency)
+          double aggregatedFallback = 0.0;
+          for (final sale in _saleController.sales) {
+            if (sale.date is Timestamp) {
+              final Timestamp saleTs = sale.date;
+              if (saleTs.compareTo(resetTime) > 0 && saleTs.compareTo(Timestamp.now()) < 0) {
+                if (sale.payments.isEmpty) {
+                  aggregatedFallback += sale.payment;
+                }
+              }
+            }
+          }
+          final double cashAmountForRow = cashTotal + (treatMissingAsCash ? aggregatedFallback : 0.0);
+          final double netTotalLocal = cashAmountForRow - totalExpenses - purchasesCashDeduction;
+
+          return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
             width: MediaQuery.of(context).size.width * 0.9,
@@ -333,13 +351,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
-                
+
                 // Content
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
+                        // Switch: Treat missing breakdown as cash
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Treat missing breakdown as cash',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ),
+                              Switch(
+                                value: treatMissingAsCash,
+                                onChanged: (v) => setState(() => treatMissingAsCash = v),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         // Total Sales Card
                         _buildAnalyticsCard(
                           icon: Icons.trending_up,
@@ -348,9 +393,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           amount: formatCurrency(totalPayments, _businessController.business['mainCurrency']),
                           gradient: [Colors.green.shade50, Colors.green.shade100],
                         ),
-                        
+
                         const SizedBox(height: 16),
-                        
+
                         // Payment Methods Section
                         Container(
                           padding: const EdgeInsets.all(16),
@@ -381,7 +426,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 icon: Icons.money,
                                 iconColor: Colors.green.shade600,
                                 method: 'Cash',
-                                amount: formatCurrency(cashTotal, _businessController.business['mainCurrency']),
+                                amount: formatCurrency(cashAmountForRow, _businessController.business['mainCurrency']),
                               ),
                               const SizedBox(height: 8),
                               _buildPaymentMethodRow(
@@ -400,9 +445,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
-                        
+
                         const SizedBox(height: 16),
-                        
+
                         // Other Metrics
                         _buildAnalyticsCard(
                           icon: Icons.account_balance_wallet,
@@ -411,19 +456,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           amount: formatCurrency(debt, _businessController.business['mainCurrency']),
                           gradient: [Colors.orange.shade50, Colors.orange.shade100],
                         ),
-                        
+
                         const SizedBox(height: 12),
-                        
+
                         _buildAnalyticsCard(
                           icon: Icons.shopping_cart,
                           iconColor: Colors.purple,
-                          title: 'PRODUCT PURCHASES'.tr,
+                          title: 'PURCHASES PAID'.tr,
                           amount: formatCurrency(purchases, _businessController.business['mainCurrency']),
                           gradient: [Colors.purple.shade50, Colors.purple.shade100],
                         ),
-                        
+
                         const SizedBox(height: 12),
-                        
+
                         _buildAnalyticsCard(
                           icon: Icons.receipt_long,
                           iconColor: Colors.red,
@@ -431,23 +476,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           amount: formatCurrency(totalExpenses, _businessController.business['mainCurrency']),
                           gradient: [Colors.red.shade50, Colors.red.shade100],
                         ),
-                        
+
                         const SizedBox(height: 16),
-                        
+
                         // Net Total - Special styling
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: netTotal >= 0 
-                                ? [Colors.green.shade600, Colors.green.shade800]
-                                : [Colors.red.shade600, Colors.red.shade800],
+                              colors: netTotalLocal >= 0
+                                  ? [Colors.green.shade600, Colors.green.shade800]
+                                  : [Colors.red.shade600, Colors.red.shade800],
                             ),
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: (netTotal >= 0 ? Colors.green : Colors.red).withOpacity(0.3),
+                                color: (netTotalLocal >= 0 ? Colors.green : Colors.red).withOpacity(0.3),
                                 blurRadius: 8,
                                 offset: const Offset(0, 4),
                               ),
@@ -462,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Icon(
-                                  netTotal >= 0 ? Icons.account_balance : Icons.warning,
+                                  netTotalLocal >= 0 ? Icons.account_balance : Icons.warning,
                                   color: Colors.white,
                                   size: 24,
                                 ),
@@ -482,7 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      formatCurrency(netTotal, _businessController.business['mainCurrency']),
+                                      formatCurrency(netTotalLocal, _businessController.business['mainCurrency']),
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 18,
@@ -503,6 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+        });
       },
     );
   }

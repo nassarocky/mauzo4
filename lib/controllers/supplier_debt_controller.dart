@@ -22,15 +22,27 @@ class SupplierDebtController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    print('[DEBUG SupplierDebtController] onInit called');
     try {
       _supplierDebtSubscription = getSupplierDebts().listen((snapshot) {
-        final data = snapshot.docs.map((doc) => SupplierDebt.fromSnapshot(doc)).toList();
+        print('[DEBUG SupplierDebtController] Received snapshot with ${snapshot.docs.length} documents');
+        final data = snapshot.docs.map((doc) {
+          print('[DEBUG SupplierDebtController] Processing doc: ${doc.id}');
+          return SupplierDebt.fromSnapshot(doc);
+        }).toList();
+        
+        // Sort by date in memory after fetching
+        data.sort((a, b) => b.dateIncurred.compareTo(a.dateIncurred));
+        
         supplierDebts.value = data;
         searchSupplierDebts.value = data;
         filteredSupplierDebts.value = data;
+        print('[DEBUG SupplierDebtController] Updated lists with ${data.length} debts');
+      }, onError: (error) {
+        print('[ERROR SupplierDebtController] Stream error: $error');
       });
     } catch (e) {
-      print("Error initializing SupplierDebtController: $e");
+      print("[ERROR SupplierDebtController] Error initializing: $e");
     }
   }
 
@@ -42,13 +54,25 @@ class SupplierDebtController extends GetxController {
 
   // Get supplier debts stream from Firestore
   Stream<QuerySnapshot> getSupplierDebts() {
-    final businessId = Get.find<BusinessController>().business['id'];
-    return firestore
+    final bc = Get.find<BusinessController>();
+    final String businessId = (bc.business['id'] ?? '').toString().isNotEmpty
+        ? bc.business['id']
+        : (bc.businessId.value);
+    print('[DEBUG SupplierDebtController] Getting supplier debts for business: $businessId');
+    
+    // Remove orderBy to avoid composite index requirement
+    if (businessId.isEmpty) {
+      print('[WARN SupplierDebtController] businessId is empty in getSupplierDebts()');
+    }
+
+    final stream = firestore
         .collection('supplierDebts')
         .doc(businessId)
         .collection('userSupplierDebts')
-        .orderBy('dateIncurred', descending: true)
         .snapshots();
+    
+    print('[DEBUG SupplierDebtController] Stream created for path: supplierDebts/$businessId/userSupplierDebts');
+    return stream;
   }
 
   // Method to get a specific supplier debt by ID
@@ -79,10 +103,21 @@ class SupplierDebtController extends GetxController {
     required double debtAmount,
     required String comment,
     String? purchaseId,
+    List<Map<String, dynamic>>? products,
   }) async {
     try {
+      print('[DEBUG] Creating supplier debt: supplierId=$supplierId, amount=$debtAmount');
       isLoading.value = true;
-      final businessId = Get.find<BusinessController>().business['id'];
+      final bc = Get.find<BusinessController>();
+      final String businessId = (bc.business['id'] ?? '').toString().isNotEmpty
+          ? bc.business['id']
+          : (bc.businessId.value);
+      print('[DEBUG] Business ID: $businessId');
+      if (businessId.isEmpty) {
+        print('[ERROR] Business ID is empty. Aborting createSupplierDebt');
+        errorSnackbar('Business not ready. Please try again');
+        return;
+      }
       
       final supplierDebt = SupplierDebt(
         id: '',
@@ -97,15 +132,28 @@ class SupplierDebtController extends GetxController {
         comment: comment,
         employeeId: Get.find<ProfileController>().user['id'] ?? '',
         employeeName: Get.find<ProfileController>().user['name'] ?? '',
+        purchaseId: purchaseId,
+        products: products,
       );
 
-      await firestore
+      // Add debt record to supplierDebts collection
+      print('[DEBUG] Adding debt record to Firestore');
+      final debtRef = await firestore
           .collection('supplierDebts')
           .doc(businessId)
           .collection('userSupplierDebts')
           .add(supplierDebt.toMap());
+      
+      print('[DEBUG] Debt record added with ID: ${debtRef.id}');
+      
+      // Update the debt ID in the document
+      await debtRef.update({'id': debtRef.id});
+      
+      // Note: Supplier's debt field is now updated in Buy_Product_cart_screen.dart
+      // using SupplierController.updateDebt() for consistency with client debt handling
 
       successSnackbar('Supplier debt recorded successfully');
+      print('[DEBUG] Supplier debt creation completed successfully');
     } catch (e) {
       errorSnackbar('Error creating supplier debt: $e');
     } finally {
@@ -122,7 +170,10 @@ class SupplierDebtController extends GetxController {
   }) async {
     try {
       isLoading.value = true;
-      final businessId = Get.find<BusinessController>().business['id'];
+      final bc = Get.find<BusinessController>();
+      final String businessId = (bc.business['id'] ?? '').toString().isNotEmpty
+          ? bc.business['id']
+          : (bc.businessId.value);
       final debt = getSupplierDebtById(debtId);
       
       if (debt.id.isEmpty) {
@@ -160,6 +211,83 @@ class SupplierDebtController extends GetxController {
         'paymentRecords': updatedPaymentRecords,
         'status': newStatus,
       });
+      
+      // Update supplier's debt field using SupplierController
+      // Note: We need to get the supplier first, then update using SupplierController
+      final supplierRef = firestore
+          .collection('suppliers')
+          .doc(businessId)
+          .collection('userSuppliers')
+          .doc(debt.supplier);
+          
+      final supplierDoc = await supplierRef.get();
+      if (supplierDoc.exists) {
+        final currentDebt = (supplierDoc.data()?['debt'] ?? 0.0) as num;
+        final newDebt = currentDebt - paymentAmount;
+        // Direct update since we don't have the full Supplier object
+        await supplierRef.update({
+          'debt': newDebt > 0 ? newDebt : 0,
+        });
+      }
+
+      // Also update the related purchase (recovered) document so Bought screen reflects the new debt
+      if (debt.purchaseId != null && debt.purchaseId!.isNotEmpty) {
+        try {
+          final purchaseRef = firestore
+              .collection('recovered')
+              .doc(businessId)
+              .collection('userRecovered')
+              .doc(debt.purchaseId);
+
+          final purchaseSnap = await purchaseRef.get();
+          if (purchaseSnap.exists) {
+            final data = purchaseSnap.data() as Map<String, dynamic>;
+
+            // Extract price/payment safely (handle int/double)
+            double price = 0.0;
+            final rawPrice = data['price'];
+            if (rawPrice is int) price = rawPrice.toDouble();
+            else if (rawPrice is double) price = rawPrice;
+
+            double currentPayment = 0.0;
+            final rawPayment = data['payment'];
+            if (rawPayment is int) currentPayment = rawPayment.toDouble();
+            else if (rawPayment is double) currentPayment = rawPayment;
+
+            // Compute new debt and payment for the purchase
+            final double updatedDebt = newRemainingAmount > 0 ? newRemainingAmount : 0.0;
+            double updatedPayment;
+            if (price > 0) {
+              updatedPayment = price - updatedDebt;
+              if (updatedPayment < 0) updatedPayment = 0.0;
+            } else {
+              // Fallback if price missing: increment by this payment
+              updatedPayment = currentPayment + paymentAmount;
+            }
+
+            // Append a payment record to the purchase's payments array
+            final List<dynamic> existingPayments = List<dynamic>.from(data['payments'] ?? []);
+            existingPayments.add({
+              'amount': paymentAmount,
+              'method': paymentMethod,
+              'date': Timestamp.now(),
+              'note': paymentNote ?? 'Supplier debt payment',
+            });
+
+            await purchaseRef.update({
+              'debt': updatedDebt,
+              'payment': updatedPayment,
+              'payments': existingPayments,
+            });
+          } else {
+            print('[WARN] Purchase document not found for purchaseId=${debt.purchaseId}');
+          }
+        } catch (e) {
+          print('[ERROR] Failed to update purchase document for supplier debt payment: $e');
+        }
+      } else {
+        print('[INFO] No purchaseId associated with this supplier debt; skipping purchase update');
+      }
 
       successSnackbar('Payment recorded successfully');
     } catch (e) {

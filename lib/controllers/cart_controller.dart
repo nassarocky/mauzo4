@@ -94,12 +94,8 @@ class CartController extends GetxController {
     product.count=count;
     _products.add(product);
 
-
-    // Preserve existing payments to avoid wiping selected methods during edits.
-    // If no payments yet, initialize with a single payment equal to remaining.
-    if (_payments.isEmpty) {
-      addPayment(remaining, _businessController.business['mainCurrency']);
-    }
+    // Do not auto-create a default payment here. The PaymentBottomSheet will
+    // initialize rows using the inline-selected default method.
   }
 
 
