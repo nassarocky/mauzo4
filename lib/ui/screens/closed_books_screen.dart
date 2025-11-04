@@ -184,14 +184,11 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double expenses = _expenseController.getTotalExpensesFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double totalStock = _productController.calculateTotalStock();
-    double purchases = _boughtController.getTotalSalesFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
-    double netProfit = totalSales - totalSalesBuying - expenses;
-    double totalPurchase = 0.0;
     double totalDiscounts = 0.0;
     String currency = _businessController.business['mainCurrency'] ?? "TZS";
 
     // Amounts paid to suppliers in the period
-    // - purchasesPaid: all methods (cash, bank, mobile)
+    // - purchasesPaid: all methods (cash, bank, mobile) - USED FOR PROFIT CALCULATION
     // - purchasesCashPaid: cash-only for cash-in-hand computation
     final double purchasesPaid = _boughtController.getTotalPurchasePaidFromTimestamp(
       startTimestamp,
@@ -201,6 +198,10 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       startTimestamp,
       Timestamp.fromDate(endDate),
     );
+
+    // Calculate net profit using PAID values for purchases (not COGS)
+    // Per user preference: use paid amounts for purchase calculations
+    double netProfit = totalSales - purchasesPaid - expenses;
 
     DateTime startDate = startTimestamp.toDate();
 
@@ -321,7 +322,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
           (book.totalPayment - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
-        _buildTableRow('${'ESTIMATED PROFIT (sales - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
+        _buildTableRow('${'NET PROFIT (sales - purchases paid - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
       ],
     );
   }
@@ -435,7 +436,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
 
         _buildPDFTableRow(
-          'ESTIMATED PROFIT (sales - COGS - expenses)'.tr,
+          'NET PROFIT (sales - purchases paid - expenses)'.tr,
           book.netProfit,
           book.currency,
         ),

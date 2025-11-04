@@ -13,11 +13,11 @@ import '../../models/supplier_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/preferences.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
-import '../widgets/bottomsheets/payment_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
 import '../widgets/dialogs/add_to_buy_dialog.dart';
 import 'package:intl/intl.dart';
+import '../../services/ledger_service.dart';
 
 class BuyProductCartScreen extends StatefulWidget {
   final UserData? userData; // Optional user data for flexibility
@@ -34,6 +34,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
   final SupplierDebtController _supplierDebtController = Get.find();
+  final TextEditingController _paidController = TextEditingController();
+  final FocusNode _paidFocusNode = FocusNode();
 
   bool _isLoading = false;
   Map<String, dynamic>? _originalPurchaseData;
@@ -41,6 +43,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   // Purchase fund source state
   String _fundSource = 'cash'; // cash | bank | mobile | other
   String _fundSourceOtherNote = '';
+  
+  // Purchase destination state
+  String _purchaseDestination = 'shop'; // shop | store
 
   @override
   void initState() {
@@ -68,6 +73,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           selectedDate = (_originalPurchaseData!['date'] as Timestamp).toDate();
           _fundSource = (_originalPurchaseData!['fundSource'] as String?) ?? 'cash';
           _fundSourceOtherNote = (_originalPurchaseData!['fundSourceNote'] as String?) ?? '';
+          _purchaseDestination = (_originalPurchaseData!['purchaseDestination'] as String?) ?? 'shop';
         });
       }
     }).catchError((error) {
@@ -80,7 +86,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     Timer.run(() {
       clearCartData();
     });
-
+    _paidController.dispose();
+    _paidFocusNode.dispose();
     super.dispose();
   }
 
@@ -161,19 +168,41 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
               () {
                 // Ensure a default payment exists so amount is auto-filled
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  final String defaultMethod = _fundSource == 'mobile'
-                      ? 'mobile'
-                      : (_fundSource == 'bank' ? 'bank' : 'cash');
+                  final bool multiEnabled = (_businessController.business['multiFundEnabled'] ?? false) == true;
+                  if (!multiEnabled && _fundSource != 'cash') {
+                    setState(() {
+                      _fundSource = 'cash';
+                    });
+                    if (_cartController.payments.length > 0) {
+                      final existing = _cartController.payments[0];
+                      _cartController.clearPayments();
+                      _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
+                    }
+                  }
+                  final String defaultMethod = (!multiEnabled)
+                      ? 'cash'
+                      : (_fundSource == 'mobile'
+                          ? 'mobile'
+                          : (_fundSource == 'bank' ? 'bank' : 'cash'));
                   if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
                     final double base = _cartController.productsPrice - _cartController.discount.value;
                     final double amount = base < 0 ? 0 : base;
                     _cartController.addPayment(amount, chosenCurrency, method: defaultMethod);
+                    _paidController.text = formatCurrencyWithoutSymbol(amount);
                   } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != defaultMethod) {
-                    // If the fund source changed, sync the single payment's method
-                    final double base = _cartController.productsPrice - _cartController.discount.value;
-                    final double amount = base < 0 ? 0 : base;
+                    // If the fund source changed, update only the method and preserve amount and currency
+                    final existing = _cartController.payments[0];
                     _cartController.clearPayments();
-                    _cartController.addPayment(amount, chosenCurrency, method: defaultMethod);
+                    _cartController.addPayment(existing.amount, existing.currency, method: defaultMethod);
+                  }
+                  // Keep the text field synced with the current payment when not focused
+                  if (!_paidFocusNode.hasFocus) {
+                    final double currentAmt =
+                        _cartController.payments.length > 0 ? _cartController.payments[0].amount : 0.0;
+                    final String currentText = formatCurrencyWithoutSymbol(currentAmt);
+                    if (_paidController.text != currentText) {
+                      _paidController.text = currentText;
+                    }
                   }
                 });
                 
@@ -228,44 +257,18 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       ),
                       const SizedBox(height: 16),
                 
-                // Source of Funds Selector
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        value: _fundSource,
-                        decoration: InputDecoration(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                          labelText: 'Source of Funds',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(4),
-                            borderSide: BorderSide(
-                              color: Preferences.getTheme() ? mediumGrayColor : borderColor,
-                            ),
-                          ),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                          DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                          DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                          DropdownMenuItem(value: 'other', child: Text('Other Source')),
-                        ],
-                        onChanged: (val) {
-                          if (val == null) return;
-                          setState(() {
-                            _fundSource = val;
-                            if (_fundSource != 'other') _fundSourceOtherNote = '';
-                          });
-                        },
-                      ),
-                      if (_fundSource == 'other') ...[
-                        const SizedBox(height: 8),
-                        TextField(
+                // Source of Funds Selector (visible only if multi-fund is enabled)
+                if ((_businessController.business['multiFundEnabled'] ?? false) == true)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          value: _fundSource,
                           decoration: InputDecoration(
-                            hintText: 'Describe other source (optional)'.tr,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                            labelText: 'Source of Funds',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(4),
@@ -273,14 +276,41 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                 color: Preferences.getTheme() ? mediumGrayColor : borderColor,
                               ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                           ),
-                          onChanged: (v) => _fundSourceOtherNote = v,
+                          items: const [
+                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                            DropdownMenuItem(value: 'other', child: Text('Other Source')),
+                          ],
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setState(() {
+                              _fundSource = val;
+                              if (_fundSource != 'other') _fundSourceOtherNote = '';
+                            });
+                          },
                         ),
-                      ]
-                    ],
+                        if (_fundSource == 'other') ...[
+                          const SizedBox(height: 8),
+                          TextField(
+                            decoration: InputDecoration(
+                              hintText: 'Describe other source (optional)'.tr,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                            ),
+                            onChanged: (v) => _fundSourceOtherNote = v,
+                          ),
+                        ]
+                      ],
+                    ),
                   ),
-                ),
                 const SizedBox(height: 16),
                 // Date Picker Field
                 Padding(
@@ -310,6 +340,147 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                         ],
                       ),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Purchase Destination Selector
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Add Products To:',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).textTheme.bodyLarge!.color,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Preferences.getTheme()
+                                ? mediumGrayColor
+                                : borderColor,
+                          ),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _purchaseDestination = 'shop';
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: _purchaseDestination == 'shop'
+                                        ? primaryColor.withOpacity(0.1)
+                                        : Colors.transparent,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(4),
+                                      bottomLeft: Radius.circular(4),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.business,
+                                        color: _purchaseDestination == 'shop'
+                                            ? primaryColor
+                                            : Colors.grey,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Shop/Business',
+                                        style: TextStyle(
+                                          color: _purchaseDestination == 'shop'
+                                              ? primaryColor
+                                              : Theme.of(context).textTheme.bodyLarge!.color,
+                                          fontWeight: _purchaseDestination == 'shop'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 44,
+                              color: Preferences.getTheme()
+                                  ? mediumGrayColor
+                                  : borderColor,
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _purchaseDestination = 'store';
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: _purchaseDestination == 'store'
+                                        ? primaryColor.withOpacity(0.1)
+                                        : Colors.transparent,
+                                    borderRadius: const BorderRadius.only(
+                                      topRight: Radius.circular(4),
+                                      bottomRight: Radius.circular(4),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.store,
+                                        color: _purchaseDestination == 'store'
+                                            ? primaryColor
+                                            : Colors.grey,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Store',
+                                        style: TextStyle(
+                                          color: _purchaseDestination == 'store'
+                                              ? primaryColor
+                                              : Theme.of(context).textTheme.bodyLarge!.color,
+                                          fontWeight: _purchaseDestination == 'store'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _purchaseDestination == 'shop'
+                            ? 'Products will be added to business inventory'
+                            : 'Products will be added directly to store',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: textMutedColor,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -485,132 +656,62 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _cartController.payment > 0
-                    ? GestureDetector(
-                  onTap: () {
-                    if (_businessController.business['debtEnabled']) {
-                      showModalBottomSheet(
-                        isScrollControlled: true,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(4),
-                          ),
-                        ),
-                        context: context,
-                        builder: (BuildContext context) {
-                          return PaymentBottomSheet(
-                            chosenCurrency: chosenCurrency,
-                            defaultMethod: _fundSource == 'mobile'
-                                ? 'mobile'
-                                : (_fundSource == 'bank' ? 'bank' : 'cash'),
-                          );
-                        },
-                      );
-                    }
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Preferences.getTheme()
-                          ? mediumGrayColor
-                          : primaryUltraLightColor,
-                      border: Border.all(
-                        color: Preferences.getTheme()
-                            ? mediumGrayColor
-                            : primaryColor,
-                        width: 2,
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    margin:
-                    const EdgeInsets.symmetric(horizontal: 20),
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${'paid'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.payment, chosenCurrency) : formatCurrency(_cartController.payment / Preferences.getExchangeRateResult(), chosenCurrency)}',
-                          style: bodyText(
-                            Preferences.getTheme()
-                                ? primaryLightColor
-                                : primaryColor,
-                          ),
-                        ),
-                        Text(
-                          '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
-                          style: bodyText(
-                            _cartController.remaining > 0
-                                ? warningColor
-                                : textPlaceholderColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-                    : Padding(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 20),
-                    child: SizedBox(
-                    height: 44,
-                    child: TextField(
-                      onTap: () {
-                        if (_businessController.business['debtEnabled']) {
-                          // Pre-create a default payment so the amount auto-fills in the bottom sheet
-                          if (_cartController.payments.length == 0) {
-                            final String method = _fundSource == 'mobile'
-                                ? 'mobile'
-                                : (_fundSource == 'bank' ? 'bank' : 'cash');
-                            final bool isMain = chosenCurrency == _businessController.business['mainCurrency'];
-                            final double amount = isMain
-                                ? _cartController.remaining
-                                : (_cartController.remaining / Preferences.getExchangeRateResult());
-                            _cartController.addPayment(amount, chosenCurrency, method: method);
-                          }
-                          showModalBottomSheet(
-                            isScrollControlled: true,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(
-                                top: Radius.circular(4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: 44,
+                        child: TextField(
+                          controller: _paidController,
+                          focusNode: _paidFocusNode,
+                          keyboardType: TextInputType.number,
+                          onChanged: (value) {
+                            final String v = value.trim();
+                            double amt = 0.0;
+                            if (v.isNotEmpty) {
+                              try {
+                                amt = double.parse(v.replaceAll(',', ''));
+                              } catch (_) {
+                                amt = 0.0;
+                              }
+                            }
+                            if (_cartController.payments.length == 0) {
+                              final String method = _fundSource == 'mobile'
+                                  ? 'mobile'
+                                  : (_fundSource == 'bank' ? 'bank' : 'cash');
+                              _cartController.addPayment(amt, chosenCurrency, method: method);
+                            } else {
+                              final existing = _cartController.payments[0];
+                              _cartController.clearPayments();
+                              _cartController.addPayment(amt, existing.currency, method: existing.method);
+                            }
+                          },
+                          decoration: InputDecoration(
+                            contentPadding: inputPadding,
+                            labelText: 'paid'.tr,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(4),
+                              borderSide: BorderSide(
+                                color: Preferences.getTheme() ? mediumGrayColor : primaryColor,
+                                width: 2,
                               ),
                             ),
-                            context: context,
-                            builder: (BuildContext context) {
-                              return PaymentBottomSheet(
-                                chosenCurrency: chosenCurrency,
-                                defaultMethod: _fundSource == 'mobile'
-                                    ? 'mobile'
-                                    : (_fundSource == 'bank' ? 'bank' : 'cash'),
-                              );
-                            },
-                          );
-                        }
-                      }
-                      ,
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        contentPadding: inputPadding,
-                        hintText: _cartController.payment > 0
-                            ? "${formatCurrency(_cartController.payment, chosenCurrency)} ${'paid'.tr}"
-                            : 'add_payment'.tr,
-                        hintStyle: TextStyle(
-                          color: Preferences.getTheme()
-                              ? primaryLightColor
-                              : primaryColor,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 16,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(
-                            color: Preferences.getTheme()
-                                ? mediumGrayColor
-                                : primaryColor,
-                            width: 2,
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
+                        style: bodyText(
+                          _cartController.remaining > 0 ? warningColor : textPlaceholderColor,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -780,7 +881,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                     } else {
                                       await addSale(products);
                                       // Only increase bought quantity for new purchases
-                                      await increaseBoughtQuantity();
+                                      if (_purchaseDestination == 'shop') {
+                                        await increaseBoughtQuantity();
+                                      } else {
+                                        await addToStoreQuantity();
+                                      }
                                     }
                                    
                                     // clear cart
@@ -860,6 +965,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'date': selectedDate ?? DateTime.now(),
       'fundSource': _fundSource,
       'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
+      'purchaseDestination': _purchaseDestination, // shop | store
     };
 
     // Capture values needed for debt creation BEFORE any cart clearing occurs
@@ -900,6 +1006,21 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     await saleRef.set(saleData).then((_) async {
       // After the sale is successfully created, update the sale with its ID
       updateSaleId(saleRef);
+      // Post purchase OUT ledger rows for each payment (paidAmount only)
+      try {
+        final List<dynamic> payments = List<dynamic>.from(saleData['payments'] ?? []);
+        final dynamic d = saleData['date'];
+        final Timestamp postedAt = d is Timestamp ? d : Timestamp.fromDate(d as DateTime);
+        await LedgerService().postPurchaseOut(
+          purchaseId: saleRef.id,
+          payments: payments,
+          postedAt: postedAt,
+          supplierId: supplierAtPurchase?.id,
+          supplierName: supplierAtPurchase?.name,
+        );
+      } catch (e) {
+        print('⚠️ Ledger postPurchaseOut failed for purchase ${saleRef.id}: $e');
+      }
       
       // Create supplier debt if there's remaining debt and a supplier is selected
       print('[DEBUG] Checking if supplier debt should be created');
@@ -1017,6 +1138,99 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         product,
         newQuantity,'Recovered',
       );
+    }
+  }
+
+  Future<void> addToStoreQuantity() async {
+    final String? businessId = _businessController.business['id'];
+    final String? storeId = _businessController.business['owner']; // Use owner ID as store ID
+    
+    if (businessId == null || storeId == null) {
+      errorSnackbar('Business or Store ID is null');
+      return;
+    }
+
+    for (var product in _cartController.getUniqueProducts()) {
+      // Calculate the quantity purchased
+      double purchasedQuantity = _cartController.singleProductQuantity(product.id);
+      
+      try {
+        // Get current store product data
+        final storeProductRef = firestore
+            .collection('store')
+            .doc(storeId)
+            .collection('userStore')
+            .doc(product.id);
+            
+        final storeProductDoc = await storeProductRef.get();
+        double currentStoreQuantity = 0.0;
+        
+        if (storeProductDoc.exists) {
+          // Update existing store product quantity
+          currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
+          final newStoreQuantity = currentStoreQuantity + purchasedQuantity;
+          
+          await storeProductRef.update({
+            'quantity': newStoreQuantity,
+            'total': newStoreQuantity,
+          });
+        } else {
+          // Create new store product entry with purchased quantity
+          currentStoreQuantity = 0.0; // New product starts with 0
+          final productData = {
+            'id': product.id,
+            'storeId': storeId,
+            'owner': businessId,
+            'businessId': businessId,
+            'name': product.name,
+            'price': product.price,
+            'buyingPrice': product.buyingPrice,
+            'quantity': purchasedQuantity,
+            'total': purchasedQuantity,
+            'category': product.category,
+            'image': product.image,
+            'storeQuantity': 0,
+            'understock': product.understock,
+            'code': product.code,
+            'details': product.details,
+            'manufacturer': product.manufacturer,
+            'location': product.location,
+            'reserveString1': product.reserveString1,
+            'reserveString2': '',
+            'reserveDouble1': 0.0,
+            'reserveDouble2': 0.0,
+            'reserveList1': [],
+            'reserveList2': [],
+          };
+          
+          await storeProductRef.set(productData);
+        }
+        
+        // Create transaction record for store addition
+        final transactionRef = firestore
+            .collection('transactions')
+            .doc(businessId)
+            .collection('usersTransactions')
+            .doc();
+
+        final transactionData = {
+          'transactionId': transactionRef.id,
+          'productId': product.id,
+          'quantity': purchasedQuantity,
+          'previousQuantity': currentStoreQuantity,
+          'transactionType': 'addition',
+          'transactionOrigin': 'Purchase to Store',
+          'timestamp': Timestamp.now(),
+          'userId': _profileController.user['id'] ?? businessId,
+          'price': product.price ?? 0.0,
+        };
+
+        await transactionRef.set(transactionData);
+        
+      } catch (e) {
+        print('Error adding product ${product.id} to store: $e');
+        errorSnackbar('Failed to add ${product.name} to store');
+      }
     }
   }
 

@@ -59,6 +59,24 @@ service cloud.firestore {
       }
     }
 
+    // ✅ Fund Sources collection (for Cash/Bank/Mobile etc.)
+    match /fundSources/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /userFundSources/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
+    // ✅ Ledger collection (append-only money movements)
+    match /ledger/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /entries/{docId} {
+        allow read, write: if isBusinessAllowed(businessId);
+      }
+    }
+
     // ✅ Clients collection
     match /clients/{businessId} {
       allow get, list: if isBusinessAllowed(businessId);

@@ -6,6 +6,7 @@ import 'package:mauzo/controllers/profile_controller.dart';
 import '../controllers/business_controller.dart';
 import '../models/expences.dart';
 import '../services/firestore_db.dart';
+import '../services/ledger_service.dart';
 
 class ExpenseController extends GetxController {
   final BusinessController _businessController = Get.find();
@@ -117,8 +118,26 @@ class ExpenseController extends GetxController {
     print('🔵 EXPENSE CONTROLLER: Attempting Firestore set operation...');
 
     // Use simple non-blocking pattern like client screen (works offline)
-    newExpenseRef.set(expense.toMap()).then((_) {
+    newExpenseRef.set(expense.toMap()).then((_) async {
       print('✅ EXPENSE CONTROLLER: Firestore set operation completed successfully');
+      // Post ledger OUT entry for this expense using the actual Firestore doc ID for consistency
+      try {
+        final expenseWithSavedId = Expense(
+          id: newExpenseRef.id,
+          title: expense.title,
+          amount: expense.amount,
+          date: expense.date,
+          category: expense.category,
+          addedBy: expense.addedBy,
+          addedByName: expense.addedByName,
+          fundSource: expense.fundSource,
+          fundSourceNote: expense.fundSource == 'other' ? (expense.fundSourceNote) : '',
+        );
+        await LedgerService().postExpenseOut(expenseWithSavedId);
+        print('✅ EXPENSE CONTROLLER: Ledger OUT entry posted for expense ${newExpenseRef.id}');
+      } catch (e) {
+        print('⚠️ EXPENSE CONTROLLER: Failed to post ledger entry for expense ${newExpenseRef.id}: $e');
+      }
     }).catchError((error) {
       print('❌ EXPENSE CONTROLLER: Firestore set operation failed: $error');
       print('❌ EXPENSE CONTROLLER: Error type: ${error.runtimeType}');

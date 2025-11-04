@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:get/get.dart';
@@ -14,7 +16,7 @@ import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
-//import 'dart:html' as html; // Only for web
+import 'dart:html' as html; // Only for web
 class ProductController extends GetxController {
   final ProfileController _profileController=Get.find();
   final BusinessController _businessController = Get.find();
@@ -38,6 +40,234 @@ class ProductController extends GetxController {
     } catch (e) {
       print("Error initializing ProductController: $e");
     }
+  }
+
+  // Generate a blank Excel template for bulk import
+  Future<void> generateProductTemplate() async {
+    var excel = Excel.createExcel();
+    String defaultSheet = excel.getDefaultSheet()!;
+    Sheet sheet = excel[defaultSheet];
+
+    // Header row (case-insensitive matching in importer)
+    final headers = [
+      'Name',
+      'Quantity',
+      'Category',
+      'Manufacturer',
+      'Location',
+      'Price',
+      'Buying Price',
+      'Code',
+      'Unit',
+      'Understock',
+      'Item Type', // product | service
+    ];
+
+    sheet.appendRow(headers);
+
+    // Example row (optional)
+    sheet.appendRow([
+      'Example Product',
+      10,
+      'General',
+      'Brand X',
+      'Shelf A',
+      5000,
+      3500,
+      'SKU-001',
+      'unit',
+      10,
+      'product',
+    ]);
+
+    final fileBytes = excel.encode();
+
+    final directory = await getApplicationDocumentsDirectory();
+    final filePath = "${directory.path}/Product_Import_Template.xlsx";
+    final file = File(filePath)
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(fileBytes!);
+
+    await Share.shareXFiles([XFile(filePath)], text: 'Product Import Template');
+  }
+
+  // Import products from Excel bytes
+  // Returns a summary map: {'imported': x, 'skipped': y}
+  Future<Map<String, int>> importProductsFromExcelBytes(Uint8List bytes) async {
+    final String? businessId = _businessController.business['id'];
+    if (businessId == null || businessId.isEmpty) {
+      errorSnackbar('Business ID is null');
+      return {'imported': 0, 'skipped': 0};
+    }
+
+    final excel = Excel.decodeBytes(bytes);
+    if (excel.tables.isEmpty) {
+      errorSnackbar('Excel file has no sheets');
+      return {'imported': 0, 'skipped': 0};
+    }
+
+    // Use the first non-empty sheet
+    Sheet sheet = excel.tables.values.first;
+    if (sheet.maxRows < 2) {
+      errorSnackbar('Excel has no data rows');
+      return {'imported': 0, 'skipped': 0};
+    }
+
+    // Build header map (lowercased)
+    final headerRow = sheet.row(0);
+    final Map<String, int> colIndex = {};
+    for (int i = 0; i < headerRow.length; i++) {
+      final v = headerRow[i]?.value?.toString().trim().toLowerCase();
+      if (v != null && v.isNotEmpty) colIndex[v] = i;
+    }
+
+    // Helper to get cell value by logical name
+    String? sVal(List<Data?> row, String name) {
+      final idx = colIndex[name];
+      if (idx == null) return null;
+      final v = row.length > idx ? row[idx]?.value : null;
+      return v?.toString().trim();
+    }
+
+    double dVal(List<Data?> row, String name, {double def = 0.0}) {
+      final idx = colIndex[name];
+      if (idx == null) return def;
+      final v = row.length > idx ? row[idx]?.value : null;
+      if (v == null) return def;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString().replaceAll(',', '')) ?? def;
+    }
+
+    int iVal(List<Data?> row, String name, {int def = 0}) {
+      return dVal(row, name, def: def.toDouble()).toInt();
+    }
+
+    final productsCol = firestore
+        .collection('products')
+        .doc(businessId)
+        .collection('userProducts');
+
+    final transactionsCol = firestore
+        .collection('transactions')
+        .doc(businessId)
+        .collection('usersTransactions');
+
+    int imported = 0;
+    int skipped = 0;
+
+    // Collect categories and units to add to business once
+    final Set<String> categoriesToAdd = {};
+    final Set<String> unitsToAdd = {};
+
+    // Batched writes (limit ~400 ops to be safe because we may also add a transaction)
+    WriteBatch batch = firestore.batch();
+    int ops = 0;
+
+    Future<void> commitIfNeeded() async {
+      if (ops >= 400) {
+        await batch.commit();
+        batch = firestore.batch();
+        ops = 0;
+      }
+    }
+
+    for (int r = 1; r < sheet.maxRows; r++) {
+      final row = sheet.row(r);
+      final name = sVal(row, 'name');
+      if (name == null || name.isEmpty) {
+        skipped++;
+        continue;
+      }
+
+      final price = dVal(row, 'price');
+      if (price <= 0) {
+        skipped++;
+        continue;
+      }
+
+      final quantity = dVal(row, 'quantity');
+      final buyingPrice = dVal(row, 'buying price');
+      final category = sVal(row, 'category') ?? '';
+      final manufacturer = sVal(row, 'manufacturer') ?? '';
+      final location = sVal(row, 'location') ?? '';
+      final code = sVal(row, 'code') ?? '';
+      final unit = (sVal(row, 'unit') ?? 'unit').toLowerCase();
+      final understock = iVal(row, 'understock', def: 10);
+      final itemType = (sVal(row, 'item type') ?? 'product').toLowerCase();
+
+      final docRef = productsCol.doc();
+
+      final isService = itemType == 'service';
+      final double finalQty = isService ? 1.0 : (quantity > 0 ? quantity : 0.0);
+
+      final productData = {
+        'id': docRef.id,
+        'owner': businessId,
+        'businessId': businessId,
+        'manufacturer': manufacturer,
+        'name': name,
+        'details': '',
+        'location': location,
+        'buyingPrice': buyingPrice,
+        'understock': understock,
+        'discount': 0.0,
+        'code': code,
+        'price': price,
+        'quantity': finalQty,
+        'category': category,
+        'image': '',
+        'storeQuantity': 0,
+        'reserveString1': unit, // unit
+        'reserveString2': '',
+        'reserveDouble1': 0.0,
+        'reserveDouble2': 0.0,
+        'reserveList1': [],
+        'reserveList2': [],
+        'expireDate': null,
+        'itemType': isService ? 'service' : 'product',
+      };
+
+      batch.set(docRef, productData);
+      ops++;
+
+      // Opening stock transaction for non-services with qty > 0
+      if (!isService && finalQty > 0) {
+        final tRef = transactionsCol.doc();
+        final txn = {
+          'transactionId': tRef.id,
+          'productId': docRef.id,
+          'quantity': finalQty,
+          'previousQuantity': 0,
+          'transactionType': 'addition',
+          'transactionOrigin': 'Opening Stock',
+          'timestamp': Timestamp.now(),
+          'userId': businessId,
+          'price': price,
+        };
+        batch.set(tRef, txn);
+        ops++;
+      }
+
+      if (category.isNotEmpty) categoriesToAdd.add(category);
+      if (unit.isNotEmpty) unitsToAdd.add(unit);
+
+      imported++;
+      await commitIfNeeded();
+    }
+
+    // Commit remaining products/transactions
+    await batch.commit();
+
+    // Update business categories and units
+    if (categoriesToAdd.isNotEmpty || unitsToAdd.isNotEmpty) {
+      await firestore.collection('businesses').doc(businessId).update({
+        if (categoriesToAdd.isNotEmpty) 'categories': FieldValue.arrayUnion(categoriesToAdd.toList()),
+        if (unitsToAdd.isNotEmpty) 'additionalList1': FieldValue.arrayUnion(unitsToAdd.toList()),
+      });
+    }
+
+    successSnackbar('Imported $imported products. Skipped $skipped rows.');
+    return {'imported': imported, 'skipped': skipped};
   }
 
   @override
@@ -415,7 +645,7 @@ void clearProducts(){
 
 
 //for mobile app
-
+/*
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -493,9 +723,9 @@ void clearProducts(){
       print('Share dismissed');
     }
 
-  }
+  }*/
 //for web
-/*
+
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -567,7 +797,7 @@ void clearProducts(){
   }
 
 
-*/
+
 
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 

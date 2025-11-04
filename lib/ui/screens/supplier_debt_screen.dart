@@ -23,12 +23,27 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
   final TextEditingController _searchController = TextEditingController();
+  String? _filterDebtId; // when set, show only this specific debt
 
   @override
   void initState() {
     super.initState();
     // Set default filter to Pending
     _supplierDebtController.setFilterStatus(["PENDING"]);
+    // Check for navigation argument to filter a specific debt id
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['filterDebtId'] is String) {
+        final String id = (args['filterDebtId'] as String).trim();
+        if (id.isNotEmpty) {
+          setState(() {
+            _filterDebtId = id;
+          });
+          // Show all statuses to ensure the target debt is visible
+          _supplierDebtController.setFilterStatus([]);
+        }
+      }
+    });
   }
 
   @override
@@ -413,8 +428,12 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
           Expanded(
             child: Obx(() {
               final debts = _supplierDebtController.filteredSupplierDebts;
+              // If a specific debt id is requested, narrow down the list
+              final displayDebts = (_filterDebtId != null && _filterDebtId!.isNotEmpty)
+                  ? debts.where((d) => d.id == _filterDebtId).toList()
+                  : debts;
               
-              if (debts.isEmpty) {
+              if (displayDebts.isEmpty) {
                 return const Center(
                   child: Text(
                     'No supplier debts found',
@@ -427,9 +446,9 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
               }
               
               return ListView.builder(
-                itemCount: debts.length,
+                itemCount: displayDebts.length,
                 itemBuilder: (context, index) {
-                  return buildSupplierDebtCard(debts[index]);
+                  return buildSupplierDebtCard(displayDebts[index]);
                 },
               );
             }),

@@ -43,6 +43,8 @@ import '../ui/screens/sale/edit_sale.screen.dart';
 import '../ui/screens/pay_role_management_screen.dart';
 import '../ui/screens/select_employee_for_pay_role_screen.dart';
 import '../ui/screens/payment_management_screen.dart';
+import 'package:mauzo/ui/screens/ledger_history_screen.dart';
+import 'package:mauzo/ui/screens/assets_screen.dart';
 
 class AppRouter {
   static Route onGenerateRoute(RouteSettings settings) {
@@ -50,7 +52,7 @@ class AppRouter {
       case '/debt':
         return CupertinoPageRoute(builder: (_) => DebtHistoryScreen());
       case '/supplier-debt':
-        return CupertinoPageRoute(builder: (_) => const SupplierDebtScreen());
+        return CupertinoPageRoute(builder: (_) => const SupplierDebtScreen(), settings: settings);
       case '/login':
         return CupertinoPageRoute(builder: (_) => const LoginScreen());
       case '/addemployee':
@@ -60,7 +62,7 @@ class AppRouter {
       case '/register':
         return CupertinoPageRoute(builder: (_) => RegisterScreen());
       case '/expenses':
-        return CupertinoPageRoute(builder: (_) =>  const ExpenseListScreen());
+        return CupertinoPageRoute(builder: (_) =>  const ExpenseListScreen(), settings: settings);
       case '/report':
         return CupertinoPageRoute(builder: (_) =>   ReportScreen());
       case '/add-expense':
@@ -141,6 +143,10 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const SelectEmployeeForPayRoleScreen());
       case '/payment-management':
         return CupertinoPageRoute(builder: (_) => const PaymentManagementScreen());
+      case '/ledger':
+        return CupertinoPageRoute(builder: (_) => const LedgerHistoryScreen());
+      case '/assets':
+        return CupertinoPageRoute(builder: (_) => const AssetsScreen());
       default:
         return CupertinoPageRoute(
           builder: (_) => const LoadingScreen(),

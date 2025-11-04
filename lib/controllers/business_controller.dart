@@ -77,6 +77,7 @@ class BusinessController extends GetxController {
             'phone': business.phone,
             'tin': business.tin,
             'debtEnabled': business.debtEnabled,
+            'multiFundEnabled': business.multiFundEnabled,
             'reset_time': business.reset_time,
             'subscriptionStatus': business.subscriptionStatus,
             'id': business.id,

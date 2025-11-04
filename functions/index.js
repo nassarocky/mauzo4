@@ -1055,8 +1055,8 @@ exports.saveProductToUserStore = onRequest(async (req, res) => {
       understock: parseInt(understock || "10", 10),
       code: code || "",
       price: price,
-      quantity: parseInt(quantity, 10),
-      total: parseInt(quantity, 10),
+      quantity: 0, // FIXED: Store should start with zero quantity
+      total: 0, // FIXED: Store should start with zero total
       category: category || "",
       image: imageUrl || "",
       expireDate: parsedExpireDate ? admin.firestore.Timestamp.fromDate(parsedExpireDate) : null, // Save as Firestore Timestamp

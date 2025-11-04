@@ -10,6 +10,7 @@ import '../../controllers/debt_history_controller.dart'; // Import the DebtHisto
 import '../../controllers/profile_controller.dart';
 import '../../models/client_model.dart';
 import '../../models/debtHistory_model.dart';
+import 'package:mauzo/services/ledger_service.dart';
 
 class DebtHistoryScreen extends StatefulWidget {
   const DebtHistoryScreen({Key? key}) : super(key: key);
@@ -648,47 +649,72 @@ class DebtCard extends StatelessWidget {
     }
     
     final TextEditingController paymentController = TextEditingController();
+    String paymentMethod = 'cash';
 
     showDialog(
       context: context,
       builder: (context) {
-        return Obx(() => AlertDialog(
-          title: Text('Enter Payment Amount'.tr),
-          content: _debtHistoryController.isLoading.value
-              ? Center(child: CircularProgressIndicator())
-              : TextField(
-            controller: paymentController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(hintText: 'Amount'.tr),
-          ),
-          actions: [
-            if (!_debtHistoryController.isLoading.value)
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Cancel'.tr),
-              ),
-            if (!_debtHistoryController.isLoading.value)
-              ElevatedButton(
-                onPressed: () {
-                  final double paymentAmount =
-                      double.tryParse(paymentController.text) ?? 0.0;
-                  if (paymentAmount > 0 &&
-                      paymentAmount <= debt.remainingDebtAmount) {
-                    _processDebtPayment(context, debt, paymentAmount);
-                  } else {
-                    Get.snackbar('Invalid Payment',
-                        'Please enter a valid payment amount.');
-                  }
-                },
-                child: Text('Save'.tr),
-              ),
-          ],
-        ));
+        return StatefulBuilder(
+          builder: (context, setStateLocal) {
+            return Obx(() => AlertDialog(
+              title: Text('Enter Payment Amount'.tr),
+              content: _debtHistoryController.isLoading.value
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: paymentController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(hintText: 'Amount'.tr),
+                        ),
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<String>(
+                          value: paymentMethod,
+                          decoration: InputDecoration(
+                            labelText: 'Payment Method',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                          ],
+                          onChanged: (v) => setStateLocal(() => paymentMethod = v ?? 'cash'),
+                        ),
+                      ],
+                    ),
+              actions: [
+                if (!_debtHistoryController.isLoading.value)
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text('Cancel'.tr),
+                  ),
+                if (!_debtHistoryController.isLoading.value)
+                  ElevatedButton(
+                    onPressed: () {
+                      final double paymentAmount =
+                          double.tryParse(paymentController.text) ?? 0.0;
+                      if (paymentAmount > 0 &&
+                          paymentAmount <= debt.remainingDebtAmount) {
+                        _processDebtPayment(context, debt, paymentAmount, paymentMethod);
+                      } else {
+                        Get.snackbar('Invalid Payment',
+                            'Please enter a valid payment amount.');
+                      }
+                    },
+                    child: Text('Save'.tr),
+                  ),
+              ],
+            ));
+          },
+        );
       },
     );
   }
 
-  void _processDebtPayment(BuildContext context, DebtHistory debt, double paymentAmount) async {
+  void _processDebtPayment(BuildContext context, DebtHistory debt, double paymentAmount, String paymentMethod) async {
     final salesCollection = FirebaseFirestore.instance
         .collection('sales')
         .doc(_businessController.business['id'])
@@ -768,7 +794,7 @@ class DebtCard extends StatelessWidget {
       final double currentClientDebt = (clientSnapshot.get('debt') ?? 0.0).toDouble();
       final double newClientDebt = currentClientDebt - paymentAmount;
       transaction.update(clientRef, {'debt': newClientDebt});
-    }).then((_) {
+    }).then((_) async {
       _debtHistoryController.isLoading.value = false;
       // Refresh the filtered list and switch to the Paid tab
       _debtHistoryController.filteredDebtHistoriesList();
@@ -781,6 +807,23 @@ class DebtCard extends StatelessWidget {
         colorText: Colors.white,
         duration: Duration(seconds: 5),
       );
+      // Post ledger IN for client debt repayment
+      try {
+        await LedgerService().postSaleIn(
+          saleId: debt.id,
+          payments: [
+            {
+              'amount': paymentAmount,
+              'method': paymentMethod,
+            }
+          ],
+          postedAt: Timestamp.now(),
+          clientId: debt.client,
+          clientName: debt.name,
+        );
+      } catch (e) {
+        print('⚠️ Ledger postSaleIn (client debt payment) failed for sale ${debt.id}: $e');
+      }
     }).catchError((error) {
       Get.snackbar(
         'Error',

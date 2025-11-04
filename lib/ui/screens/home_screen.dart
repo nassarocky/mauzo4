@@ -32,6 +32,7 @@ import '../../utils/preferences.dart';
 import '../widgets/dialogs/payment_dialog.dart';
 import '../widgets/screens_card.dart';
 import '../widgets/tiles/info_tile.dart';
+import 'package:mauzo/services/fund_source_service.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -70,6 +71,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
    await _profileController.updateUserEmail(Preferences.getEmail());
     await _businessController.updateBusinessId(Preferences.getBusiness());
+
+    // Ensure a default Cash fund source exists (idempotent)
+    try {
+      await FundSourceService().ensureDefaultCashFundSource();
+      await FundSourceService().ensureDefaultBankAndMobile();
+    } catch (e) {
+      print('FundSource seeding failed: $e');
+    }
 
     // Initialize controllers
     Get.put(SupplierController());
@@ -1015,6 +1024,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.account_balance,
                       initiallyExpanded: false,
                       items: [
+                        DrawerMenuItem(
+                          title: 'Ledger'.tr,
+                          icon: Icons.receipt_long,
+                          route: 'ledger',
+                        ),
+                        if (canEditBusiness)
+                          DrawerMenuItem(
+                            title: 'Assets'.tr,
+                            icon: Icons.business_center,
+                            route: 'assets',
+                          ),
                         DrawerMenuItem(
                           title: 'expenses'.tr,
                           icon: Icons.account_balance_wallet,

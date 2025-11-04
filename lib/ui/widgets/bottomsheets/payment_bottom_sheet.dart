@@ -163,11 +163,14 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                             onChanged: (value) {
                               try {
                                 setState(() {
-                                  _payments[i]['amount'] =
-                                      double.parse(value.replaceAll(',', ''));
+                                  final String v = value.trim();
+                                  _payments[i]['amount'] = v.isEmpty
+                                      ? 0.0
+                                      : double.parse(v.replaceAll(',', ''));
                                 });
-                                // ignore: empty_catches
-                              } catch (e) {}
+                              } catch (e) {
+                                // ignore parsing errors; keep last valid number
+                              }
                             },
                             controller: _payments[i]['controller'],
                             keyboardType: TextInputType.number,
@@ -178,7 +181,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                                 onTap: () {
                                   setState(() {
                                     _payments[i]['controller'] =
-                                        TextEditingController();
+                                        TextEditingController(text: '0');
                                     _payments[i]['amount'] = 0;
                                   });
                                 },
@@ -349,10 +352,12 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                   onSave: () {
                     _cartController.clearPayments();
                     for (var payment in _payments) {
-                      if (payment['amount'] <= 0 ||
-                          payment['controller'].text.isEmpty) {
-                        continue;
-                      } else if (payment['currency'] ==
+                      // Treat empty as zero
+                      if ((payment['controller'].text as String).trim().isEmpty) {
+                        payment['amount'] = 0.0;
+                        payment['controller'].text = '0';
+                      }
+                      if (payment['currency'] ==
                               _profileController.user['mainCurrency'] &&
                           payment['amount'] > _cartController.remaining) {
                         payment['amount'] = _cartController.remaining;

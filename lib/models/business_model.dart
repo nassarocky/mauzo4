@@ -18,6 +18,7 @@ class BusinessModel {
   final String secondaryCurrency;
   final dynamic date;
   final bool debtEnabled;
+  final bool multiFundEnabled; // allow multiple fund sources
   final double reserve;
   final int expireWarning; // in month
   final bool allowSalesView; // New field
@@ -48,6 +49,7 @@ class BusinessModel {
     required this.secondaryCurrency,
     required this.date,
     this.debtEnabled = true,
+    this.multiFundEnabled = false,
     this.expireWarning = 30,
     this.logo = '',
     this.reserve = 0.0,
@@ -86,12 +88,12 @@ class BusinessModel {
       manufacturer: List<String>.from(data['manufacturer'] ?? const []),
       location: List<String>.from(data['location'] ?? const []),
       debtEnabled: data['debtEnabled'] ?? true,
+      multiFundEnabled: data['multiFundEnabled'] ?? false,
       reserve: data['reserve'] != null ? data['reserve'].toDouble() : 0.0,
       expireWarning: data['expireWarning'] != null ? data['expireWarning'].toInt() : 30,
       allowSalesView: data['allowSalesView'] ?? true,
       discountPercent: data['discountPercent'] != null ? data['discountPercent'].toInt() : 10,
       additionalDouble1: data['additionalDouble1'] != null ? data['additionalDouble1'].toDouble() : 0.0,
-      additionalDouble2: data['additionalDouble2'] != null ? data['additionalDouble2'].toDouble() : 0.0,
       additionalString1: data['additionalString1'] ?? '',
       additionalString2: data['additionalString2'] ?? '',
       additionalList1: List<String>.from(data['additionalList1'] ?? const []),
@@ -119,6 +121,7 @@ class BusinessModel {
       'secondaryCurrency': secondaryCurrency,
       'date': date,
       'debtEnabled': debtEnabled,
+      'multiFundEnabled': multiFundEnabled,
       'reserve': reserve,
       'expireWarning': expireWarning,
       'allowSalesView': allowSalesView,

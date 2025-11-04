@@ -6,6 +6,7 @@ import '../controllers/profile_controller.dart';
 import '../models/supplier_debt_model.dart';
 import '../services/firestore_db.dart';
 import '../utils/constants.dart';
+import 'package:mauzo/services/ledger_service.dart';
 
 class SupplierDebtController extends GetxController {
   final supplierDebts = <SupplierDebt>[].obs;
@@ -287,6 +288,18 @@ class SupplierDebtController extends GetxController {
         }
       } else {
         print('[INFO] No purchaseId associated with this supplier debt; skipping purchase update');
+      }
+
+      // Post ledger OUT for supplier debt repayment
+      try {
+        await LedgerService().postSupplierDebtPaymentOut(
+          debtId: debtId,
+          amount: paymentAmount,
+          method: paymentMethod,
+          postedAt: Timestamp.now(),
+        );
+      } catch (e) {
+        print('⚠️ Ledger postSupplierDebtPaymentOut failed for debt $debtId: $e');
       }
 
       successSnackbar('Payment recorded successfully');

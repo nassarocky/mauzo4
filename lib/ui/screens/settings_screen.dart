@@ -881,6 +881,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Allow Multiple Fund Sources'.tr,
+                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                      if (_profileController.user['role'] == 'owner')
+                        Switch(
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          activeColor: primaryLightColor,
+                          value: (_businessController.business['multiFundEnabled'] ?? false) == true,
+                          onChanged: (value) async {
+                            String businessId = _businessController.business['id'];
+                            await FirebaseFirestore.instance
+                                .collection('businesses')
+                                .doc(businessId)
+                                .update({'multiFundEnabled': value}).then((_) {
+                              successSnackbar('Changes made Successfully');
+                              print("multiFundEnabled updated successfully");
+                            }).catchError((error) {
+                              print("Failed to update multiFundEnabled: $error");
+                            });
+                            await _businessController.updateBusinessData();
+                            setState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                ),
                 SizedBox(
                   height: 12,
                   child: Container(

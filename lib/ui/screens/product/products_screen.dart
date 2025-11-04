@@ -16,6 +16,7 @@ import '../../widgets/search_filter_icon.dart';
 import '../../widgets/tiles/product_tile.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ProductsScreen extends StatefulWidget {
   const ProductsScreen({Key? key}) : super(key: key);
@@ -192,6 +193,35 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
               onPressed: () {
                 productController.generateExcelFromProducts();  // Call the generateExcel method
+              },
+            ),
+          if (canEditProduct)
+            IconButton(
+              tooltip: 'Download Import Template',
+              icon: const Icon(Icons.file_download),
+              onPressed: () {
+                _productController.generateProductTemplate();
+              },
+            ),
+          if (canEditProduct)
+            IconButton(
+              tooltip: 'Import from Excel',
+              icon: const Icon(Icons.file_upload),
+              onPressed: () async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['xlsx', 'xls'],
+                  withData: true,
+                );
+                if (result == null) return;
+                final file = result.files.single;
+                final bytes = file.bytes;
+                if (bytes == null) {
+                  errorSnackbar('Failed to read file bytes');
+                  return;
+                }
+                final summary = await _productController.importProductsFromExcelBytes(bytes);
+                successSnackbar('Imported ${summary['imported']} products. Skipped ${summary['skipped']} rows.');
               },
             ),
         ],

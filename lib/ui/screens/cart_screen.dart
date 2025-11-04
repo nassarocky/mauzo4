@@ -14,12 +14,12 @@ import '../../utils/constants.dart';
 import '../../utils/preferences.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../widgets/bottomsheets/discount_bottom_sheet.dart';
-import '../widgets/bottomsheets/payment_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
 import '../widgets/dialogs/add_to_cart_dialog.dart';
 import '../widgets/dialogs/double_action_dialog.dart';
 import '../../controllers/product_transfer_controller.dart'; // Added import for ProductTransferController
+import 'package:mauzo/services/ledger_service.dart';
 
 
 class CartScreen extends StatefulWidget {
@@ -37,6 +37,8 @@ class _CartScreenState extends State<CartScreen> {
   final ProductController _productController = Get.find();
   static final BusinessController _businessController = Get.find();
   final TextEditingController _detailsController = TextEditingController();
+  final TextEditingController _paidController = TextEditingController();
+  final FocusNode _paidFocusNode = FocusNode();
   bool _isLoading = false;
   // Payment method selection
   String _paymentMethod = 'cash'; // Payment method state variable
@@ -99,6 +101,9 @@ class _CartScreenState extends State<CartScreen> {
       clearCartData();
     });
 
+    _paidController.dispose();
+    _paidFocusNode.dispose();
+
     super.dispose();
   }
 
@@ -145,16 +150,36 @@ class _CartScreenState extends State<CartScreen> {
                 // Ensure a default payment is present so "Paid" appears automatically
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (from != 'invoice' && from != 'transfer') {
+                    final bool multiEnabled = (_businessController.business['multiFundEnabled'] ?? false) == true;
+                    if (!multiEnabled && _paymentMethod != 'cash') {
+                      setState(() {
+                        _paymentMethod = 'cash';
+                      });
+                      if (_cartController.payments.length > 0) {
+                        final existing = _cartController.payments[0];
+                        _cartController.clearPayments();
+                        _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
+                      }
+                    }
                     if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
                       final double base = _cartController.productsPrice - _cartController.discount.value;
                       final double amount = base < 0 ? 0 : base;
                       _cartController.addPayment(amount, chosenCurrency, method: _paymentMethod);
+                      _paidController.text = formatCurrencyWithoutSymbol(amount);
                     } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != _paymentMethod) {
-                      // Update existing payment method if it doesn't match the dropdown selection
+                      // Update existing payment method while preserving amount and currency
+                      final existing = _cartController.payments[0];
                       _cartController.clearPayments();
-                      final double base = _cartController.productsPrice - _cartController.discount.value;
-                      final double amount = base < 0 ? 0 : base;
-                      _cartController.addPayment(amount, chosenCurrency, method: _paymentMethod);
+                      _cartController.addPayment(existing.amount, existing.currency, method: _paymentMethod);
+                    }
+                    // Keep the text field synced with the current payment when not focused
+                    if (!_paidFocusNode.hasFocus) {
+                      final double currentAmt =
+                          _cartController.payments.length > 0 ? _cartController.payments[0].amount : 0.0;
+                      final String currentText = formatCurrencyWithoutSymbol(currentAmt);
+                      if (_paidController.text != currentText) {
+                        _paidController.text = currentText;
+                      }
                     }
                   }
                 });
@@ -380,7 +405,7 @@ class _CartScreenState extends State<CartScreen> {
                         ),
                       const SizedBox(height: 12),
                       // Payment Method Selector (for sales)
-                      if (from != 'transfer')
+                      if (from != 'transfer' && ((_businessController.business['multiFundEnabled'] ?? false) == true))
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8.0),
                           child: DropdownButtonFormField<String>(
@@ -544,122 +569,61 @@ class _CartScreenState extends State<CartScreen> {
 
                 const SizedBox(height: 16),
                 if (from != 'transfer')
-                _cartController.payment > 0
-                    ? GestureDetector(
-                  onTap: () {
-                    if (_businessController.business['debtEnabled']) {
-                      showModalBottomSheet(
-                        isScrollControlled: true,
-                        context: context,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(4),
-                          ),
-                        ),
-                        builder: (BuildContext context) {
-                          return PaymentBottomSheet(
-                            chosenCurrency: chosenCurrency,
-                            defaultMethod: _paymentMethod,
-                          );
-                        },
-                      );
-                    } },
-
-                  child:
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Preferences.getTheme()
-                          ? mediumGrayColor
-                          : primaryUltraLightColor,
-                      border: Border.all(
-                        color: Preferences.getTheme()
-                            ? mediumGrayColor
-                            : primaryColor,
-                        width: 2,
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    margin:
-                    const EdgeInsets.symmetric(horizontal: 20),
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${   (from=='invoice')? 'not paid'.tr : 'paid'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.payment, chosenCurrency) : formatCurrency(_cartController.payment / Preferences.getExchangeRateResult(), chosenCurrency)}',
-                          style: bodyText(
-                            Preferences.getTheme()
-                                ? primaryLightColor
-                                : primaryColor,
-                          ),
-                        ),
-                        if(from!='invoice') // Only show if remaining is greater than 0
-                          Text(
-                            '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
-                            style: bodyText(
-                              _cartController.remaining > 0
-                                  ? warningColor
-                                  : textPlaceholderColor,
-                            ),
-                          ),
-                      ],
-
-                    ),
-                  ),
-                )
-                    : Padding(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 20),
-                  child: SizedBox(
-                    height: 44,
-                    child: TextField(
-                      onTap: () {
-                        if (_businessController.business['debtEnabled']) {
-                          showModalBottomSheet(
-                            isScrollControlled: true,
-                            context: context,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(
-                                top: Radius.circular(4),
+                        SizedBox(
+                          height: 44,
+                          child: TextField(
+                            controller: _paidController,
+                            focusNode: _paidFocusNode,
+                            keyboardType: TextInputType.number,
+                            onChanged: (value) {
+                              final String v = value.trim();
+                              double amt = 0.0;
+                              if (v.isNotEmpty) {
+                                try {
+                                  amt = double.parse(v.replaceAll(',', ''));
+                                } catch (_) {
+                                  amt = 0.0;
+                                }
+                              }
+                              if (_cartController.payments.length == 0) {
+                                _cartController.addPayment(amt, chosenCurrency, method: _paymentMethod);
+                              } else {
+                                final existing = _cartController.payments[0];
+                                _cartController.clearPayments();
+                                _cartController.addPayment(amt, existing.currency, method: existing.method);
+                              }
+                            },
+                            decoration: InputDecoration(
+                              contentPadding: inputPadding,
+                              labelText: (from=='invoice') ? 'not paid'.tr : 'paid'.tr,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme() ? mediumGrayColor : primaryColor,
+                                  width: 2,
+                                ),
                               ),
                             ),
-                            builder: (BuildContext context) {
-                              return PaymentBottomSheet(
-                                chosenCurrency: chosenCurrency,
-                                defaultMethod: _paymentMethod,
-                              );
-                            },
-                          );
-                        }
-                      }
-                      ,
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        contentPadding: inputPadding,
-                        hintText: _cartController.payment > 0
-                            ? "${formatCurrency(_cartController.payment, chosenCurrency)} ${'paid'.tr}"
-                            : 'add_payment'.tr,
-                        hintStyle: TextStyle(
-                          color: Preferences.getTheme()
-                              ? primaryLightColor
-                              : primaryColor,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 16,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(4),
-                          borderSide: BorderSide(
-                            color: Preferences.getTheme()
-                                ? mediumGrayColor
-                                : primaryColor,
-                            width: 2,
                           ),
                         ),
-                      ),
+                        if (from!='invoice') const SizedBox(height: 8),
+                        if (from!='invoice') Text(
+                          '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
+                          style: bodyText(
+                            _cartController.remaining > 0 ? warningColor : textPlaceholderColor,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
                 const SizedBox(height: 16),
                 if (from != 'transfer')
                 Padding(
@@ -1064,9 +1028,24 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   void createSale(DocumentReference saleRef, Map<String, dynamic> saleData, String businessId) {
-    saleRef.set(saleData).then((_) {
+    saleRef.set(saleData).then((_) async {
       // After the sale is successfully created, update the sale with its ID
       updateSaleId(saleRef);
+      // Post sale IN ledger rows for each payment (paidAmount only)
+      try {
+        final List<dynamic> payments = List<dynamic>.from(saleData['payments'] ?? []);
+        final dynamic d = saleData['date'];
+        final Timestamp postedAt = d is Timestamp ? d : Timestamp.fromDate(d as DateTime);
+        await LedgerService().postSaleIn(
+          saleId: saleRef.id,
+          payments: payments,
+          postedAt: postedAt,
+          clientId: _cartController.client?.id,
+          clientName: _cartController.client?.name,
+        );
+      } catch (e) {
+        print('⚠️ Ledger postSaleIn failed for sale ${saleRef.id}: $e');
+      }
     }).catchError((error) {
       errorSnackbar('Failed to create sale: $error');
     });

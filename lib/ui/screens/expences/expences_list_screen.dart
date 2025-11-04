@@ -30,6 +30,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   String selectedCategory = 'All';
   String selectedPerson = 'All'; // Filter by person who added expense
   DateTimeRange? selectedDateRange;
+  String? _filterExpenseId; // If provided, show only this expense
 
   @override
   void initState() {
@@ -43,6 +44,23 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         end: DateTime.now(),
       );
     }
+
+    // Read optional filter from navigation arguments (post-frame to access context)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['filterExpenseId'] is String) {
+        final String id = (args['filterExpenseId'] as String).trim();
+        if (id.isNotEmpty) {
+          setState(() {
+            _filterExpenseId = id;
+            // When filtering by a specific expense, ignore date/category/person defaults
+            selectedCategory = 'All';
+            selectedPerson = 'All';
+            selectedDateRange = null;
+          });
+        }
+      }
+    });
   }
 
   @override
@@ -71,6 +89,13 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         }
 
         List<Expense> filteredExpenses = _expenseController.expenses;
+
+        // Filter by a specific expense ID if provided from navigation
+        if (_filterExpenseId != null && _filterExpenseId!.isNotEmpty) {
+          filteredExpenses = filteredExpenses
+              .where((expense) => expense.id == _filterExpenseId)
+              .toList();
+        }
 
         // Filter by category
         if (selectedCategory != 'All'.tr) {
@@ -502,35 +527,36 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         scrollDirection: Axis.horizontal,
         children: [
-          selectedCategory != 'All' || selectedPerson != 'All' || selectedDateRange != null
+          _filterExpenseId != null || selectedCategory != 'All' || selectedPerson != 'All' || selectedDateRange != null
               ? Row(
-            children: [
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    selectedCategory = 'All';
-                    selectedPerson = 'All';
-                    selectedDateRange = null;
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
-                      width: 1,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _filterExpenseId = null;
+                          selectedCategory = 'All';
+                          selectedPerson = 'All';
+                          selectedDateRange = null;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                            width: 1,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.cancel,
+                          color: Preferences.getTheme() ? lightGrayColor : iconGrayColor,
+                        ),
+                      ),
                     ),
-                  ),
-                  child: Icon(
-                    Icons.cancel,
-                    color: Preferences.getTheme() ? lightGrayColor : iconGrayColor,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-          )
+                    const SizedBox(width: 8),
+                  ],
+                )
               : Container(),
           GestureDetector(
             onTap: () {
