@@ -181,7 +181,6 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     double totalPayment = _saleController.getTotalPaymentFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double debt = _debtHistoryController.getTotalDebtFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double totalDebt = _debtHistoryController.getTotalDebt();
-    double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double expenses = _expenseController.getTotalExpensesFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double totalStock = _productController.calculateTotalStock();
     double totalDiscounts = 0.0;
@@ -199,9 +198,9 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       Timestamp.fromDate(endDate),
     );
 
-    // Calculate net profit using PAID values for purchases (not COGS)
-    // Per user preference: use paid amounts for purchase calculations
-    double netProfit = totalSales - purchasesPaid - expenses;
+    // Calculate net profit using COGS (Cost of Goods Sold)
+    // COGS = buying price of items actually sold in the period
+    double netProfit = totalPayment - totalSalesBuying - expenses;
 
     DateTime startDate = startTimestamp.toDate();
 
@@ -218,7 +217,6 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       startDate: startDate,
       endDate: endDate,
       finalStock: totalStock,
-      debtCollected: debtCollected,
       netProfit: netProfit,
       totalPurchase: purchasesCashPaid,
       totalDiscounts: totalDiscounts,
@@ -315,14 +313,13 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildTableRow('${'COGS (Buying Price):'.tr}', book.reserveDouble2 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'PURCHASES PAID'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT (Created in Period):'.tr}', book.debt, _businessController.business['mainCurrency']),
-        _buildTableRow('${'DEBT COLLECTED (from previous periods):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
           '${'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr}',
           (book.totalPayment - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
-        _buildTableRow('${'NET PROFIT (sales - purchases paid - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
+        _buildTableRow('${'NET PROFIT (sales - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
       ],
     );
   }
@@ -427,7 +424,6 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
 
         _buildPDFTableRow('DEBT (Created in Period):'.tr, book.debt, book.currency),
-        _buildPDFTableRow('DEBT COLLECTED (from previous periods):'.tr, book.debtCollected, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
           'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr,
@@ -436,7 +432,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
 
         _buildPDFTableRow(
-          'NET PROFIT (sales - purchases paid - expenses)'.tr,
+          'NET PROFIT (sales - COGS - expenses)'.tr,
           book.netProfit,
           book.currency,
         ),

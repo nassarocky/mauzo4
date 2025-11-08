@@ -50,7 +50,6 @@ class ClosedBooksController extends GetxController {
         startDate: DateTime.now(),
         endDate: DateTime.now(),
         finalStock: 0.0,
-        debtCollected: 0.0,
         netProfit: 0.0,
         totalPurchase: 0.0,
         totalDiscounts: 0.0,

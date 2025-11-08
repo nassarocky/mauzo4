@@ -88,6 +88,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
     
     requestPermissions();
+    
+    // Load custom units from business data
+    _loadCustomUnits();
 
     _quantityController.addListener(() {
       setState(() {
@@ -161,6 +164,44 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _updateBuyingPricePerItem();
   }
 
+
+  void _loadCustomUnits() {
+    // Load custom units from business 'units' field
+    print('=== LOADING CUSTOM UNITS ===');
+    print('Business units field: ${_businessController.business['units']}');
+    
+    // Try 'units' field first (seems to be the actual field name)
+    if (_businessController.business['units'] != null) {
+      List<String> customUnits = List<String>.from(_businessController.business['units']);
+      print('Custom units found: $customUnits');
+      setState(() {
+        // Add custom units to the _units list if not already present
+        for (String unit in customUnits) {
+          if (!_units.contains(unit)) {
+            _units.add(unit);
+            print('Added custom unit: $unit');
+          }
+        }
+        print('Final _units list: $_units');
+      });
+    } 
+    // Fallback to additionalList1 if units field doesn't exist
+    else if (_businessController.business['additionalList1'] != null) {
+      List<String> customUnits = List<String>.from(_businessController.business['additionalList1']);
+      print('Custom units found in additionalList1: $customUnits');
+      setState(() {
+        for (String unit in customUnits) {
+          if (!_units.contains(unit)) {
+            _units.add(unit);
+            print('Added custom unit: $unit');
+          }
+        }
+        print('Final _units list: $_units');
+      });
+    } else {
+      print('No custom units found in business data');
+    }
+  }
 
   Future<void> requestPermissions() async {
     var status = await Permission.storage.status;
@@ -274,7 +315,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   Widget build(BuildContext context) {
     _categoryController.text = _productController.selectedCategory.value;
-    allUnits = [..._units, ];
+    allUnits = [..._units];
     uniqueUnits=removeDuplicateUnits(allUnits);
     return WillPopScope(
       onWillPop: () async => isUploading ? false : true,
@@ -440,10 +481,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   ),
                                   child: DropdownButton<String>(
                                     value: _selectedUnit,
-                                    onChanged: (String? newValue) {
-                                      setState(() {
-                                        _selectedUnit = newValue!;
-                                      });
+                                    onChanged: (String? newValue) async {
+                                      if (newValue == 'add_new_unit') {
+                                        // Show dialog to add new unit
+                                        await _showAddUnitDialog(context);
+                                      } else {
+                                        setState(() {
+                                          _selectedUnit = newValue!;
+                                        });
+                                      }
                                     },
                                     items: [
                                       ...uniqueUnits.map<DropdownMenuItem<String>>((String value) {
@@ -451,7 +497,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                           value: value,
                                           child: Text(value),
                                         );
-                                      }).toList()
+                                      }).toList(),
+                                      // Add "Add New Unit" option
+                                      DropdownMenuItem<String>(
+                                        value: 'add_new_unit',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.add_circle_outline, size: 18, color: Colors.blue),
+                                            SizedBox(width: 8),
+                                            Text('Add New Unit'.tr, style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ),
                                     ],
                                     underline: Container(),
                                   ),
@@ -1018,7 +1075,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     bool existsUnit = allUnits.contains(_selectedUnit);
                                     if (!existsUnit) {
                                       firestore.collection('businesses').doc(businessId).update({
-                                        'additionalList1': FieldValue.arrayUnion([_selectedUnit]),
+                                        'units': FieldValue.arrayUnion([_selectedUnit]),
                                       });
                                     }
 
@@ -1262,12 +1319,29 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       height: 44,
                       child: PrimaryButton(
                         text: 'save'.tr,
-                        onPressed: () {
+                        onPressed: () async {
                           if (newUnitController.text.isNotEmpty) {
+                            final String newUnit = newUnitController.text.trim();
+                            final String? businessId = _businessController.business['id'];
+                            
+                            // Save to Firestore
+                            if (businessId != null) {
+                              try {
+                                await firestore.collection('businesses').doc(businessId).update({
+                                  'units': FieldValue.arrayUnion([newUnit]),
+                                });
+                                // Refresh business data to get updated units
+                                await _businessController.updateBusinessData();
+                              } catch (e) {
+                                print('Error saving custom unit: $e');
+                              }
+                            }
+                            
                             setState(() {
                               // Add the new unit to the list and select it
-                              _units.add(newUnitController.text);
-                              _selectedUnit = newUnitController.text;
+                              _units.add(newUnit);
+                              _selectedUnit = newUnit;
+                              newUnitController.clear();
                             });
                             Navigator.of(context).pop(true); // Close the dialog and return true
                           }

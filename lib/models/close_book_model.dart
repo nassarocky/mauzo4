@@ -11,7 +11,6 @@ class CloseBook {
   final DateTime startDate;
   final DateTime endDate;
   final double finalStock;
-  final double debtCollected;
   final double netProfit;
   final double totalPurchase;
   final double totalDiscounts;
@@ -38,7 +37,6 @@ class CloseBook {
     required this.startDate,
     required this.endDate,
     required this.finalStock,
-    required this.debtCollected,
     required this.netProfit,
     required this.totalPurchase,
     required this.totalDiscounts,
@@ -72,7 +70,6 @@ class CloseBook {
       startDate: (data['startDate'] as Timestamp).toDate(),
       endDate: (data['endDate'] as Timestamp).toDate(),
       finalStock: (data['finalStock'] ?? 0.0) is int ? (data['finalStock'] as int).toDouble() : (data['finalStock'] ?? 0.0) as double,
-      debtCollected: (data['debtCollected'] ?? 0.0) is int ? (data['debtCollected'] as int).toDouble() : (data['debtCollected'] ?? 0.0) as double,
       netProfit: (data['netProfit'] ?? 0.0) is int ? (data['netProfit'] as int).toDouble() : (data['netProfit'] ?? 0.0) as double,
       totalPurchase: (data['totalPurchase'] ?? 0.0) is int ? (data['totalPurchase'] as int).toDouble() : (data['totalPurchase'] ?? 0.0) as double,
       totalDiscounts: (data['totalDiscounts'] ?? 0.0) is int ? (data['totalDiscounts'] as int).toDouble() : (data['totalDiscounts'] ?? 0.0) as double,
@@ -100,7 +97,6 @@ class CloseBook {
       'startDate': Timestamp.fromDate(startDate),
       'endDate': Timestamp.fromDate(endDate),
       'finalStock': finalStock,
-      'debtCollected': debtCollected,
       'netProfit': netProfit,
       'totalPurchase': totalPurchase,
       'totalDiscounts': totalDiscounts,

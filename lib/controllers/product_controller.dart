@@ -16,7 +16,7 @@ import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
-import 'dart:html' as html; // Only for web
+//import 'dart:html' as html; // Only for web
 class ProductController extends GetxController {
   final ProfileController _profileController=Get.find();
   final BusinessController _businessController = Get.find();
@@ -645,7 +645,7 @@ void clearProducts(){
 
 
 //for mobile app
-/*
+
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -723,9 +723,9 @@ void clearProducts(){
       print('Share dismissed');
     }
 
-  }*/
+  }
 //for web
-
+/*
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -797,7 +797,7 @@ void clearProducts(){
   }
 
 
-
+*/
 
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 
