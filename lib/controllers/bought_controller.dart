@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/models/expences.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/download_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
@@ -27,6 +29,7 @@ class BoughtController extends GetxController {
   final filteredSales = <Sale>[].obs;
 
   StreamSubscription<List<Sale>>? _salesSubscription;
+  StreamSubscription<List<Sale>>? _filteredSalesSubscription;
 
   @override
   void onInit() {
@@ -44,6 +47,7 @@ class BoughtController extends GetxController {
   @override
   void onClose() {
     _salesSubscription?.cancel();
+    _filteredSalesSubscription?.cancel();
     super.onClose();
   }
 
@@ -63,34 +67,41 @@ void clearBought(){
     try {
       // Remove the sale from the local list
       sales.remove(sale);
+      filteredSales.remove(sale);
+      
+      // Refresh dates list to remove empty date groups
+      setSalesByDate();
 
       // Fetch the products from the sale
       List products = sale.products;
 
-      // Update the product quantities in the inventory
+      // Reverse the product quantities in inventory (subtract purchased amounts)
       for (var product in products) {
         String productId = product['id'];
-        int quantityToAdd = product['quantity'];
+        // Handle both int and double types from Firestore
+        double quantityToRemove = (product['quantity'] is int) 
+            ? (product['quantity'] as int).toDouble() 
+            : (product['quantity'] as num).toDouble();
 
         // Fetch the product from the product controller
         var productInInventory = productController.getProduct(productId);
 
-        // Update the product quantity
+        // Subtract the purchased quantity (reverse the purchase)
         if (productInInventory != null) {
-          double newQuantity = productInInventory.quantity! + quantityToAdd;
-          productController.updateProductCount(productInInventory, newQuantity,'Sale');
+          double newQuantity = productInInventory.quantity! - quantityToRemove;
+          productController.updateProductCount(productInInventory, newQuantity,'Purchase Deleted');
         }
       }
 
-      // Delete the sale from Firestore
+      // Delete the purchase from Firestore
       await firestore
-          .collection('sales')
+          .collection('recovered')
           .doc(businessId)
-          .collection('userSales')
+          .collection('userRecovered')
           .doc(sale.id)
           .delete();
 
-      successSnackbar('Sale ${'deleted'.tr}');
+      successSnackbar('Purchase ${'deleted'.tr}');
     } catch (e) {
       errorSnackbar(e.toString());
     }
@@ -335,8 +346,10 @@ void clearBought(){
         if (ts.compareTo(startTimestamp) > 0 && ts.compareTo(endTimestamp) < 0) {
           if (purchase.payments.isNotEmpty) {
             for (final p in purchase.payments) {
-              final String method = (p['method'] ?? 'cash').toString();
-              if (method == 'cash') {
+              // Treat missing, null, or empty method as 'cash' for backward compatibility
+              final String method = (p['method'] ?? 'cash').toString().trim();
+              final String methodNormalized = method.isEmpty ? 'cash' : method;
+              if (methodNormalized == 'cash') {
                 final dynamic rawAmount = p['amount'];
                 final double amt = rawAmount is int
                     ? rawAmount.toDouble()
@@ -349,8 +362,8 @@ void clearBought(){
               }
             }
           } else {
-            // No detailed breakdown: treat aggregate as cash only if fundSource is cash
-            if ((purchase.fundSource ?? 'cash') == 'cash' && purchase.payment > 0) {
+            // No detailed breakdown: treat aggregate as cash (backward compatibility)
+            if (purchase.payment > 0) {
               cashPaid += purchase.payment;
             }
           }
@@ -438,33 +451,63 @@ void clearBought(){
   final saleType = 'All'.obs;
   final filterClients = <String>[].obs;
   final filterEmployee = <String>[].obs;
-  void filterSales() {
-    filteredSales.value = sales;
+  void filterSales() async {
+    // If date range is selected, query database for that range
     if (selectedDateRange != null) {
-      filteredSales.value = filteredSales.where((sale) {
-        return sale.date.toDate().isAfter(selectedDateRange!.start) &&
-            sale.date
-                .toDate()
-                .isBefore(selectedDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
+      // Cancel previous filtered subscription if exists
+      await _filteredSalesSubscription?.cancel();
+      
+      // Query database for the selected date range
+      _filteredSalesSubscription = FirestoreDb()
+          .getBoughtByDateRange(selectedDateRange!.start, selectedDateRange!.end)
+          .listen((data) {
+        // Start with queried data
+        var filtered = data;
+        
+        // Apply additional filters
+        if (filterClients.isNotEmpty) {
+          filtered = filtered.where((sale) {
+            return filterClients.contains(sale.supplier);
+          }).toList();
+        }
+        if (filterEmployee.isNotEmpty) {
+          filtered = filtered.where((sale) {
+            return filterEmployee.contains(sale.employeeId);
+          }).toList();
+        }
+        if (saleType.value == 'Debt') {
+          filtered = filtered.where((sale) {
+            return sale.debt > 0;
+          }).toList();
+        }
+        
+        filteredSales.value = filtered;
+        setSalesByDate();
+      });
+    } else {
+      // No date range selected, use in-memory filtering
+      await _filteredSalesSubscription?.cancel();
+      
+      filteredSales.value = sales;
+      
+      if (filterClients.isNotEmpty) {
+        filteredSales.value = filteredSales.where((sale) {
+          return filterClients.contains(sale.supplier);
+        }).toList();
+      }
+      if (filterEmployee.isNotEmpty) {
+        filteredSales.value = filteredSales.where((sale) {
+          return filterEmployee.contains(sale.employeeId);
+        }).toList();
+      }
+      if (saleType.value == 'Debt') {
+        filteredSales.value = filteredSales.where((sale) {
+          return sale.debt > 0;
+        }).toList();
+      }
+      
+      setSalesByDate();
     }
-    if (filterClients.isNotEmpty) {
-      filteredSales.value = filteredSales.where((sale) {
-        return filterClients.contains(sale.supplier);
-      }).toList();
-    }
-    if (filterEmployee.isNotEmpty) {
-      filteredSales.value = filteredSales.where((sale) {
-        return filterEmployee.contains(sale.employeeId);
-      }).toList();
-    }
-    if (saleType.value == 'Debt') {
-      filteredSales.value = filteredSales.where((sale) {
-        return sale.debt > 0;
-      }).toList();
-    }
-
-    setSalesByDate();
   }
   void filterSalesById(String saleId) {
     filteredSales.value = sales.where((sale) => sale.id == saleId).toList();
@@ -485,8 +528,16 @@ void clearBought(){
     filterSales();
   }
 
-  void clearSelectedDateRange() {
+  void clearSelectedDateRange() async {
     selectedDateRange = null;
+    await _filteredSalesSubscription?.cancel();
+    _filteredSalesSubscription = null;
+    filterSales();
+  }
+
+  void setFilterEmployee(List<String> employees) {
+    filterEmployee.value = employees;
+    filterSales();
   }
 
   Future<void> generateExcelFromSales() async {
@@ -576,24 +627,19 @@ void clearBought(){
       cell?.cellStyle = totalsStyle;
     });
 
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = "${directory.path}/Sales_Report.xlsx";
     final fileBytes = excel.encode();
-    final file = File(filePath)
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(fileBytes!);
+    if (fileBytes != null) {
+      // Save and share the file (works on both web and mobile)
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/Purchases_Report.xlsx";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
 
-    print("Excel file generated: $filePath");
-    final result = await Share.shareXFiles(
-      [XFile(filePath)],
-      text: 'Sales Report',
-    );
-
-    // Optionally, handle the result status
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the report!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+      await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Purchases Report',
+      );
     }
   }
 

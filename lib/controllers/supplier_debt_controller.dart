@@ -17,6 +17,9 @@ class SupplierDebtController extends GetxController {
   final selectedSupplier = 'No supplier'.obs;
   final selectedStatus = 'No status'.obs;
   final RxBool isLoading = false.obs;
+  
+  // Current status being viewed (default: pending for optimization)
+  final currentStatus = 'pending'.obs;
 
   StreamSubscription<QuerySnapshot>? _supplierDebtSubscription;
 
@@ -24,11 +27,40 @@ class SupplierDebtController extends GetxController {
   void onInit() {
     super.onInit();
     print('[DEBUG SupplierDebtController] onInit called');
+    
+    final ProfileController _profileController = Get.find();
+    final String userRole = _profileController.user['role'] ?? '';
+    
+    // Load supplier debts for all roles except agents (sales persons do purchases and need to track supplier debts)
+    if (userRole != 'agent') {
+      // Load pending debts by default (optimized)
+      loadDebtsByStatus('pending');
+    } else {
+      // Set empty data for agents (no error)
+      supplierDebts.value = [];
+      filteredSupplierDebts.value = [];
+      print('SupplierDebtController: Agents cannot view supplier debts, skipping data initialization');
+    }
+  }
+
+  @override
+  void onClose() {
+    _supplierDebtSubscription?.cancel();
+    super.onClose();
+  }
+
+  // Switch to different status (queries database) - optimized to reduce reads
+  void loadDebtsByStatus(String status) async {
+    currentStatus.value = status;
+    
     try {
-      _supplierDebtSubscription = getSupplierDebts().listen((snapshot) {
-        print('[DEBUG SupplierDebtController] Received snapshot with ${snapshot.docs.length} documents');
+      // Cancel previous subscription
+      await _supplierDebtSubscription?.cancel();
+      
+      // Query database for specific status only
+      _supplierDebtSubscription = getSupplierDebts(status: status).listen((snapshot) {
+        print('[DEBUG SupplierDebtController] Received snapshot with ${snapshot.docs.length} documents for status: $status');
         final data = snapshot.docs.map((doc) {
-          print('[DEBUG SupplierDebtController] Processing doc: ${doc.id}');
           return SupplierDebt.fromSnapshot(doc);
         }).toList();
         
@@ -43,25 +75,18 @@ class SupplierDebtController extends GetxController {
         print('[ERROR SupplierDebtController] Stream error: $error');
       });
     } catch (e) {
-      print("[ERROR SupplierDebtController] Error initializing: $e");
+      print("[ERROR SupplierDebtController] Error loading debts by status: $e");
     }
   }
 
-  @override
-  void onClose() {
-    _supplierDebtSubscription?.cancel();
-    super.onClose();
-  }
-
-  // Get supplier debts stream from Firestore
-  Stream<QuerySnapshot> getSupplierDebts() {
+  // Get supplier debts stream from Firestore by status
+  Stream<QuerySnapshot> getSupplierDebts({String status = 'pending'}) {
     final bc = Get.find<BusinessController>();
     final String businessId = (bc.business['id'] ?? '').toString().isNotEmpty
         ? bc.business['id']
         : (bc.businessId.value);
-    print('[DEBUG SupplierDebtController] Getting supplier debts for business: $businessId');
+    print('[DEBUG SupplierDebtController] Getting supplier debts for business: $businessId with status: $status');
     
-    // Remove orderBy to avoid composite index requirement
     if (businessId.isEmpty) {
       print('[WARN SupplierDebtController] businessId is empty in getSupplierDebts()');
     }
@@ -70,9 +95,10 @@ class SupplierDebtController extends GetxController {
         .collection('supplierDebts')
         .doc(businessId)
         .collection('userSupplierDebts')
+        .where('status', isEqualTo: status)
         .snapshots();
     
-    print('[DEBUG SupplierDebtController] Stream created for path: supplierDebts/$businessId/userSupplierDebts');
+    print('[DEBUG SupplierDebtController] Stream created for path: supplierDebts/$businessId/userSupplierDebts with status filter');
     return stream;
   }
 
@@ -310,10 +336,21 @@ class SupplierDebtController extends GetxController {
     }
   }
 
-  // Filter supplier debts by status
+  // Filter supplier debts by status - now switches database query for optimization
   void setFilterStatus(List<String> statuses) {
     filterStatus.value = statuses;
-    filterSupplierDebts();
+    
+    // If a single status is selected, query database for that status (convert to lowercase for DB)
+    if (statuses.length == 1) {
+      final dbStatus = statuses.first.toLowerCase();
+      loadDebtsByStatus(dbStatus);
+    } else if (statuses.isEmpty) {
+      // Default to pending if no status selected  
+      loadDebtsByStatus('pending');
+    } else {
+      // For multiple statuses, filter in memory
+      filterSupplierDebts();
+    }
   }
 
   // Apply filters to supplier debts

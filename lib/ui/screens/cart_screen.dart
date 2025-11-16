@@ -20,6 +20,9 @@ import '../widgets/dialogs/add_to_cart_dialog.dart';
 import '../widgets/dialogs/double_action_dialog.dart';
 import '../../controllers/product_transfer_controller.dart'; // Added import for ProductTransferController
 import 'package:mauzo/services/ledger_service.dart';
+import '../../services/thermal_printer_service.dart';
+import '../widgets/printer_selection_dialog.dart';
+import '../../models/sale_model.dart';
 
 
 class CartScreen extends StatefulWidget {
@@ -42,10 +45,17 @@ class _CartScreenState extends State<CartScreen> {
   bool _isLoading = false;
   // Payment method selection
   String _paymentMethod = 'cash'; // Payment method state variable
+  late final ThermalPrinterService _thermalPrinter;
 
   @override
   void initState() {
     super.initState();
+    
+    // Initialize thermal printer service
+    if (!Get.isRegistered<ThermalPrinterService>()) {
+      Get.put(ThermalPrinterService());
+    }
+    _thermalPrinter = Get.find<ThermalPrinterService>();
     
     // Determine the context/purpose of this cart screen
     String from = 'new_sale';
@@ -140,6 +150,15 @@ class _CartScreenState extends State<CartScreen> {
               Navigator.pop(context);
             },
           ),
+          actions: _isLoading || from == 'invoice' || from == 'transfer'
+              ? null
+              : [
+            IconButton(
+              icon: const Icon(Icons.print),
+              tooltip: 'Print & Complete Sale',
+              onPressed: () => _printAndSubmitSale(),
+            ),
+          ],
         ),
         body: _isLoading
             ? const Center(
@@ -665,7 +684,8 @@ class _CartScreenState extends State<CartScreen> {
                           child: PrimaryButton(
                             color: greenColor,
                             onPressed: () async {
-                              if (_cartController.remaining > 0) {
+                              // Skip debt validation for invoices - invoices can have debt
+                              if (_cartController.remaining > 0 && from != 'invoice') {
                                 // Check if the client is unnamed or not set
                                 if (_cartController.client == null || _cartController.client == "unnamed_client" || _cartController.client?.id == null || _cartController.client?.id == '') {
                                   // Show error snackbar for 6 seconds if the client name is not set
@@ -1201,6 +1221,136 @@ class _CartScreenState extends State<CartScreen> {
         newQuantity,
         'Sale',
       );
+    }
+  }
+
+  Future<void> _printAndSubmitSale() async {
+    // Validation checks
+    if (_cartController.products.isEmpty) {
+      errorSnackbar('no_products_in_cart'.tr);
+      return;
+    }
+
+    if (_cartController.remaining < 0) {
+      final chosenCurrency = _businessController.business['mainCurrency'];
+      errorSnackbar(
+        "${'overpaid'.tr}: ${formatCurrency(
+          -_cartController.remaining,
+          chosenCurrency,
+        )}",
+      );
+      return;
+    }
+
+    // Check if printer is selected
+    if (_thermalPrinter.selectedPrinter.value == null) {
+      // Show printer selection dialog
+      await showDialog(
+        context: context,
+        builder: (context) => const PrinterSelectionDialog(),
+      );
+      
+      // If still no printer selected, return
+      if (_thermalPrinter.selectedPrinter.value == null) {
+        return;
+      }
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Prepare products
+      List products = [];
+      for (var item in _cartController.getUniqueProducts()) {
+        products.add({
+          'id': item.id,
+          'quantity': _cartController.singleProductQuantity(item.id),
+          'price': (_cartController.getPrice(item.id).toDouble()),
+          'name': item.name,
+          'itemType': item.itemType,
+        });
+      }
+
+      // Build Sale object for printing (before saving to get data)
+      final saleForPrint = Sale(
+        id: '',
+        client: _cartController.client?.id ?? '',
+        clientname: _cartController.client?.name ?? "Walk-in Customer",
+        employeeId: _profileController.user['id'] ?? "",
+        employeeName: _profileController.user['name'] ?? "",
+        owner: _businessController.business['id'] ?? '',
+        frominvoice: false,
+        date: Timestamp.now(),
+        products: products,
+        price: _cartController.productsPrice,
+        buyingPrice: _cartController.productsBuyingPrice,
+        payment: _cartController.payment,
+        debt: _cartController.remaining,
+        discount: _cartController.discount.value,
+        comment: _detailsController.text.trim(),
+        payments: List<Map<String, dynamic>>.from(
+          _cartController.payments.map((p) => p.toMap())
+        ),
+      );
+
+      // Print receipt FIRST (while we have all the data)
+      await _thermalPrinter.printReceipt(
+        sale: saleForPrint,
+        client: _cartController.client ?? Client(
+          id: '',
+          name: saleForPrint.clientname,
+          phone: '',
+          owner: '',
+          debt: 0,
+          advance: 0,
+          date: Timestamp.now(),
+        ),
+        business: _businessController.business,
+      );
+
+      // Then save the sale
+      addSale(products);
+      await decreaseSoldQuantity();
+
+      // Handle unpaid amount
+      if (_cartController.remaining > 0) {
+        if (_cartController.client != null) {
+          _clientController.updateDebt(
+            _cartController.client!,
+            _cartController.remaining + _cartController.client!.debt,
+          );
+        }
+      }
+
+      // Handle advance payment
+      if (_cartController.client != null && _cartController.client!.advance > 0) {
+        double payment = _cartController.payment;
+        if (payment > _cartController.client!.advance) {
+          payment = _cartController.client!.advance;
+        }
+        _clientController.reduceAdvance(_cartController.client!, payment);
+      }
+
+      if (_cartController.passedArgument != 'NOT') {
+        updateInvoiceFromInvoice(_cartController.passedArgument);
+      }
+
+      // Clear cart and navigate
+      clearCartData();
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/home',
+        (route) => false,
+      );
+      successSnackbar('order_created'.tr);
+    } catch (e) {
+      errorSnackbar('Failed to complete sale: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 

@@ -238,6 +238,20 @@ service cloud.firestore {
       }
     }
 
+    // ✅ Inventory Losses collection - Manager/Owner access only
+    match /inventoryLosses/{businessId} {
+      // Allow listing for managers/owners
+      allow list: if request.auth != null && isManagerOrOwner() && isBusinessAllowed(businessId);
+      
+      // Allow reading the business document for managers/owners
+      allow get: if request.auth != null && isManagerOrOwner() && isBusinessAllowed(businessId);
+
+      match /userLosses/{lossId} {
+        // Allow all operations if user is manager/owner with business access
+        allow read, write: if request.auth != null && isManagerOrOwner() && isBusinessAllowed(businessId);
+      }
+    }
+
     // ❌ Deny everything else explicitly
     match /{document=**} {
       allow read, write: if false;
@@ -314,6 +328,16 @@ service cloud.firestore {
            request.resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business) ||
           (request.method in ['get', 'update', 'delete'] && 
            resource.data.businessId in get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.business)
+        );
+    }
+    
+    // ✅ Helper Function to check if user is manager or owner
+    function isManagerOrOwner() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
+        (
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner' ||
+          get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'manager'
         );
     }
   }

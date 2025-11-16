@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/download_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
-//import 'dart:html' as html; // Only for web
 class StoreController extends GetxController {
   final BusinessController _businessController = Get.find();
 
@@ -431,7 +433,6 @@ class StoreController extends GetxController {
     selectedLocation.value = updatedLocation;
   }
   //for mobile
-
   Future<void> generateExcelFromProductsInstore() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -452,9 +453,9 @@ class StoreController extends GetxController {
     sheetObject.appendRow([]);
     sheetObject.appendRow([]);
 
-    // Define header row with background color
+    // Define header row with background color (matches import template)
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price"
+      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
     ];
 
     // Apply a background color to the header row
@@ -473,9 +474,9 @@ class StoreController extends GetxController {
     // Iterate through the list of products and add each product as a row in the Excel sheet
     for (Product product in filteredProducts) {
       // Ensure quantity is non-null and default to 0 if it's null
-      double quantity = product.quantity ?? 0;
+      double quantity = product.quantity ?? 0.0;
 
-      // Add a row to the sheet with product details
+      // Add a row to the sheet with product details (matches import template)
       sheetObject.appendRow([
         product.name,
         quantity,
@@ -484,12 +485,16 @@ class StoreController extends GetxController {
         product.location,
         product.price,
         product.buyingPrice,
+        product.code ?? '',
+        product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',
+        product.understock ?? 0,
+        product.itemType ?? 'product',
       ]);
     }
 
     // Optionally, calculate the total value of all products and add it at the bottom
     double totalValue = filteredProducts.fold(0, (sum, product) {
-      double quantity = product.quantity ?? 0;
+      double quantity = product.quantity ?? 0.0;
       return sum + (product.price * quantity);
     });
 
@@ -511,9 +516,8 @@ class StoreController extends GetxController {
 
     // Save the file to the user's device
     final directory = await getApplicationDocumentsDirectory();
-    final filePath = "${directory.path}/Product_Report.xlsx";
+    final filePath = "${directory.path}/Store_Report.xlsx";
     final fileBytes = excel.encode();
-
 
     final file = File(filePath)
       ..createSync(recursive: true)
@@ -521,7 +525,7 @@ class StoreController extends GetxController {
 
     final result = await Share.shareXFiles(
       [XFile(filePath)],
-      text: 'Product Report',
+      text: 'Store Report',
     );
 
     if (result.status == ShareResultStatus.success) {
@@ -529,9 +533,7 @@ class StoreController extends GetxController {
     } else if (result.status == ShareResultStatus.dismissed) {
       print('Share dismissed');
     }
-
   }
-
 
 //for web
 /*
@@ -555,9 +557,9 @@ class StoreController extends GetxController {
     sheetObject.appendRow([]);
     sheetObject.appendRow([]);
 
-    // Define header row with background color
+    // Define header row with background color (matches import template)
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price"
+      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
     ];
 
     // Apply a background color to the header row
@@ -578,7 +580,7 @@ class StoreController extends GetxController {
       // Ensure quantity is non-null and default to 0 if it's null
       double quantity = product.quantity ?? 0.0;
 
-      // Add a row to the sheet with product details
+      // Add a row to the sheet with product details (matches import template)
       sheetObject.appendRow([
         product.name,
         quantity,
@@ -587,6 +589,10 @@ class StoreController extends GetxController {
         product.location,
         product.price,
         product.buyingPrice,
+        product.code ?? '',
+        product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',
+        product.understock ?? 0,
+        product.itemType ?? 'product',
       ]);
     }
 
@@ -612,20 +618,14 @@ class StoreController extends GetxController {
       );
     });
 
-
-
-    // For mobile: Save the file to the device and share
     final fileBytes = excel.encode();
-    // For web: Save the file to the browser's download directory
-    final blob = html.Blob([fileBytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute("download", "Store_Report.xlsx")
-      ..click();
-    html.Url.revokeObjectUrl(url);
-
+    if (fileBytes != null) {
+      // Download the file
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), 'Store_Report.xlsx');
+    }
   }
 */
+
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 
   // Method to toggle understock filtering

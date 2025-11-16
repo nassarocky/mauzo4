@@ -26,6 +26,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../widgets/printer_selection_dialog.dart';
+import '../../../services/thermal_printer_service.dart';
 
 import 'edit_sale_screen2.dart';
 
@@ -43,9 +45,16 @@ class _SalesScreenState extends State<SalesScreen> {
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
+  late final ThermalPrinterService _thermalPrinter;
 
   @override
   void initState() {
+    // Initialize or get existing thermal printer service
+    if (!Get.isRegistered<ThermalPrinterService>()) {
+      Get.put(ThermalPrinterService());
+    }
+    _thermalPrinter = Get.find<ThermalPrinterService>();
+    
     Timer.run(() {
       _saleController.setSalesByDate();
     });
@@ -57,13 +66,10 @@ class _SalesScreenState extends State<SalesScreen> {
   void dispose() {
     super.dispose();
     Timer.run(() {
-      _saleController.selectedDateRange=DateTimeRange(
-        start: DateTime.now().subtract(Duration(days: 30)), // 30 days back
-        end: DateTime.now(), // Today
-      );
+      // Clear date range to use default reset time loading
+      _saleController.clearSelectedDateRange();
       _saleController.filterClients.value = [];
       _saleController.setSaleType('All');
-      _saleController.filteredSales.value = _saleController.sales;
     });
   }
 
@@ -370,6 +376,11 @@ class _SalesScreenState extends State<SalesScreen> {
                     });
                   }
 
+                  // Skip if sales list is empty (after deletion)
+                  if (salesByDate[index]['sales'].isEmpty) {
+                    return SizedBox.shrink();
+                  }
+
                   return StickyHeader(
                     header: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -438,6 +449,7 @@ class _SalesScreenState extends State<SalesScreen> {
                                 margin: const EdgeInsets.only(
                                     left: 16, right: 16, bottom: 10),
                                 child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
@@ -579,24 +591,35 @@ class _SalesScreenState extends State<SalesScreen> {
                                         ),
                                       const DashedSeperator(),
                                       const SizedBox(height: 12),
-                                      Row(
-                                        children: [
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          alignment: WrapAlignment.start,
+                                          children: [
                                           ElevatedButton.icon(
                                             onPressed: () {
-                                              printInvoice(sale, client);
+                                              _thermalPrint(sale, client);
                                             },
-                                            icon: const Icon(Icons.print),
+                                            icon: const Icon(Icons.print, size: 18),
                                             label: Text('print'.tr),
+                                            style: ElevatedButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
                                           ),
-                                          const SizedBox(width: 8),
                                           ElevatedButton.icon(
                                             onPressed: () {
                                               shareInvoice(sale, client);
                                             },
-                                            icon: const Icon(Icons.share),
+                                            icon: const Icon(Icons.share, size: 18),
                                             label: Text('share'.tr),
+                                            style: ElevatedButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
                                           ),
                                         ],
+                                        ),
                                       ),
                                     ],
 
@@ -734,6 +757,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
     pdf.addPage(
       pw.Page(
+        pageFormat: PdfPageFormat.roll80,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -903,6 +927,30 @@ class _SalesScreenState extends State<SalesScreen> {
     } else if (result.status == ShareResultStatus.dismissed) {
       print('Share dismissed');
     }
+  }
+
+  Future<void> _thermalPrint(Sale sale, Client client) async {
+    // Check if a printer is selected
+    if (_thermalPrinter.selectedPrinter.value == null) {
+      // Show printer selection dialog
+      final result = await showDialog(
+        context: context,
+        builder: (context) => const PrinterSelectionDialog(),
+      );
+      
+      // If still no printer selected after dialog, return
+      if (_thermalPrinter.selectedPrinter.value == null) {
+        return;
+      }
+    }
+
+    // Print the receipt
+    await _thermalPrinter.printReceipt(
+      sale: sale,
+      client: client,
+      business: _businessController.business,
+      employeeName: sale.employeeName,
+    );
   }
 
   void editInvoice(Sale sale, Client client, BuildContext context, time) {

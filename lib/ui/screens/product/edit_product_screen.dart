@@ -88,10 +88,37 @@ class _EditProductScreenState extends State<EditProductScreen> {
       return;
     }
     
+    // Load custom units from business data
+    _loadCustomUnits();
+    
     if (_payment == 'UZS') {
       _priceController.text = widget.product.price.toString();
     } else {
       _priceController.text = widget.product.price.toString();
+    }
+  }
+
+  void _loadCustomUnits() {
+    // Load custom units from business 'units' field
+    print('=== LOADING CUSTOM UNITS IN EDIT SCREEN ===');
+    print('Business units field: ${_businessController.business['units']}');
+    
+    // Try 'units' field first (mapped from additionalList1)
+    if (_businessController.business['units'] != null) {
+      List<String> customUnits = List<String>.from(_businessController.business['units']);
+      print('Custom units found: $customUnits');
+      setState(() {
+        // Add custom units to the _units list if not already present
+        for (String unit in customUnits) {
+          if (!_units.contains(unit)) {
+            _units.add(unit);
+            print('Added custom unit: $unit');
+          }
+        }
+        print('Final _units list: $_units');
+      });
+    } else {
+      print('No custom units found in business data');
     }
   }
 
@@ -344,11 +371,15 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                       ),
                       child: DropdownButton<String>(
                         value: _selectedUnit,
-                        onChanged: (String? newValue) {
+                        onChanged: (String? newValue) async {
+                          if (newValue == 'add_new_unit') {
+                            // Show dialog to add new unit
+                            await _showAddUnitDialog(context);
+                          } else {
                             setState(() {
                               _selectedUnit = newValue!;
                             });
-
+                          }
                         },
                         items: [
                           // Existing units
@@ -358,6 +389,17 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                               child: Text(value),
                             );
                           }).toList(),
+                          // Add "Add New Unit" option
+                          DropdownMenuItem<String>(
+                            value: 'add_new_unit',
+                            child: Row(
+                              children: [
+                                Icon(Icons.add_circle_outline, size: 18, color: Colors.blue),
+                                SizedBox(width: 8),
+                                Text('Add New Unit'.tr, style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
                         ],
                         underline: Container(),
                       ),
@@ -864,6 +906,18 @@ uniqueUnits=removeDuplicateUnits(allUnits);
         ? DateTime.tryParse(expireDateController.text.trim())  // Try to parse the string into a DateTime
         : null;
 
+    // Check if unit needs to be added to business units
+    bool existsUnit = allUnits.contains(_selectedUnit);
+    if (!existsUnit) {
+      try {
+        await firestore.collection('businesses').doc(businessId).update({
+          'additionalList1': FieldValue.arrayUnion([_selectedUnit]),
+        });
+      } catch (e) {
+        print('Error adding unit to business: $e');
+      }
+    }
+
     await firestore
         .collection('products')
         .doc(businessId)
@@ -895,7 +949,8 @@ uniqueUnits=removeDuplicateUnits(allUnits);
     });
   }
   Future<void> _showAddUnitDialog(BuildContext context) async {
-
+    // Create a new controller for this dialog to avoid conflicts
+    final TextEditingController dialogUnitController = TextEditingController();
 
     final result = await showDialog<bool>(
       context: context,
@@ -914,7 +969,7 @@ uniqueUnits=removeDuplicateUnits(allUnits);
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
-                controller: newUnitController,
+                controller: dialogUnitController,
                 autofocus: true,
                 decoration: InputDecoration(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 10),
@@ -937,12 +992,29 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                       height: 44,
                       child: PrimaryButton(
                         text: 'save'.tr,
-                        onPressed: () {
-                          if (newUnitController.text.isNotEmpty) {
+                        onPressed: () async {
+                          if (dialogUnitController.text.isNotEmpty) {
+                            final String newUnit = dialogUnitController.text.trim();
+                            final String? businessId = _businessController.business['id'];
+                            
+                            // Save to Firestore
+                            if (businessId != null) {
+                              try {
+                                await firestore.collection('businesses').doc(businessId).update({
+                                  'additionalList1': FieldValue.arrayUnion([newUnit]),
+                                });
+                                // Refresh business data to get updated units
+                                await _businessController.updateBusinessData();
+                              } catch (e) {
+                                print('Error saving custom unit: $e');
+                              }
+                            }
+                            
                             setState(() {
                               // Add the new unit to the list and select it
-                              _units.add(newUnitController.text);
-                              _selectedUnit = newUnitController.text;
+                              _units.add(newUnit);
+                              _selectedUnit = newUnit;
+                              dialogUnitController.clear();
                             });
                             Navigator.of(context).pop(true); // Close the dialog and return true
                           }

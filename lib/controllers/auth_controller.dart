@@ -143,7 +143,7 @@ class AuthController extends GetxController {
         'additionalList2': [],
       });
 
-      // Add user to the 'users' collection with role 'owner' and the created business
+      // Add user to the 'gmanusers' collection with role 'owner' and the created business
       await _firestore.collection('gmanusers').doc(userCredential.user!.uid).set({
         'id': userCredential.user!.uid,
         'email': email,

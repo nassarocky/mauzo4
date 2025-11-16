@@ -95,7 +95,7 @@ class _CurrencyPickerBottomSheetState extends State<CurrencyPickerBottomSheet> {
                                   );
                                 });
                             await firestore
-                                .collection('users')
+                                .collection('gmanusers')
                                 .doc(_profileController.user['id'])
                                 .update(
                               {
@@ -156,7 +156,7 @@ class _CurrencyPickerBottomSheetState extends State<CurrencyPickerBottomSheet> {
                             final ProfileController profileController =
                                 Get.find();
                             await firestore
-                                .collection('users')
+                                .collection('gmanusers')
                                 .doc(profileController.user['id'])
                                 .update(
                               {
@@ -179,7 +179,7 @@ class _CurrencyPickerBottomSheetState extends State<CurrencyPickerBottomSheet> {
                                 });
 
                             await firestore
-                                .collection('users')
+                                .collection('gmanusers')
                                 .doc(_profileController.user['id'])
                                 .update(
                               {

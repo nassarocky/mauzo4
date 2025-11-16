@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import '../models/debtHistory_model.dart';
 import '../services/firestore_db.dart';
+import 'profile_controller.dart';
 
 class DebtHistoryController extends GetxController {
   final debtHistories = <DebtHistory>[].obs;
@@ -13,20 +14,28 @@ class DebtHistoryController extends GetxController {
   final selectedClient = 'No client'.obs;
   final selectedStatus = 'No status'.obs;
   final RxBool isLoading = false.obs;
+  
+  // Current status being viewed (default: PENDING for optimization)
+  final currentStatus = 'PENDING'.obs;
 
   StreamSubscription<List<DebtHistory>>? _debtHistorySubscription;
 
   @override
   void onInit() {
     super.onInit();
-    try {
-      _debtHistorySubscription = FirestoreDb().getDebtHistory().listen((data) {
-        debtHistories.value = data;
-        searchDebtHistories.value = data;
-        filteredDebtHistories.value = data;
-      });
-    } catch (e) {
-      print("Error initializing DebtHistoryController: $e");
+    
+    final ProfileController _profileController = Get.find();
+    final String userRole = _profileController.user['role'] ?? '';
+    
+    // Load client debts for all roles except agents (cashiers and sales persons need to track client debts)
+    if (userRole != 'agent') {
+      // Load pending debts by default (optimized)
+      loadDebtsByStatus('PENDING');
+    } else {
+      // Set empty data for agents (no error)
+      debtHistories.value = [];
+      filteredDebtHistories.value = [];
+      print('DebtHistoryController: Agents cannot view client debts, skipping data initialization');
     }
   }
 
@@ -50,7 +59,7 @@ class DebtHistoryController extends GetxController {
         remainingDebtAmount: 0.0,
         paymentRecords: [],
         dateIncurred: Timestamp.now(),
-        status: 'pending',
+        status: 'PENDING',
         comment: '',
       ),
     );
@@ -58,6 +67,25 @@ class DebtHistoryController extends GetxController {
 
 
 
+  // Switch to different status (queries database) - optimized to reduce reads
+  void loadDebtsByStatus(String status) async {
+    currentStatus.value = status;
+    
+    try {
+      // Cancel previous subscription
+      await _debtHistorySubscription?.cancel();
+      
+      // Query database for specific status only
+      _debtHistorySubscription = FirestoreDb().getDebtHistory(status: status).listen((data) {
+        debtHistories.value = data;
+        searchDebtHistories.value = data;
+        filteredDebtHistories.value = data;
+      });
+    } catch (e) {
+      print("Error loading debts by status $status: $e");
+    }
+  }
+  
   // Filter by debt status (e.g., 'pending', 'paid')
   void filterByStatus(String status) {
     filteredDebtHistories.value = debtHistories.where((debt) {
@@ -137,10 +165,21 @@ class DebtHistoryController extends GetxController {
     return debtHistories.where((debt) => debt.client == clientId).toList();
   }
 
-  // Set status filter categories
+  // Set status filter categories - now switches database query for optimization
   void setFilterStatus(List<String> statuses) {
     filterStatus.value = statuses;
-    filteredDebtHistoriesList();
+    
+    // If a single status is selected, query database for that status
+    if (statuses.length == 1) {
+      loadDebtsByStatus(statuses.first);
+    } else if (statuses.isEmpty) {
+      // Default to PENDING if no status selected
+      loadDebtsByStatus('PENDING');
+    } else {
+      // For multiple statuses, we still need to filter in memory
+      // This is not common, but we'll handle it
+      filteredDebtHistoriesList();
+    }
   }
   // Search debt history by sale ID or any other field
   void search(String searchValue) {

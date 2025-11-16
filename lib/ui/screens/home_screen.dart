@@ -16,6 +16,7 @@ import 'package:mauzo/controllers/debt_history_controller.dart';
 import 'package:mauzo/controllers/invoice_controller.dart';
 import 'package:mauzo/controllers/transaction_controller.dart';
 import 'package:mauzo/controllers/closed_books_controller.dart';
+import 'package:mauzo/controllers/inventory_loss_controller.dart';
 import 'package:mauzo/controllers/auth_controller.dart';
 import 'package:mauzo/controllers/pay_role_controller.dart';
 import 'package:mauzo/controllers/payment_controller.dart';
@@ -210,41 +211,14 @@ class _HomeScreenState extends State<HomeScreen> {
     double purchases = _boughtController.getTotalPurchasePaidFromTimestamp(resetTime,Timestamp.now());
     //  double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(resetTime);
     double totalExpenses = expenseController.getTotalExpensesFromTimestamp(resetTime,Timestamp.now());
-    // Only deduct purchases funded by CASH from the cash-in-hand calculation
+    // Deduct purchases paid via CASH method (treats missing method as cash for backward compatibility)
     final String mainCurrency = _businessController.business['mainCurrency'];
-    double purchasesCashDeduction = 0.0;
-    for (final b in _boughtController.sales) {
-      if (b.date is Timestamp) {
-        final Timestamp bt = b.date;
-        if (bt.compareTo(resetTime) > 0 && bt.compareTo(Timestamp.now()) < 0) {
-          // Deduct only if purchase fund source is explicitly cash
-          if (b.fundSource == 'cash') {
-            if (b.payments.isNotEmpty) {
-              // Sum all payments (regardless of method) because the source was cash
-              for (final p in b.payments) {
-                final dynamic rawAmount = p['amount'];
-                final double amt = rawAmount is int ? rawAmount.toDouble() : (rawAmount is num ? rawAmount.toDouble() : 0.0);
-                final String currency = (p['currency'] ?? mainCurrency).toString();
-                final double amtMain = currency == mainCurrency ? amt : amt * Preferences.getExchangeRateResult();
-                purchasesCashDeduction += amtMain;
-              }
-            } else {
-              // Fallback to aggregate payment amount
-              if (b.payment > 0) {
-                purchasesCashDeduction += b.payment;
-              }
-            }
-          }
-        }
-      }
-    }
-    double netTotal = 0.0; // will be computed after payment method breakdown
-    bool treatMissingAsCash = false; // toggle to include aggregated sales without breakdown as cash
-
+    double purchasesCashDeduction = _boughtController.getTotalPurchaseCashPaidFromTimestamp(resetTime, Timestamp.now());
     // Compute payment totals by method within the same time window
     double cashTotal = 0.0;
     double bankTotal = 0.0;
     double mobileTotal = 0.0;
+    double aggregatedTotal = 0.0; // Old sales without payment breakdown
     // mainCurrency already defined above
 
     for (final sale in _saleController.sales) {
@@ -258,45 +232,37 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? rawAmount.toDouble()
                   : (rawAmount is num ? rawAmount.toDouble() : 0.0);
               final String currency = (p['currency'] ?? mainCurrency).toString();
-              final String method = (p['method'] ?? 'cash').toString();
+              // Treat missing, null, or empty method as 'cash' for backward compatibility
+              final String method = (p['method'] ?? 'cash').toString().trim();
+              final String methodNormalized = method.isEmpty ? 'cash' : method;
               final double amtMain = currency == mainCurrency
                   ? amt
                   : amt * Preferences.getExchangeRateResult();
 
-              if (method == 'bank') {
+              if (methodNormalized == 'bank') {
                 bankTotal += amtMain;
-              } else if (method == 'mobile') {
+              } else if (methodNormalized == 'mobile') {
                 mobileTotal += amtMain;
               } else {
                 cashTotal += amtMain;
               }
             }
           } else {
-            // No detailed breakdown: skip adding to cash to avoid misclassifying bank/mobile as cash
+            // Old sales without payment breakdown (backward compatibility)
+            if (sale.payment > 0) {
+              aggregatedTotal += sale.payment;
+            }
           }
         }
       }
     }
-    // Now that cashTotal is computed, compute cash-in-hand using only CASH receipts from sales
-    netTotal = cashTotal - totalExpenses - purchasesCashDeduction;
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(builder: (context, setState) {
-          // aggregatedFallback: sum of sales without breakdown (assumed main currency)
-          double aggregatedFallback = 0.0;
-          for (final sale in _saleController.sales) {
-            if (sale.date is Timestamp) {
-              final Timestamp saleTs = sale.date;
-              if (saleTs.compareTo(resetTime) > 0 && saleTs.compareTo(Timestamp.now()) < 0) {
-                if (sale.payments.isEmpty) {
-                  aggregatedFallback += sale.payment;
-                }
-              }
-            }
-          }
-          final double cashAmountForRow = cashTotal + (treatMissingAsCash ? aggregatedFallback : 0.0);
+          bool treatMissingAsCash = true; // toggle to include/exclude old sales without breakdown
+          final double cashAmountForRow = cashTotal + (treatMissingAsCash ? aggregatedTotal : 0.0);
           final double netTotalLocal = cashAmountForRow - totalExpenses - purchasesCashDeduction;
 
           return Dialog(
@@ -723,6 +689,8 @@ class _HomeScreenState extends State<HomeScreen> {
         final ClosedBooksController closedBooksController = Get.put(ClosedBooksController());
         final BoughtController _boughtController = Get.put(BoughtController());
         final TransactionController transactionController = Get.put(TransactionController());
+        // Lazy load - only create when screen is opened
+        Get.lazyPut(() => InventoryLossController());
 
         void restartAllControllers() {
           // Delete all controllers
@@ -739,9 +707,12 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.delete<SaleController>(force: true);
           Get.delete<ExpenseController>(force: true);
           Get.delete<CartController>(force: true);
+          Get.delete<EmployeeController>(force: true);
+          Get.delete<SupplierController>(force: true);
+          Get.delete<SupplierDebtController>(force: true);
           Get.delete<StoreController>(force: true);
           Get.delete<ClosedBooksController>(force: true);
-          Get.delete<ClosedBooksController>(force: true);
+          Get.delete<InventoryLossController>(force: true);
           // Recreate controllers - ORDER MATTERS: Dependencies must be initialized first
           Get.put<ProductTransferController>(ProductTransferController());
           Get.put<StoreController>(StoreController());
@@ -766,6 +737,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Get.put<EmployeeController>(EmployeeController());
           Get.put<BoughtController>(BoughtController()); // Depends on ExpenseController
           Get.put<ClosedBooksController>(ClosedBooksController());
+          // Lazy load - only create when screen is opened
+          Get.lazyPut(() => InventoryLossController());
         }
 
         _businessController.business['categories'].sort();
@@ -862,7 +835,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
 
                   SizedBox(width: 8),
-                  // Allow business switching for users with edit_business permission OR multi-business employees
+                  // Allow business switching for gmanusers with edit_business permission OR multi-business employees
                   if(canEditBusiness || ((_profileController.user['business'] as List<dynamic>?)?.length ?? 0) > 1)
                     GestureDetector(
                       onTap: () {
@@ -890,40 +863,37 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ],
                         ).then((newBusiness) async {
-                          if (newBusiness != null) {
-                            if (newBusiness.id == 'add_new') {
-                              // Show dialog to add a new business
-                              if (_profileController.user['maxBusiness'] > ((_profileController.user['business'] as List<dynamic>?)?.length ?? 0)) {
-                                showAddBusinessDialog(context);} else {
-
-                                print("Exceeded max business limit");
-                                showDialog(
-                                  context: context,
-                                  builder: (BuildContext context) {
-                                    return AlertDialog(
-                                      title: Text('business_limit_reached'.tr),
-                                      content: Text( '${'max_business_reached_message'.tr} (${_profileController.user['maxBusiness']})',),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () {
-                                            print("Dialog closed");
-                                            Navigator.of(context).pop();
-                                          },
-                                          child: Text('ok_caps'.tr),
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                );
-                              }
+                          // Check if "Add New Business" was clicked (returns null)
+                          if (newBusiness == null) {
+                            // Show dialog to add a new business
+                            if (_profileController.user['maxBusiness'] > ((_profileController.user['business'] as List<dynamic>?)?.length ?? 0)) {
+                              showAddBusinessDialog(context);
                             } else {
-                              // Update the business ID and restart controllers
-
-                              await _businessController.updateBusinessId(newBusiness.id);
-                              await Preferences.setBusiness(newBusiness.id);
-                              restartAllControllers();
-
+                              print("Exceeded max business limit");
+                              showDialog(
+                                context: context,
+                                builder: (BuildContext context) {
+                                  return AlertDialog(
+                                    title: Text('business_limit_reached'.tr),
+                                    content: Text( '${'max_business_reached_message'.tr} (${_profileController.user['maxBusiness']})',),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () {
+                                          print("Dialog closed");
+                                          Navigator.of(context).pop();
+                                        },
+                                        child: Text('ok_caps'.tr),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
                             }
+                          } else {
+                            // A business was selected - Update the business ID and restart controllers
+                            await _businessController.updateBusinessId(newBusiness.id);
+                            await Preferences.setBusiness(newBusiness.id);
+                            restartAllControllers();
                           }
                         });
                       },
@@ -964,6 +934,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
+                    
+                    // GENERATE REPORTS - Independent item at the top
+                    if(canEditBusiness)
+                      DrawerTile(
+                        title: 'Generate Reports'.tr,
+                        icon: Icons.description,
+                        route: 'reports',
+                      ),
+                    
+                    if(canEditBusiness)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20.0),
+                        child: Divider(),
+                      ),
                     
                     // HR & PAYROLL SECTION
                     if(canEditBusiness)
@@ -1009,6 +993,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: Icons.swap_horiz,
                           route: 'transfer_requests',
                         ),
+                        if (canEditBusiness)
+                          DrawerMenuItem(
+                            title: 'Inventory Losses'.tr,
+                            icon: Icons.warning_amber_rounded,
+                            route: 'inventory-losses',
+                          ),
                         if (_businessController.business['purchases']=='true')
                           DrawerMenuItem(
                             title: 'Purchases'.tr,
@@ -1058,30 +1048,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
 
-                    // REPORTS & ANALYTICS SECTION
-                    if(canEditBusiness)
-                      ExpandableDrawerSection(
-                        title: 'Reports & Analytics',
-                        icon: Icons.analytics,
-                        initiallyExpanded: false,
-                        items: [
-                          DrawerMenuItem(
-                            title: 'Generate Reports'.tr,
-                            icon: Icons.description,
-                            route: 'reports',
-                          ),
-                          DrawerMenuItem(
-                            title: 'Statistics'.tr,
-                            icon: Icons.bar_chart,
-                            route: 'statistics',
-                          ),
-                        ],
-                      ),
-
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 20.0),
                       child: Divider(),
                     ),
+
+                    // STATISTICS - Independent item
+                    if(canEditBusiness)
+                      DrawerTile(
+                        title: 'Statistics'.tr,
+                        icon: Icons.bar_chart,
+                        route: 'statistics',
+                      ),
 
                     // SETTINGS & SUPPORT (Direct items)
                     DrawerTile(

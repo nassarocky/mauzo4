@@ -27,7 +27,16 @@ class PaymentController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    _initializePaymentStream();
+    
+    // Only initialize stream if user has payroll management permission
+    if (_profileController.hasPermission('manage_payroll')) {
+      _initializePaymentStream();
+    } else {
+      // Set empty data for users without permission (no error)
+      paymentRecords.value = [];
+      filteredPaymentRecords.value = [];
+      print('PaymentController: User does not have manage_payroll permission, skipping data initialization');
+    }
   }
 
   @override

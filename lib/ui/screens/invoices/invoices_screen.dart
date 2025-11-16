@@ -25,6 +25,10 @@ import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/buttons/secondary_button.dart';
 import '../sale/add_sale_screen.dart';
 import '../sale/edit_sale.screen.dart';
+import '../../../services/thermal_printer_service.dart';
+import '../../widgets/printer_selection_dialog.dart';
+import '../../../models/sale_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({Key? key}) : super(key: key);
@@ -39,36 +43,45 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
+  late final ThermalPrinterService _thermalPrinter;
 
   @override
   void initState() {
+    super.initState();
+    
+    // Initialize thermal printer service
+    if (!Get.isRegistered<ThermalPrinterService>()) {
+      Get.put(ThermalPrinterService());
+    }
+    _thermalPrinter = Get.find<ThermalPrinterService>();
+    
     Timer.run(() {
       _invoiceController.setInvoicesByDate();
     });
-
-    super.initState();
   }
 
   @override
   void dispose() {
     super.dispose();
     Timer.run(() {
+      // Clear filters to use default reset time loading
       _invoiceController.clearSelectedDateRange();
       _invoiceController.filterClients.value = [];
       _invoiceController.setInvoiceType('All');
-      _invoiceController.filteredInvoices.value = _invoiceController.invoices;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final ProfileController _profileController = Get.find();
-final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
+    final bool canCreateInvoices = _profileController.hasPermission('create_invoices');
+    final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
     return Scaffold(
       backgroundColor: Preferences.getTheme()
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
-      floatingActionButton: canEditInvoices ? FloatingActionButton(
+      floatingActionButton: canCreateInvoices ? FloatingActionButton(
         onPressed: () {
           Navigator.push(
             context,
@@ -273,6 +286,11 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
                       'invoices': _invoiceController
                           .getInvoicesByDate(_invoiceController.dates[i]),
                     });
+                  }
+
+                  // Skip if invoices list is empty (after deletion)
+                  if (invoicesByDate[index]['invoices'].isEmpty) {
+                    return SizedBox.shrink();
                   }
 
                   return StickyHeader(
@@ -612,6 +630,7 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
 
     pdf.addPage(
       pw.Page(
+        pageFormat: PdfPageFormat.roll80,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -759,9 +778,25 @@ final bool canEditInvoices = _profileController.hasPermission('edit_invoices');
   }
 
   Future<void> printInvoice(dynamic invoice, Client client) async {
-    final pdf = await _generateInvoice(invoice, client);
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
+    // Check if a printer is selected
+    if (_thermalPrinter.selectedPrinter.value == null) {
+      // Show printer selection dialog
+      await showDialog(
+        context: context,
+        builder: (context) => const PrinterSelectionDialog(),
+      );
+      
+      // If still no printer selected after dialog, return
+      if (_thermalPrinter.selectedPrinter.value == null) {
+        return;
+      }
+    }
+
+    // Invoice is already a Sale object, use it directly
+    await _thermalPrinter.printReceipt(
+      sale: invoice as Sale,
+      client: client,
+      business: _businessController.business,
     );
   }
 

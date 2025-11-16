@@ -44,30 +44,35 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDBXy65s08FX_JEmeYKY9ze9zsXX0-N5XI',
-    appId: '1:366012871773:android:418593f149d8e26f0889b4',
-    messagingSenderId: '366012871773',
-    projectId: 'hesabumauzo',
-    storageBucket: 'hesabumauzo.firebasestorage.app',
+    apiKey: 'AIzaSyCGdAHhp_X9549sqAkKoX7h-X-7bYQwC6Q',
+    appId: '1:107297716546:android:fe9096dbd993382aa670db',
+    messagingSenderId: '107297716546',
+    projectId: 'shopping-manager-a938a',
+    databaseURL: 'https://shopping-manager-a938a-default-rtdb.firebaseio.com',
+    storageBucket: 'shopping-manager-a938a.appspot.com',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAe4b7yRdQ0U9jARV9FKjpxAeMZt5dzExc',
-    appId: '1:366012871773:ios:707d34e9b0713d810889b4',
-    messagingSenderId: '366012871773',
-    projectId: 'hesabumauzo',
-    storageBucket: 'hesabumauzo.firebasestorage.app',
-    iosBundleId: 'com.hesabu.mauzo',
+    apiKey: 'AIzaSyB-W28GPrknA5d46wi8zMWHGp19C1KmgLU',
+    appId: '1:107297716546:ios:21e10ddf1d192663a670db',
+    messagingSenderId: '107297716546',
+    projectId: 'shopping-manager-a938a',
+    databaseURL: 'https://shopping-manager-a938a-default-rtdb.firebaseio.com',
+    storageBucket: 'shopping-manager-a938a.appspot.com',
+    androidClientId: '107297716546-m0r2mgq09gcmidruh555m3pm5of874im.apps.googleusercontent.com',
+    iosClientId: '107297716546-burid8n2oqhrapsthgds058dthpmg335.apps.googleusercontent.com',
+    iosBundleId: 'com.dukani.mauzo.mauzo',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyCXM8CaFYxyI6TG-W0NYTD18dGeJRWXKMY',
-    appId: '1:366012871773:web:ed89faf46606996e0889b4',
-    messagingSenderId: '366012871773',
-    projectId: 'hesabumauzo',
-    authDomain: 'hesabumauzo.firebaseapp.com',
-    storageBucket: 'hesabumauzo.firebasestorage.app',
-    measurementId: 'G-RKYJNTF6W8',
+    apiKey: 'AIzaSyD2Vzy4pUOcbdPclMXvaWJOCD-rdZt4oWM',
+    appId: '1:107297716546:web:2601ff528fc35462a670db',
+    messagingSenderId: '107297716546',
+    projectId: 'shopping-manager-a938a',
+    authDomain: 'shopping-manager-a938a.firebaseapp.com',
+    databaseURL: 'https://shopping-manager-a938a-default-rtdb.firebaseio.com',
+    storageBucket: 'shopping-manager-a938a.appspot.com',
+    measurementId: 'G-XE2MMLFC46',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

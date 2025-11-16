@@ -58,22 +58,36 @@ class _EditSupplierScreenState extends State<EditSupplierScreen> {
     // Get supplier from arguments
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
+      
+      print('📥 EditSupplierScreen arguments received: $args');
+      print('📥 Arguments type: ${args.runtimeType}');
+      
       if (args is Supplier) {
         supplier = args;
+        print('✅ Supplier object assigned: ${supplier!.name}');
         _populateFields();
+      } else {
+        print('❌ Arguments are not a Supplier object');
+        errorSnackbar('Supplier data not received. Please try again.');
+        Navigator.pop(context);
       }
     });
   }
 
   void _populateFields() {
     if (supplier != null) {
-      _nameController.text = supplier!.name;
-      _phoneController.text = supplier!.phone;
-      _emailController.text = supplier!.email ?? '';
-      _addressController.text = supplier!.address ?? '';
-      _companyController.text = supplier!.company ?? '';
-      _taxNumberController.text = supplier!.taxNumber ?? '';
-      _noteController.text = supplier!.note ?? '';
+      setState(() {
+        _nameController.text = supplier!.name;
+        _phoneController.text = supplier!.phone;
+        _emailController.text = supplier!.email ?? '';
+        _addressController.text = supplier!.address ?? '';
+        _companyController.text = supplier!.company ?? '';
+        _taxNumberController.text = supplier!.taxNumber ?? '';
+        _noteController.text = supplier!.note ?? '';
+      });
+      print('✅ Supplier fields populated: ${supplier!.name}');
+    } else {
+      print('❌ Supplier is null, cannot populate fields');
     }
   }
 
@@ -355,9 +369,12 @@ class _EditSupplierScreenState extends State<EditSupplierScreen> {
                           }
 
                           if (supplier == null) {
-                            errorSnackbar('Supplier data not found.');
+                            print('❌ Supplier is null during save attempt');
+                            errorSnackbar('Supplier information not found. Please go back and try again.');
                             return;
                           }
+                          
+                          print('✅ Saving supplier: ${supplier!.name} (ID: ${supplier!.id})');
 
                           setState(() {
                             isUploading = true;

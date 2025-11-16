@@ -8,8 +8,7 @@ import 'package:get/get.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
-import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
-import 'package:image_picker/image_picker.dart';
+import '../mobile_code.dart';
 import '../../../models/product_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
@@ -87,38 +86,39 @@ class _BuyProductScreenState extends State<BuyProductScreen>
   final ScrollController _scrollController = ScrollController();
   bool showSearchBar = true;
 
-  // * SCAN
-
+  // * SCAN - Live camera barcode scanner
   Future<void> scanner() async {
     try {
-      final inputImage = await ImagePicker().pickImage(source: ImageSource.camera);
-      if (inputImage == null) return;
-
-      final input = InputImage.fromFilePath(inputImage.path);
-      final barcodeScanner = BarcodeScanner();
-      final List<Barcode> barcodes = await barcodeScanner.processImage(input);
+      // Navigate to live camera scanner screen
+      final scannedCode = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BarcodeScannerScreen(),
+        ),
+      );
       
-      if (barcodes.isNotEmpty) {
-        final barcode = barcodes.first;
-        if (barcode.rawValue != null) {
-          Product product = _productController.getProductByCode(barcode.rawValue!);
-          if (product.id != "") {
-            if (product.quantity! > _cartController.singleProductQuantity(product.id)) {
-              _cartController.updateCart(
-                product,
-                _cartController.singleProductQuantity(product.id) + 1,
-                _cartController.getPrice(product.id) == 0
-                    ? product.price
-                    : _cartController.getPrice(product.id),
-              );
-            } else {
-              errorSnackbar('not_enough'.tr);
-            }
-          } else {
-            errorSnackbar(
-              "${'not_found'.tr}. ${'code'.tr}: ${barcode.rawValue}",
+      // If a code was scanned, search for the product and add to cart
+      if (scannedCode != null && scannedCode is String) {
+        Product product = _productController.getProductByCode(scannedCode);
+        
+        if (product.id != "") {
+          // Product found - add to purchase cart
+          if (product.quantity! > _cartController.singleProductQuantity(product.id)) {
+            _cartController.updateCart(
+              product,
+              _cartController.singleProductQuantity(product.id) + 1,
+              _cartController.getPrice(product.id) == 0
+                  ? product.price
+                  : _cartController.getPrice(product.id),
             );
+          } else {
+            errorSnackbar('not_enough'.tr);
           }
+        } else {
+          // Product not found
+          errorSnackbar(
+            "${'not_found'.tr}. ${'code'.tr}: $scannedCode",
+          );
         }
       }
     } catch (e) {

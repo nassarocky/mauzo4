@@ -21,31 +21,34 @@ class FirestoreDb {
   final BusinessController _businessController = Get.find();
 
 
-  Stream<List<StockTransaction>> getTransactions() {
+
+  
+  /// NEW: Get transactions for a specific product only (Lazy Loading)
+  /// This reduces database reads by only loading what's needed
+  Stream<List<StockTransaction>> getTransactionsByProduct(String productId) {
     final String? business = _businessController.businessId.value;
 
-    if (business!.isEmpty) {
-      print('Owner ID is null, returning empty transactions.');
+    if (business == null || business.isEmpty) {
+      print('❌ Business ID is null, returning empty transactions.');
       return Stream.value([]);
     }
-    print('Fetching transactions for owner: $business');
+    
+    print('🔍 Fetching transactions for product: $productId in business: $business');
 
     return firestore
         .collection('transactions')
         .doc(business)
         .collection('usersTransactions')
-        .orderBy('timestamp', descending: true) // Order by timestamp
+        .where('productId', isEqualTo: productId)  // ✅ Filter by product
+        .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-      print('Received transactions with ${snapshot.docs.length} documents');
-      List<StockTransaction> transactions = snapshot.docs.map((doc) {
-        print('Processing transactions with ID: ${doc.id}');
+      print('✅ Received ${snapshot.docs.length} transactions for product $productId');
+      return snapshot.docs.map((doc) {
         return StockTransaction.fromSnapshot(doc);
       }).toList();
-
-      return transactions;
     }).handleError((error) {
-      print('Error fetching transactions: $error');
+      print('❌ Error fetching transactions for product $productId: $error');
     });
   }
 
@@ -226,22 +229,105 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching sales for owner: $business');
+    // Get reset time from business data
+    final Timestamp? resetTime = _businessController.business['reset_time'];
+    
+    if (resetTime == null) {
+      print('Reset time is null, fetching all sales for owner: $business');
+      // Fallback to all sales if no reset time
+      return firestore
+          .collection('sales')
+          .doc(business)
+          .collection('userSales')
+          .snapshots()
+          .map((snapshot) {
+        print('Received Sales with ${snapshot.docs.length} documents');
+        return snapshot.docs.map((doc) {
+          return Sale.fromSnapshot(doc);
+        }).toList();
+      })
+          .handleError((error) {
+        print('Error fetching sales: $error');
+      });
+    }
 
+    print('Fetching sales from reset time: ${resetTime.toDate()} for owner: $business');
+
+    // Query sales where date >= resetTime (optimized to reduce reads)
     return firestore
         .collection('sales')
         .doc(business)
         .collection('userSales')
+        .where('date', isGreaterThanOrEqualTo: resetTime)
+        .orderBy('date', descending: true)
         .snapshots()
         .map((snapshot) {
-      print('Received Salest with ${snapshot.docs.length} documents');
+      print('Received Sales with ${snapshot.docs.length} documents (from reset time)');
       return snapshot.docs.map((doc) {
-        print('Processing Sales with ID: ${doc.id}');
         return Sale.fromSnapshot(doc);
       }).toList();
     })
         .handleError((error) {
       print('Error fetching sales: $error');
+    });
+  }
+
+  // Query sales by specific date range (for filtering)
+  Stream<List<Sale>> getSalesByDateRange(DateTime startDate, DateTime endDate) {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty Sales.');
+      return Stream.value([]);
+    }
+
+    final Timestamp startTimestamp = Timestamp.fromDate(startDate);
+    final Timestamp endTimestamp = Timestamp.fromDate(endDate.add(const Duration(days: 1)));
+
+    print('Fetching sales from $startDate to $endDate for owner: $business');
+
+    return firestore
+        .collection('sales')
+        .doc(business)
+        .collection('userSales')
+        .where('date', isGreaterThanOrEqualTo: startTimestamp)
+        .where('date', isLessThan: endTimestamp)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received ${snapshot.docs.length} sales in date range');
+      return snapshot.docs.map((doc) {
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching sales by date range: $error');
+    });
+  }
+
+  // Get ALL sales without reset_time filter (for statistics)
+  Stream<List<Sale>> getAllSalesForStatistics() {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Business ID is null, returning empty Sales.');
+      return Stream.value([]);
+    }
+
+    print('Fetching ALL sales for statistics (no reset_time filter) for business: $business');
+
+    return firestore
+        .collection('sales')
+        .doc(business)
+        .collection('userSales')
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received ${snapshot.docs.length} total sales for statistics');
+      return snapshot.docs.map((doc) {
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching all sales for statistics: $error');
     });
   }
 
@@ -253,17 +339,41 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching Recovered for owner: $business');
+    // Get reset time from business data
+    final Timestamp? resetTime = _businessController.business['reset_time'];
+    
+    if (resetTime == null) {
+      print('Reset time is null, fetching all purchases for owner: $business');
+      // Fallback to all purchases if no reset time
+      return firestore
+          .collection('recovered')
+          .doc(business)
+          .collection('userRecovered')
+          .snapshots()
+          .map((snapshot) {
+        print('Received Recovered with ${snapshot.docs.length} documents');
+        return snapshot.docs.map((doc) {
+          return Sale.fromSnapshot(doc);
+        }).toList();
+      })
+          .handleError((error) {
+        print('Error fetching Recovered: $error');
+      });
+    }
 
+    print('Fetching purchases from reset time: ${resetTime.toDate()} for owner: $business');
+
+    // Query purchases where date >= resetTime (optimized to reduce reads)
     return firestore
         .collection('recovered')
         .doc(business)
         .collection('userRecovered')
+        .where('date', isGreaterThanOrEqualTo: resetTime)
+        .orderBy('date', descending: true)
         .snapshots()
         .map((snapshot) {
-      print('Received Recovered with ${snapshot.docs.length} documents');
+      print('Received ${snapshot.docs.length} purchases (from reset time)');
       return snapshot.docs.map((doc) {
-        print('Processing Recovered with ID: ${doc.id}');
         return Sale.fromSnapshot(doc);
       }).toList();
     })
@@ -272,8 +382,41 @@ class FirestoreDb {
     });
   }
 
+  // Query purchases by specific date range (for filtering)
+  Stream<List<Sale>> getBoughtByDateRange(DateTime startDate, DateTime endDate) {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty purchases.');
+      return Stream.value([]);
+    }
 
-  Stream<List<DebtHistory>> getDebtHistory() {
+    final Timestamp startTimestamp = Timestamp.fromDate(startDate);
+    final Timestamp endTimestamp = Timestamp.fromDate(endDate.add(const Duration(days: 1)));
+
+    print('Fetching purchases from $startDate to $endDate for owner: $business');
+
+    return firestore
+        .collection('recovered')
+        .doc(business)
+        .collection('userRecovered')
+        .where('date', isGreaterThanOrEqualTo: startTimestamp)
+        .where('date', isLessThan: endTimestamp)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received ${snapshot.docs.length} purchases in date range');
+      return snapshot.docs.map((doc) {
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching purchases by date range: $error');
+    });
+  }
+
+
+  // Load debts by status only (PENDING, PARTIALLY_PAID, or PAID) - optimized to reduce reads
+  Stream<List<DebtHistory>> getDebtHistory({String status = 'PENDING'}) {
     final String? business = _businessController.businessId.value;
 
     if (business!.isEmpty) {
@@ -281,18 +424,18 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching debt history for DebtHistory: $business');
+    print('Fetching debt history with status: $status for business: $business');
 
     return firestore
         .collection('debtHistory')
         .doc(business)
         .collection('clientDebtHistory')
+        .where('status', isEqualTo: status)
         .orderBy('dateIncurred', descending: true)
         .snapshots()
         .map((snapshot) {
-      print('Received snapshot with ${snapshot.docs.length} debt history records');
+      print('Received ${snapshot.docs.length} debt records with status: $status');
       List<DebtHistory> debtHistories = snapshot.docs.map((doc) {
-        print('Processing debt history document with ID: ${doc.id}');
         return DebtHistory.fromSnapshot(doc);
       }).toList();
 
@@ -319,18 +462,69 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching expenses for business: $business');
+    // Get reset time from business data
+    final Timestamp? resetTime = _businessController.business['reset_time'];
+    
+    if (resetTime == null) {
+      print('Reset time is null, fetching all expenses for business: $business');
+      // Fallback to all expenses if no reset time
+      return firestore
+          .collection('expenses')
+          .doc(business)
+          .collection('userExpenses')
+          .snapshots()
+          .map((snapshot) {
+        return snapshot.docs
+            .map((doc) => Expense.fromMap(doc.data(), doc.id))
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
+      });
+    }
+
+    print('Fetching expenses from reset time: ${resetTime.toDate()} for business: $business');
+
+    // Query expenses where date >= resetTime (optimized to reduce reads)
+    return firestore
+        .collection('expenses')
+        .doc(business)
+        .collection('userExpenses')
+        .where('date', isGreaterThanOrEqualTo: resetTime)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received ${snapshot.docs.length} expenses (from reset time)');
+      return snapshot.docs
+          .map((doc) => Expense.fromMap(doc.data(), doc.id))
+          .toList();
+    });
+  }
+
+  // Query expenses by specific date range (for filtering)
+  Stream<List<Expense>> getExpensesByDateRange(DateTime startDate, DateTime endDate) {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('business ID is null, returning empty stream.');
+      return Stream.value([]);
+    }
+
+    final Timestamp startTimestamp = Timestamp.fromDate(startDate);
+    final Timestamp endTimestamp = Timestamp.fromDate(endDate.add(const Duration(days: 1)));
+
+    print('Fetching expenses from $startDate to $endDate for business: $business');
 
     return firestore
         .collection('expenses')
         .doc(business)
         .collection('userExpenses')
+        .where('date', isGreaterThanOrEqualTo: startTimestamp)
+        .where('date', isLessThan: endTimestamp)
+        .orderBy('date', descending: true)
         .snapshots()
         .map((snapshot) {
+      print('Received ${snapshot.docs.length} expenses in date range');
       return snapshot.docs
           .map((doc) => Expense.fromMap(doc.data(), doc.id))
-          .toList()
-        ..sort((a, b) => b.date.compareTo(a.date));
+          .toList();
     });
   }
   // * INVOICE
@@ -340,22 +534,79 @@ class FirestoreDb {
       print('Owner ID is null, returning empty sInvoices.');
       return Stream.value([]);
     }
-    print('Fetching invoices for owner: $business');
 
+    // Get reset time from business data
+    final Timestamp? resetTime = _businessController.business['reset_time'];
+    
+    if (resetTime == null) {
+      print('Reset time is null, fetching all invoices for owner: $business');
+      // Fallback to all invoices if no reset time
+      return firestore
+          .collection('invoices')
+          .doc(business)
+          .collection('userInvoices')
+          .snapshots()
+          .map((snapshot) {
+        print('Received Invoices with ${snapshot.docs.length} documents');
+        return snapshot.docs.map((doc) {
+          return Sale.fromSnapshot(doc);
+        }).toList();
+      })
+          .handleError((error) {
+        print('Error fetching invoices: $error');
+      });
+    }
+
+    print('Fetching invoices from reset time: ${resetTime.toDate()} for owner: $business');
+
+    // Query invoices where date >= resetTime (optimized to reduce reads)
     return firestore
         .collection('invoices')
         .doc(business)
         .collection('userInvoices')
+        .where('date', isGreaterThanOrEqualTo: resetTime)
+        .orderBy('date', descending: true)
         .snapshots()
         .map((snapshot) {
-      print('Received Invoices with ${snapshot.docs.length} documents');
+      print('Received ${snapshot.docs.length} invoices (from reset time)');
       return snapshot.docs.map((doc) {
-        print('Processing Invoices with ID: ${doc.id}');
         return Sale.fromSnapshot(doc);
       }).toList();
     })
         .handleError((error) {
       print('Error fetching invoices: $error');
+    });
+  }
+
+  // Query invoices by specific date range (for filtering)
+  Stream<List<Sale>> getInvoicesByDateRange(DateTime startDate, DateTime endDate) {
+    final String? business = _businessController.businessId.value;
+    if (business!.isEmpty) {
+      print('Owner ID is null, returning empty invoices.');
+      return Stream.value([]);
+    }
+
+    final Timestamp startTimestamp = Timestamp.fromDate(startDate);
+    final Timestamp endTimestamp = Timestamp.fromDate(endDate.add(const Duration(days: 1)));
+
+    print('Fetching invoices from $startDate to $endDate for owner: $business');
+
+    return firestore
+        .collection('invoices')
+        .doc(business)
+        .collection('userInvoices')
+        .where('date', isGreaterThanOrEqualTo: startTimestamp)
+        .where('date', isLessThan: endTimestamp)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print('Received ${snapshot.docs.length} invoices in date range');
+      return snapshot.docs.map((doc) {
+        return Sale.fromSnapshot(doc);
+      }).toList();
+    })
+        .handleError((error) {
+      print('Error fetching invoices by date range: $error');
     });
   }
 

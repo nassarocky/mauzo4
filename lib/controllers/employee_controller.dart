@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/models/profile_model.dart';
 import '../services/firestore_db.dart';
 import '../utils/constants.dart';
@@ -19,13 +20,24 @@ class EmployeeController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    try {
-      _employeeSubscription = FirestoreDb().getEmployee().listen((data) {
-        employees.value = data;
-        searchEmployees.value = data;
-      });
-    } catch (e) {
-      print("Error initializing EmployeeController: $e");
+    
+    final ProfileController _profileController = Get.find();
+    
+    // Only load employees if user has permission to manage them
+    if (_profileController.hasPermission('manage_employees') || _profileController.user['role'] == 'owner') {
+      try {
+        _employeeSubscription = FirestoreDb().getEmployee().listen((data) {
+          employees.value = data;
+          searchEmployees.value = data;
+        });
+      } catch (e) {
+        print("Error initializing EmployeeController: $e");
+      }
+    } else {
+      // Set empty data for users without permission (no error)
+      employees.value = [];
+      searchEmployees.value = [];
+      print('EmployeeController: User does not have manage_employees permission, skipping data initialization');
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,14 +10,15 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/download_helper.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
+import '../constants/transaction_constants.dart';
 import 'business_controller.dart';
-//import 'dart:html' as html; // Only for web
 class ProductController extends GetxController {
   final ProfileController _profileController=Get.find();
   final BusinessController _businessController = Get.find();
@@ -42,6 +44,7 @@ class ProductController extends GetxController {
     }
   }
 
+  //for mobile app
   // Generate a blank Excel template for bulk import
   Future<void> generateProductTemplate() async {
     var excel = Excel.createExcel();
@@ -81,15 +84,85 @@ class ProductController extends GetxController {
     ]);
 
     final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
 
+    // For mobile: Save the file to the device and share
     final directory = await getApplicationDocumentsDirectory();
     final filePath = "${directory.path}/Product_Import_Template.xlsx";
     final file = File(filePath)
       ..createSync(recursive: true)
-      ..writeAsBytesSync(fileBytes!);
+      ..writeAsBytesSync(fileBytes);
 
-    await Share.shareXFiles([XFile(filePath)], text: 'Product Import Template');
+    final result = await Share.shareXFiles(
+      [XFile(filePath)],
+      text: 'Product Import Template',
+    );
+
+    if (result.status == ShareResultStatus.success) {
+      print('Template shared successfully!');
+    } else if (result.status == ShareResultStatus.dismissed) {
+      print('Share dismissed');
+    }
   }
+
+  //for web
+  /*
+  // Generate a blank Excel template for bulk import
+  Future<void> generateProductTemplate() async {
+    var excel = Excel.createExcel();
+    String defaultSheet = excel.getDefaultSheet()!;
+    Sheet sheet = excel[defaultSheet];
+
+    // Header row (case-insensitive matching in importer)
+    final headers = [
+      'Name',
+      'Quantity',
+      'Category',
+      'Manufacturer',
+      'Location',
+      'Price',
+      'Buying Price',
+      'Code',
+      'Unit',
+      'Understock',
+      'Item Type', // product | service
+    ];
+
+    sheet.appendRow(headers);
+
+    // Example row (optional)
+    sheet.appendRow([
+      'Example Product',
+      10,
+      'General',
+      'Brand X',
+      'Shelf A',
+      5000,
+      3500,
+      'SKU-001',
+      'unit',
+      10,
+      'product',
+    ]);
+
+    final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
+
+    if (DownloadHelper.isWeb) {
+      // Web: Download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), 'Product_Import_Template.xlsx');
+    } else {
+      // Mobile: This path won't work on web, needs separate implementation
+      errorSnackbar('Download not supported on mobile yet. Please use the app'.tr);
+    }
+  }
+  */
 
   // Import products from Excel bytes
   // Returns a summary map: {'imported': x, 'skipped': y}
@@ -289,8 +362,6 @@ class ProductController extends GetxController {
       return;
     }
     try {
-
-
       // Log stock transaction
       final transactionRef = firestore
           .collection('transactions')
@@ -303,11 +374,16 @@ class ProductController extends GetxController {
           productId: id,
           quantity: count,
           previousQuantity: 0,
-          transactionType:  'addition',
-          transactionOrigin: 'Opening Stock',
+          newQuantity: count,  // NEW: Record final quantity
+          transactionType: TransactionTypes.addition,
+          transactionOrigin: TransactionOrigins.openingStock,
           timestamp: Timestamp.now(),
           userId: business,
-          price:price
+          price: price,
+          referenceType: TransactionReferenceTypes.manual,  // NEW
+          employeeName: _profileController.user['name'],     // NEW
+          notes: 'Initial stock entry',                      // NEW
+          totalValue: count * price,                         // NEW
       );
 
       transactionRef.set(stockTransaction.toMap());
@@ -338,6 +414,7 @@ class ProductController extends GetxController {
           .doc(product.id);
 
       final currentQuantity = product.quantity ?? 0.0;
+      final quantityChange = (count - currentQuantity).abs();
 
       // Await the product quantity update
       productRef.update({'quantity': count});
@@ -352,13 +429,16 @@ class ProductController extends GetxController {
       final stockTransaction = StockTransaction(
           transactionId: transactionRef.id,
           productId: product.id,
-          quantity: count,
+          quantity: quantityChange,  // Amount changed
           previousQuantity: currentQuantity,
-          transactionType: count < currentQuantity ? 'removal' : 'addition',
+          newQuantity: count,  // NEW: Final quantity after change
+          transactionType: count < currentQuantity ? TransactionTypes.removal : TransactionTypes.addition,
           transactionOrigin: type,
           timestamp: Timestamp.now(),
           userId: business,
-          price: product.price
+          price: product.price,
+          employeeName: _profileController.user['name'],  // NEW
+          totalValue: quantityChange * product.price,     // NEW
       );
 
       // Await the transaction logging
@@ -645,7 +725,6 @@ void clearProducts(){
 
 
 //for mobile app
-
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -661,7 +740,7 @@ void clearProducts(){
     sheetObject.appendRow([]);
 
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price"
+      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
     ];
 
     CellStyle headerStyle = CellStyle(
@@ -676,7 +755,7 @@ void clearProducts(){
     });
 
     for (Product product in filteredProducts) {
-      double quantity = product.quantity ?? 0;
+      double quantity = product.quantity ?? 0.0;
       sheetObject.appendRow([
         product.name,
         quantity,
@@ -685,11 +764,15 @@ void clearProducts(){
         product.location,
         product.price,
         product.buyingPrice,
+        product.code ?? '',
+        product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',
+        product.understock ?? 0,
+        product.itemType ?? 'product',
       ]);
     }
 
     double totalValue = filteredProducts.fold(0, (sum, product) {
-      double quantity = product.quantity ?? 0;
+      double quantity = product.quantity ?? 0.0;
       return sum + (product.price * quantity);
     });
 
@@ -703,7 +786,6 @@ void clearProducts(){
     });
 
     final fileBytes = excel.encode();
-
 
     // For mobile: Save the file to the device and share
     final directory = await getApplicationDocumentsDirectory();
@@ -722,8 +804,8 @@ void clearProducts(){
     } else if (result.status == ShareResultStatus.dismissed) {
       print('Share dismissed');
     }
-
   }
+
 //for web
 /*
   Future<void> generateExcelFromProducts() async {
@@ -741,7 +823,7 @@ void clearProducts(){
     sheetObject.appendRow([]);
 
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price"
+      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
     ];
 
     CellStyle headerStyle = CellStyle(
@@ -765,6 +847,10 @@ void clearProducts(){
         product.location,
         product.price,
         product.buyingPrice,
+        product.code ?? '',
+        product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',
+        product.understock ?? 0,
+        product.itemType ?? 'product',
       ]);
     }
 
@@ -782,22 +868,16 @@ void clearProducts(){
       );
     });
 
-
-
-    // For mobile: Save the file to the device and share
     final fileBytes = excel.encode();
-    // For web: Save the file to the browser's download directory
-    final blob = html.Blob([fileBytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute("download", "Product_Report.xlsx")
-      ..click();
-    html.Url.revokeObjectUrl(url);
-
+    if (fileBytes != null) {
+      // Download the file
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), 'Product_Report.xlsx');
+    }
   }
-
-
 */
+
+
+
 
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 
@@ -878,6 +958,55 @@ void clearProducts(){
     }
 
   }
+  
+  /// Helper method to create enhanced stock transactions with full context
+  /// Use this for sales, purchases, and other operations that need reference linking
+  Future<void> createStockTransaction({
+    required String productId,
+    required double quantityChange,
+    required double previousQuantity,
+    required double newQuantity,
+    required String transactionType,
+    required String transactionOrigin,
+    required double price,
+    String? referenceId,
+    String? referenceType,
+    String? notes,
+  }) async {
+    final String? business = _businessController.business['id'];
+    if (business == null) return;
+
+    try {
+      final transactionRef = firestore
+          .collection('transactions')
+          .doc(business)
+          .collection('usersTransactions')
+          .doc();
+
+      final stockTransaction = StockTransaction(
+        transactionId: transactionRef.id,
+        productId: productId,
+        quantity: quantityChange,
+        previousQuantity: previousQuantity,
+        newQuantity: newQuantity,
+        transactionType: transactionType,
+        transactionOrigin: transactionOrigin,
+        timestamp: Timestamp.now(),
+        userId: business,
+        price: price,
+        referenceId: referenceId,
+        referenceType: referenceType,
+        employeeName: _profileController.user['name'],
+        notes: notes,
+        totalValue: quantityChange * price,
+      );
+
+      await transactionRef.set(stockTransaction.toMap());
+    } catch (e) {
+      print('Error creating stock transaction: $e');
+    }
+  }
+  
   void _showSnackbar(String message) {
     ScaffoldMessenger.of(context as BuildContext).showSnackBar(
       SnackBar(

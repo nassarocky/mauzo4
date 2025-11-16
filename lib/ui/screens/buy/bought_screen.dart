@@ -340,6 +340,11 @@ class _boughtControllerState extends State<BoughtScreen> {
                     });
                   }
 
+                  // Skip if sales list is empty (after deletion)
+                  if (salesByDate[index]['sales'].isEmpty) {
+                    return SizedBox.shrink();
+                  }
+
                   return StickyHeader(
                     header: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -681,6 +686,7 @@ class _boughtControllerState extends State<BoughtScreen> {
 
     pdf.addPage(
       pw.Page(
+        pageFormat: PdfPageFormat.roll80,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -770,6 +776,7 @@ class _boughtControllerState extends State<BoughtScreen> {
 
     pdf.addPage(
       pw.Page(
+        pageFormat: PdfPageFormat.roll80,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,

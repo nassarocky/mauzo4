@@ -13,8 +13,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode =  "15"
-def flutterVersionName =  "2.2"
+def flutterVersionCode =  "16"
+def flutterVersionName =  "2.3"
 
 android {
     namespace = "com.hesabu.mauzo"
@@ -37,6 +37,12 @@ android {
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true
+        
+        // Support for 16 KB page sizes (required by Nov 1, 2025)
+        ndk {
+            // Specify supported ABIs
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
     }
 
     signingConfigs {

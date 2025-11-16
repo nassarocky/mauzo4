@@ -1,0 +1,15 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "userLosses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "dateOccurred",
+          "order": "DESCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

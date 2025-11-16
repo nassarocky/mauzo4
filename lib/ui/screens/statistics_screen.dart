@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/services/firestore_db.dart';
+import 'package:mauzo/models/sale_model.dart';
 
 import '../../controllers/product_controller.dart';
 import '../../controllers/profile_controller.dart';
@@ -17,10 +20,14 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
-  static final SaleController _saleController = Get.find();
   final BusinessController _businessController = Get.find();
   final ProductController _productController = Get.find();
   final ProfileController _profileController = Get.find();
+  
+  // Load ALL sales data directly from Firestore (no reset_time filter)
+  List<Sale> _allSales = [];
+  StreamSubscription<List<Sale>>? _salesSubscription;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -42,20 +49,160 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       });
       return;
     }
+    
+    // Load all sales data for statistics (bypasses reset_time filter)
+    _loadAllSalesData();
+  }
+
+  void _loadAllSalesData() {
+    _salesSubscription = FirestoreDb().getAllSalesForStatistics().listen((sales) {
+      setState(() {
+        _allSales = sales;
+        _isLoading = false;
+      });
+    });
   }
 
   @override
   void dispose() {
+    _salesSubscription?.cancel();
     super.dispose();
   }
 
-  double sales = _saleController.getLastWeekSales();
   String time = 'last_week'.tr;
+
+  // Calculate statistics methods using _allSales data
+  double _getTodaySales() {
+    double todaysSales = 0;
+    DateTime date = DateUtils.dateOnly(DateTime.now());
+    for (var sale in _allSales) {
+      DateTime saleDate = DateUtils.dateOnly(sale.date.toDate());
+      if (saleDate == date) {
+        todaysSales += sale.payment;
+      }
+    }
+    return todaysSales;
+  }
+
+  double _getLastWeekSales() {
+    double lastWeekSales = 0;
+    var date = DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
+    var weekDay = date.weekday;
+    var firstDayOfWeek = date.subtract(Duration(days: weekDay - 1));
+
+    for (var sale in _allSales) {
+      DateTime saleDate = sale.date.toDate();
+      if (saleDate.isAfter(firstDayOfWeek) &&
+          saleDate.isBefore(firstDayOfWeek.add(const Duration(days: 7)))) {
+        lastWeekSales += sale.price;
+      }
+    }
+    return lastWeekSales;
+  }
+
+  double _getLastMonthSales() {
+    double lastMonthSales = 0;
+    var date = DateUtils.dateOnly(DateTime.now());
+    var firstDayOfMonth = DateTime(date.year, date.month - 1, 1);
+    var lastDayOfMonth = DateTime(date.year, date.month, 1);
+
+    for (var sale in _allSales) {
+      DateTime saleDate = sale.date.toDate();
+      if (saleDate.isAfter(firstDayOfMonth) && saleDate.isBefore(lastDayOfMonth)) {
+        lastMonthSales += sale.price;
+      }
+    }
+    return lastMonthSales;
+  }
+
+  double _getLastYearSales() {
+    double lastYearSales = 0;
+    var date = DateUtils.dateOnly(DateTime.now());
+    var firstDayOfYear = DateTime(date.year - 1, 1, 1);
+    var lastDayOfYear = DateTime(date.year, 1, 1);
+
+    for (var sale in _allSales) {
+      DateTime saleDate = sale.date.toDate();
+      if (saleDate.isAfter(firstDayOfYear) && saleDate.isBefore(lastDayOfYear)) {
+        lastYearSales += sale.price;
+      }
+    }
+    return lastYearSales;
+  }
+
+  double _getTotalSales() {
+    double totalSales = 0;
+    for (var sale in _allSales) {
+      totalSales += sale.price;
+    }
+    return totalSales;
+  }
+
+  List<Map<String, dynamic>> _getTopProducts(String timeFilter) {
+    Map<String, Map<String, dynamic>> productStats = {};
+    
+    DateTime now = DateTime.now();
+    DateTime filterDate;
+    
+    if (timeFilter == 'today'.tr) {
+      filterDate = DateUtils.dateOnly(now);
+    } else if (timeFilter == 'last_week'.tr) {
+      var date = DateUtils.dateOnly(now).subtract(const Duration(days: 7));
+      var weekDay = date.weekday;
+      filterDate = date.subtract(Duration(days: weekDay - 1));
+    } else if (timeFilter == 'last_month'.tr) {
+      filterDate = DateTime(now.year, now.month - 1, 1);
+    } else if (timeFilter == 'last_year'.tr) {
+      filterDate = DateTime(now.year - 1, 1, 1);
+    } else {
+      filterDate = DateTime(1900, 1, 1); // All time
+    }
+
+    for (var sale in _allSales) {
+      DateTime saleDate = sale.date.toDate();
+      if (saleDate.isAfter(filterDate)) {
+        for (var product in sale.products) {
+          String productId = product['id'];
+          String productName = product['name'];
+          double quantity = (product['quantity'] ?? 0).toDouble();
+          double price = (product['price'] ?? 0).toDouble();
+
+          if (productStats.containsKey(productId)) {
+            productStats[productId]!['quantity'] += quantity;
+          } else {
+            productStats[productId] = {
+              'id': productId,
+              'name': productName,
+              'quantity': quantity,
+              'price': price,
+            };
+          }
+        }
+      }
+    }
+
+    List<Map<String, dynamic>> topProducts = productStats.values.toList();
+    topProducts.sort((a, b) => (b['quantity'] as double).compareTo(a['quantity'] as double));
+    
+    return topProducts.take(20).toList();
+  }
+
+  double _getSalesForTimeFilter(String timeFilter) {
+    if (timeFilter == 'today'.tr) {
+      return _getTodaySales();
+    } else if (timeFilter == 'last_week'.tr) {
+      return _getLastWeekSales();
+    } else if (timeFilter == 'last_month'.tr) {
+      return _getLastMonthSales();
+    } else if (timeFilter == 'last_year'.tr) {
+      return _getLastYearSales();
+    } else {
+      return _getTotalSales();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    List topProducts = _saleController.getTopProducts(time);
-    // print(topProducts);
     final List<String> items = [
       'today'.tr,
       'last_week'.tr,
@@ -68,7 +215,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         title: Text('statistics'.tr),
         elevation: 0,
       ),
-      body: SingleChildScrollView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
@@ -99,22 +248,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     onChanged: (String? value) {
                       setState(() {
                         time = value!;
-                        if (value == 'today'.tr) {
-                          sales = _saleController.getTodaySales();
-                          topProducts = _saleController.getTopProducts(value);
-                        } else if (value == 'last_week'.tr) {
-                          sales = _saleController.getLastWeekSales();
-                          topProducts = _saleController.getTopProducts(value);
-                        } else if (value == 'last_month'.tr) {
-                          sales = _saleController.getLastMonthSales();
-                          topProducts = _saleController.getTopProducts(value);
-                        } else if (value == 'last_year'.tr) {
-                          sales = _saleController.getLastYearSales();
-                          topProducts = _saleController.getTopProducts(value);
-                        } else if (value == 'all_time'.tr) {
-                          sales = _saleController.getTotalSales();
-                          topProducts = _saleController.getTopProducts(value);
-                        }
                       });
                     },
                   ),
@@ -139,7 +272,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       formatCurrency(
-                          sales, _businessController.business['mainCurrency']),
+                          _getSalesForTimeFilter(time), _businessController.business['mainCurrency']),
                       style: h5(whiteColor),
                     ),
                   ],
@@ -151,7 +284,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 style: h5(Theme.of(context).textTheme.bodyLarge!.color),
               ),
               const SizedBox(height: 20),
-              topProducts.isEmpty
+              _getTopProducts(time).isEmpty
                   ? SizedBox(
                       height: MediaQuery.of(context).size.height * 0.4,
                       child: Column(
@@ -166,9 +299,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   : ListView.builder(
                       physics: const NeverScrollableScrollPhysics(),
                       shrinkWrap: true,
-                      itemCount: topProducts.length,
+                      itemCount: _getTopProducts(time).length,
                       itemBuilder: (context, index) {
-                        var product = topProducts[index];
+                        var product = _getTopProducts(time)[index];
                         return Container(
                           margin: const EdgeInsets.only(bottom: 16.0),
                           child: Row(

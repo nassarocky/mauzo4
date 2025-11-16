@@ -36,14 +36,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
   void initState() {
     super.initState();
 
-    // Set default DateTimeRange using reset_time from ProfileController
-    if (_businessController.business['reset_time'] != null) {
-      DateTime resetTime = _businessController.business['reset_time'].toDate();
-      selectedDateRange = DateTimeRange(
-        start: resetTime,
-        end: DateTime.now(),
-      );
-    }
+    // No default date range - controller loads from reset time by default (optimized)
+    // User can select a date range if they want to filter further
 
     // Read optional filter from navigation arguments (post-frame to access context)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -84,11 +78,12 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         elevation: 0,
       ),
       body: Obx(() {
-        if (_expenseController.expenses.isEmpty) {
+        if (_expenseController.filteredExpenses.isEmpty) {
           return Center(child: Text('No expenses yet!'.tr));
         }
 
-        List<Expense> filteredExpenses = _expenseController.expenses;
+        // Use controller's filteredExpenses (already filtered by date range via database query)
+        List<Expense> filteredExpenses = _expenseController.filteredExpenses;
 
         // Filter by a specific expense ID if provided from navigation
         if (_filterExpenseId != null && _filterExpenseId!.isNotEmpty) {
@@ -111,14 +106,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
           }).toList();
         }
 
-        // Filter by date range
-        if (selectedDateRange != null) {
-          filteredExpenses = filteredExpenses.where((expense) {
-            DateTime expenseDate = expense.date.toDate();
-            return expenseDate.isAfter(selectedDateRange!.start) &&
-                expenseDate.isBefore(selectedDateRange!.end.add(Duration(days: 1)));
-          }).toList();
-        }
+        // Date range filtering is now handled by controller via database query (optimized)
 
         final groupedExpenses = groupExpensesByDate(filteredExpenses);
 
@@ -538,6 +526,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                           selectedPerson = 'All';
                           selectedDateRange = null;
                         });
+                        // Clear controller's date range to use default reset time loading
+                        _expenseController.clearSelectedDateRange();
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -637,13 +627,17 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
               showDateRangePicker(
                 context: context,
                 firstDate: DateTime(2000),
-                lastDate: DateTime.now(),
+                lastDate: DateTime.now().add(Duration(days: 365)),
+                currentDate: DateTime.now(),
               ).then(
                     (DateTimeRange? value) {
                   if (value != null) {
                     setState(() {
                       selectedDateRange = value;
                     });
+                    
+                    // Use controller's method to query database for date range (optimized)
+                    _expenseController.setSelectedDateRange(value);
 
                     final String range =
                         '${DateFormat('dd/MM/yyyy').format(value.start)} - ${DateFormat('dd/MM/yyyy').format(value.end)}';

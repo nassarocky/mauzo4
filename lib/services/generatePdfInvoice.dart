@@ -8,6 +8,7 @@ Future<File> generatePdfInvoice(Invoice invoice) async {
 
   pdf.addPage(
     pw.Page(
+      pageFormat: PdfPageFormat.roll80,
       build: (context) {
         return pw.Column(
           children: [

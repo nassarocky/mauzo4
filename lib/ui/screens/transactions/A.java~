@@ -1,0 +1,59 @@
+Future<void> addNewBusiness(String name) async {
+  try {
+    String? userId = FirebaseAuth.instance.currentUser?.uid;
+    print("[DEBUG] addNewBusiness started. userId: $userId");
+
+    if (userId == null) {
+      print("[ERROR] No authenticated user found.");
+      return;
+    }
+
+    String newBusinessId = FirebaseFirestore.instance.collection('businesses').doc().id;
+    print("[DEBUG] newBusinessId: $newBusinessId");
+
+    // ... (rest of your business data preparation)
+
+    await FirebaseFirestore.instance.collection('businesses').doc(newBusinessId).set(newBusinessData);
+    print("[DEBUG] Business document set successfully.");
+
+    await FirebaseFirestore.instance
+        .collection('employees')
+        .doc(newBusinessId)
+        .collection('userEmployees')
+        .doc(userId)
+        .set({
+      ..._profileController.user,
+      'business': [newBusinessId],
+    }, SetOptions(merge: true));
+    print("[DEBUG] User added to employees subcollection.");
+
+    DocumentReference userDocRef = FirebaseFirestore.instance.collection('users').doc(userId);
+    print("[DEBUG] userDocRef created: ${userDocRef.path}");
+    DocumentSnapshot userDoc = await userDocRef.get();
+    print("[DEBUG] userDocRef.get() completed.");
+
+    if (userDoc.exists) {
+      print("[DEBUG] userDoc exists: true");
+      List<dynamic> businesses = userDoc['business'] ?? [];
+      print("[DEBUG] Current businesses: $businesses");
+      if (!businesses.contains(newBusinessId)) {
+        businesses.insert(0, newBusinessId);
+        print("[DEBUG] newBusinessId added. Updated businesses: $businesses");
+      } else {
+         print("[DEBUG] newBusinessId already exists in list.");
+      }
+      await userDocRef.update({
+        'business': businesses,
+      });
+      print("[DEBUG] userDocRef.update() completed.");
+       _businessController.updateBusinessId(newBusinessId);
+    await Preferences.setBusiness(newBusinessId);
+    Get.forceAppUpdate();
+    } else {
+      print("[ERROR] users document not found for user: $userId");
+    }
+
+  } catch (error) {
+    print("[EXCEPTION] Failed to add new business: $error");
+  }
+}

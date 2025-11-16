@@ -430,7 +430,7 @@ def get_valid_users():
         db_connection = mysql.connector.connect(**db_config)
         cursor = db_connection.cursor(dictionary=True)  # Fetch results as dictionaries
 
-        # SQL query to fetch users from 'location' table
+        # SQL query to fetch gmanusers from 'location' table
         query = "SELECT username, speed_limit, session_timeout, location FROM location"
         params = []
 
@@ -440,13 +440,13 @@ def get_valid_users():
             params.append(location)
 
         cursor.execute(query, params)
-        users = cursor.fetchall()
+        gmanusers = cursor.fetchall()
 
-        # If no users found, return a 404 JSON response
-        if not users:
-            return jsonify({"message": "No users found for this location"}), 404
+        # If no gmanusers found, return a 404 JSON response
+        if not gmanusers:
+            return jsonify({"message": "No gmanusers found for this location"}), 404
 
-        return jsonify({"users": users})
+        return jsonify({"gmanusers": gmanusers})
 
     except mysql.connector.Error as err:
         return jsonify({"error": f"MySQL Error: {err}"}), 500
@@ -510,8 +510,8 @@ def get_valid_users2():
             GROUP BY r.username
         ''')
 
-        users = cursor.fetchall()
-        return jsonify({"users": users})
+        gmanusers = cursor.fetchall()
+        return jsonify({"gmanusers": gmanusers})
 
     except mysql.connector.Error as err:
         return jsonify({"error": f"MySQL Error: {err}"}), 500
@@ -668,8 +668,8 @@ def generate_users():
 
         db_connection.commit()
         return jsonify({
-            "message": f"{num_users} users generated successfully.",
-            "users": users_created
+            "message": f"{num_users} gmanusers generated successfully.",
+            "gmanusers": users_created
         }), 201
 
     except mysql.connector.Error as err:

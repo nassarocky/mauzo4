@@ -6,9 +6,11 @@ import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/product_transfer_controller.dart';
+import 'package:mauzo/controllers/inventory_loss_controller.dart';
 import 'package:mauzo/ui/screens/product/edit_product_screen.dart';
 import 'package:mauzo/ui/widgets/buttons/secondary_button.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
+import 'package:mauzo/ui/widgets/dialogs/record_loss_dialog.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
 import '../../../controllers/cart_controller.dart';
@@ -400,6 +402,28 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                // Record Loss Button (Manager/Owner only)
+                if (_profileController.isManagerOrOwner())
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SecondaryButton(
+                          text: 'Record Loss'.tr,
+                          onPressed: () async {
+                            Get.lazyPut(() => InventoryLossController());
+                            final result = await showDialog(
+                              context: context,
+                              builder: (context) => RecordLossDialog(product: product),
+                            );
+                            if (result == true) {
+                              Navigator.pop(context); // Close bottom sheet after recording loss
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 24),
                 Row(
                   children: [

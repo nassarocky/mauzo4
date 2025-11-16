@@ -17,6 +17,7 @@ class InvoiceController extends GetxController {
 
   DateTimeRange? selectedDateRange;
   StreamSubscription<List<Sale>>? _invoiceSubscription;
+  StreamSubscription<List<Sale>>? _filteredInvoiceSubscription;
 
   @override
   void onInit() {
@@ -34,6 +35,7 @@ class InvoiceController extends GetxController {
   @override
   void onClose() {
     _invoiceSubscription?.cancel();
+    _filteredInvoiceSubscription?.cancel();
     super.onClose();
   }
 
@@ -50,6 +52,11 @@ class InvoiceController extends GetxController {
 
     try {
       invoices.remove(sale);
+      filteredInvoices.remove(sale);
+      
+      // Refresh dates list to remove empty date groups
+      setInvoicesByDate();
+      
       await firestore
           .collection('invoices')
           .doc(business)
@@ -235,28 +242,53 @@ class InvoiceController extends GetxController {
   // * FILTERING
 
 
-  void filterInvoices() {
-    filteredInvoices.value = invoices;
+  void filterInvoices() async {
+    // If date range is selected, query database for that range
     if (selectedDateRange != null) {
-      filteredInvoices.value = filteredInvoices.where((sale) {
-        return sale.date.toDate().isAfter(selectedDateRange!.start) &&
-            sale.date
-                .toDate()
-                .isBefore(selectedDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
+      // Cancel previous filtered subscription if exists
+      await _filteredInvoiceSubscription?.cancel();
+      
+      // Query database for the selected date range
+      _filteredInvoiceSubscription = FirestoreDb()
+          .getInvoicesByDateRange(selectedDateRange!.start, selectedDateRange!.end)
+          .listen((data) {
+        // Start with queried data
+        var filtered = data;
+        
+        // Apply additional filters
+        if (filterClients.isNotEmpty) {
+          filtered = filtered.where((sale) {
+            return filterClients.contains(sale.client);
+          }).toList();
+        }
+        if (saleType.value == 'Debt') {
+          filtered = filtered.where((sale) {
+            return sale.debt > 0;
+          }).toList();
+        }
+        
+        filteredInvoices.value = filtered;
+        setInvoicesByDate();
+      });
+    } else {
+      // No date range selected, use in-memory filtering
+      await _filteredInvoiceSubscription?.cancel();
+      
+      filteredInvoices.value = invoices;
+      
+      if (filterClients.isNotEmpty) {
+        filteredInvoices.value = filteredInvoices.where((sale) {
+          return filterClients.contains(sale.client);
+        }).toList();
+      }
+      if (saleType.value == 'Debt') {
+        filteredInvoices.value = filteredInvoices.where((sale) {
+          return sale.debt > 0;
+        }).toList();
+      }
+      
+      setInvoicesByDate();
     }
-    if (filterClients.isNotEmpty) {
-      filteredInvoices.value = filteredInvoices.where((sale) {
-        return filterClients.contains(sale.client);
-      }).toList();
-    }
-    if (saleType.value == 'Debt') {
-      filteredInvoices.value = filteredInvoices.where((sale) {
-        return sale.debt > 0;
-      }).toList();
-    }
-
-    setInvoicesByDate();
   }
 
   void setInvoiceType(String type) {
@@ -274,8 +306,11 @@ class InvoiceController extends GetxController {
     filterInvoices();
   }
 
-  void clearSelectedDateRange() {
+  void clearSelectedDateRange() async {
     selectedDateRange = null;
+    await _filteredInvoiceSubscription?.cancel();
+    _filteredInvoiceSubscription = null;
+    filterInvoices();
   }
   void clearInvoice(){
     invoices.value.clear();

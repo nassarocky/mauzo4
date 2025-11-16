@@ -260,6 +260,7 @@ class SupplierInfoBottomSheet extends StatelessWidget {
                       SecondaryButton(
                         text: 'edit'.tr,
                         onPressed: () {
+                          print('🔄 Navigating to edit supplier: ${supplier.name}');
                           Navigator.pushNamed(
                             context,
                             '/supplier/edit',

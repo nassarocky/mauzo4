@@ -27,12 +27,22 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   String selectedOrigin = 'all';
 
   @override
+  void initState() {
+    super.initState();
+    // NEW: Lazy load transactions for this specific product
+    _transactionController.loadProductTransactions(widget.product.id);
+  }
+
+  @override
   void dispose() {
     Timer.run(() {
       _transactionController.filterCategories.value = [];
       _transactionController.searchTransactions.value = _transactionController.transactions;
       _transactionController.searchText.value = '';
       _transactionController.filteredtransactions.value = _transactionController.transactions;
+      
+      // NEW: Unload transactions when leaving screen to free memory
+      _transactionController.unloadProductTransactions(widget.product.id);
     });
     super.dispose();
   }
@@ -77,46 +87,115 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ),
       body: Column(
         children: [
-          SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight), // Adjust for status bar and AppBar height
+          SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
+          // Modern Product Info Card
           Container(
-            color: Colors.white, // Background color for the container
-            padding: const EdgeInsets.all(16.0),
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blue.shade50, Colors.white],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.2),
+                  spreadRadius: 2,
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.start, // Align items to the left
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start, // Align text to the left
-                  children: [
-                    Text(
-                      '${'Current Stock'.tr}: ${widget.product.quantity}',
-                      style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                    ),
-                    SizedBox(height: 8), // Add some spacing between the text
-                    Text(
-                      '${'sellingPrice'.tr}: ${widget.product.price}',
-                      style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                    ),
-                  ],
+                // Product Icon
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.inventory_2,
+                    size: 32,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Product Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Current Stock',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.product.quantity.toStringAsFixed(1),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Selling Price
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Selling Price',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.product.price.toStringAsFixed(0),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.only(left: 16.0, right: 16, top: 24.0),
+          // Transaction History Title
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                Icon(Icons.history, size: 20, color: Colors.grey[700]),
+                const SizedBox(width: 8),
                 Text(
-                  'Transaction'.tr,
-                  style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                ),
-                Text(
-                  'quantity'.tr,
-                  style: bodyText(warningColor),
-                ),
-                Text(
-                  'Total Amount'.tr,
-                  style: bodyText(warningColor),
+                  'Transaction History',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
                 ),
               ],
             ),

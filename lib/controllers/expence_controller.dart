@@ -20,23 +20,37 @@ class ExpenseController extends GetxController {
 
   DateTimeRange? selectedDateRange;
   StreamSubscription<List<Expense>>? _expenseSubscription;
+  StreamSubscription<List<Expense>>? _filteredExpenseSubscription;
 
   @override
   void onInit() {
     super.onInit();
-    try {
-      _expenseSubscription = FirestoreDb().getExpenses().listen((data) {
-        expenses.value = data;
-        filteredExpenses.value = data;
-      });
-    } catch (e) {
-      print("Error initializing ExpenseController: $e");
+    
+    final ProfileController _profileController = Get.find();
+    final String userRole = _profileController.user['role'] ?? '';
+    
+    // Load expenses for all roles except agents (cashiers and sales persons need to see expenses)
+    if (userRole != 'agent') {
+      try {
+        _expenseSubscription = FirestoreDb().getExpenses().listen((data) {
+          expenses.value = data;
+          filteredExpenses.value = data;
+        });
+      } catch (e) {
+        print("Error initializing ExpenseController: $e");
+      }
+    } else {
+      // Set empty data for agents (no error)
+      expenses.value = [];
+      filteredExpenses.value = [];
+      print('ExpenseController: Agents cannot view expenses, skipping data initialization');
     }
   }
 
   @override
   void onClose() {
     _expenseSubscription?.cancel();
+    _filteredExpenseSubscription?.cancel();
     super.onClose();
   }
 
@@ -54,19 +68,37 @@ class ExpenseController extends GetxController {
     }
     dates.sort((a, b) => b.compareTo(a));
   }
-  void filterExpenses() {
-    filteredExpenses.value = expenses;
+  void filterExpenses() async {
+    // If date range is selected, query database for that range
     if (selectedDateRange != null) {
-      filteredExpenses.value = filteredExpenses.where((expence) {
-        return expence.date.toDate().isAfter(selectedDateRange!.start) &&
-            expence.date
-                .toDate()
-                .isBefore(selectedDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
+      // Cancel previous filtered subscription if exists
+      await _filteredExpenseSubscription?.cancel();
+      
+      // Query database for the selected date range
+      _filteredExpenseSubscription = FirestoreDb()
+          .getExpensesByDateRange(selectedDateRange!.start, selectedDateRange!.end)
+          .listen((data) {
+        filteredExpenses.value = data;
+        setExpencesByDate();
+      });
+    } else {
+      // No date range selected, use in-memory filtering
+      await _filteredExpenseSubscription?.cancel();
+      filteredExpenses.value = expenses;
+      setExpencesByDate();
     }
+  }
 
+  void setSelectedDateRange(DateTimeRange dateRange) {
+    selectedDateRange = dateRange;
+    filterExpenses();
+  }
 
-    setExpencesByDate();
+  void clearSelectedDateRange() async {
+    selectedDateRange = null;
+    await _filteredExpenseSubscription?.cancel();
+    _filteredExpenseSubscription = null;
+    filterExpenses();
   }
   // Other methods and variables...
 
@@ -149,7 +181,7 @@ class ExpenseController extends GetxController {
     return Future.value();
   }
 
-  Future<void> updateExpense(Expense expense) {
+  Future<void> updateExpense(Expense expense) async {
     print('🔵 EXPENSE CONTROLLER: updateExpense called');
     
     final String? business = _businessController.business['id'];
@@ -161,6 +193,29 @@ class ExpenseController extends GetxController {
     }
 
     print('✅ EXPENSE CONTROLLER: Business ID validation passed');
+    
+    // Get the old expense to compare fundSource changes
+    try {
+      final oldExpenseDoc = await _firestore
+          .collection('expenses')
+          .doc(business)
+          .collection('userExpenses')
+          .doc(expense.id)
+          .get();
+      
+      final oldFundSource = oldExpenseDoc.data()?['fundSource'] ?? 'cash';
+      
+      // Delete old ledger entry if fundSource changed
+      if (oldFundSource != expense.fundSource) {
+        print('🔄 EXPENSE CONTROLLER: Fund source changed from $oldFundSource to ${expense.fundSource}');
+        await _deleteLedgerEntry(business, expense.id, oldFundSource);
+      } else {
+        // Same fund source, delete the existing entry to update it
+        await _deleteLedgerEntry(business, expense.id, expense.fundSource);
+      }
+    } catch (e) {
+      print('⚠️ EXPENSE CONTROLLER: Failed to delete old ledger entry: $e');
+    }
     
     // Create document reference for the existing expense
     final expenseRef = _firestore
@@ -174,8 +229,16 @@ class ExpenseController extends GetxController {
     print('🔵 EXPENSE CONTROLLER: Attempting Firestore update operation...');
 
     // Use simple non-blocking pattern like addExpense and client screen (works offline)
-    expenseRef.update(expense.toMap()).then((_) {
+    expenseRef.update(expense.toMap()).then((_) async {
       print('✅ EXPENSE CONTROLLER: Firestore update operation completed successfully');
+      
+      // Post new ledger entry with updated data
+      try {
+        await LedgerService().postExpenseOut(expense);
+        print('✅ EXPENSE CONTROLLER: New ledger OUT entry posted for updated expense ${expense.id}');
+      } catch (e) {
+        print('⚠️ EXPENSE CONTROLLER: Failed to post new ledger entry for updated expense ${expense.id}: $e');
+      }
     }).catchError((error) {
       print('❌ EXPENSE CONTROLLER: Firestore update operation failed: $error');
       print('❌ EXPENSE CONTROLLER: Error type: ${error.runtimeType}');
@@ -187,7 +250,7 @@ class ExpenseController extends GetxController {
     return Future.value();
   }
 
-  Future<void> deleteExpense(String expenseId) {
+  Future<void> deleteExpense(String expenseId) async {
     final String? business = _businessController.businessId.value;
 
     if (business == null) {
@@ -195,12 +258,64 @@ class ExpenseController extends GetxController {
       return Future.value();
     }
 
-    return _firestore
-        .collection('expenses')
-        .doc(business)
-        .collection('userExpenses')
-        .doc(expenseId)
-        .delete();
+    try {
+      // Get expense data to find fundSource before deleting
+      final expenseDoc = await _firestore
+          .collection('expenses')
+          .doc(business)
+          .collection('userExpenses')
+          .doc(expenseId)
+          .get();
+      
+      if (expenseDoc.exists) {
+        final fundSource = expenseDoc.data()?['fundSource'] ?? 'cash';
+        
+        // Delete the expense document
+        await _firestore
+            .collection('expenses')
+            .doc(business)
+            .collection('userExpenses')
+            .doc(expenseId)
+            .delete();
+        
+        print('✅ EXPENSE CONTROLLER: Expense $expenseId deleted from Firestore');
+        
+        // Delete corresponding ledger entry
+        await _deleteLedgerEntry(business, expenseId, fundSource);
+        print('✅ EXPENSE CONTROLLER: Ledger entry deleted for expense $expenseId');
+      }
+    } catch (e) {
+      print('❌ EXPENSE CONTROLLER: Error deleting expense $expenseId: $e');
+      rethrow;
+    }
+  }
+  
+  // Helper method to delete ledger entry for an expense
+  Future<void> _deleteLedgerEntry(String businessId, String expenseId, String fundSource) async {
+    try {
+      // Build the ledger document ID using same pattern as LedgerService.postExpenseOut
+      final String lineIndex = '0';
+      final String idempotencyKey = 'expense:$expenseId:$lineIndex:$fundSource';
+      final String docId = idempotencyKey.replaceAll(':', '__');
+      
+      final ledgerRef = _firestore
+          .collection('ledger')
+          .doc(businessId)
+          .collection('entries')
+          .doc(docId);
+      
+      // Check if ledger entry exists before deleting
+      final ledgerDoc = await ledgerRef.get();
+      if (ledgerDoc.exists) {
+        await ledgerRef.delete();
+        print('✅ EXPENSE CONTROLLER: Ledger entry $docId deleted');
+      } else {
+        print('ℹ️ EXPENSE CONTROLLER: Ledger entry $docId does not exist, skipping');
+      }
+    } catch (e) {
+      print('❌ EXPENSE CONTROLLER: Error deleting ledger entry for expense $expenseId: $e');
+      throw e;
+    }
   }
   // Business Expense Category Management Methods
   Future<void> addExpenseCategory(String category) async {

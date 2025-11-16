@@ -1075,7 +1075,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     bool existsUnit = allUnits.contains(_selectedUnit);
                                     if (!existsUnit) {
                                       firestore.collection('businesses').doc(businessId).update({
-                                        'units': FieldValue.arrayUnion([_selectedUnit]),
+                                        'additionalList1': FieldValue.arrayUnion([_selectedUnit]),
                                       });
                                     }
 
@@ -1328,7 +1328,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             if (businessId != null) {
                               try {
                                 await firestore.collection('businesses').doc(businessId).update({
-                                  'units': FieldValue.arrayUnion([newUnit]),
+                                  'additionalList1': FieldValue.arrayUnion([newUnit]),
                                 });
                                 // Refresh business data to get updated units
                                 await _businessController.updateBusinessData();

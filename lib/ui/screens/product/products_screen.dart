@@ -14,8 +14,7 @@ import '../../../utils/constants.dart';
 import '../../widgets/bottomsheets/sort_products_bottom_sheet.dart';
 import '../../widgets/search_filter_icon.dart';
 import '../../widgets/tiles/product_tile.dart';
-import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
-import 'package:image_picker/image_picker.dart';
+import '../mobile_code.dart';
 import 'package:file_picker/file_picker.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -56,21 +55,23 @@ class _ProductsScreenState extends State<ProductsScreen> {
     super.dispose();
   }
 
-  // * SCAN
+  // * SCAN - Live camera barcode scanner
   Future<void> scanner(BuildContext context) async {
     try {
-      final inputImage = await ImagePicker().pickImage(source: ImageSource.camera);
-      if (inputImage == null) return;
-
-      final input = InputImage.fromFilePath(inputImage.path);
-      final barcodeScanner = BarcodeScanner();
-      final List<Barcode> barcodes = await barcodeScanner.processImage(input);
+      // Navigate to live camera scanner screen
+      final scannedCode = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BarcodeScannerScreen(),
+        ),
+      );
       
-      if (barcodes.isNotEmpty) {
-        final barcode = barcodes.first;
-        if (barcode.rawValue != null) {
-          var product = _productController.getProductByCode(barcode.rawValue!);
+      // If a code was scanned, search for the product
+      if (scannedCode != null && scannedCode is String) {
+        var product = _productController.getProductByCode(scannedCode);
+        
         if (product.id != '') {
+          // Product found - show product info
           showModalBottomSheet(
             isScrollControlled: true,
             shape: const RoundedRectangleBorder(
@@ -83,16 +84,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
             builder: (_) => ProductInfoBottomSheet(product: product),
           );
         } else {
+          // Product not found
           errorSnackbar(
-              "${'not_found'.tr}. ${'code'.tr}: ${barcode.rawValue}",
+            "${'not_found'.tr}. ${'code'.tr}: $scannedCode",
           );
-          }
         }
       }
     } catch (e) {
       errorSnackbar('something_went_wrong'.tr);
     }
-    if (!mounted) return;
   }
   void _showSnackbar(String message) {
     final snackBar = SnackBar(

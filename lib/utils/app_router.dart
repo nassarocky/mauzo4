@@ -45,6 +45,7 @@ import '../ui/screens/select_employee_for_pay_role_screen.dart';
 import '../ui/screens/payment_management_screen.dart';
 import 'package:mauzo/ui/screens/ledger_history_screen.dart';
 import 'package:mauzo/ui/screens/assets_screen.dart';
+import '../ui/screens/inventory_loss_screen.dart';
 
 class AppRouter {
   static Route onGenerateRoute(RouteSettings settings) {
@@ -123,6 +124,7 @@ class AppRouter {
           builder: (_) => const AddSupplierScreen());
       case '/supplier/edit':
         return CupertinoPageRoute(
+          settings: settings,
           builder: (_) => const EditSupplierScreen());
       case '/employee/add':
         return CupertinoPageRoute(
@@ -147,6 +149,8 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const LedgerHistoryScreen());
       case '/assets':
         return CupertinoPageRoute(builder: (_) => const AssetsScreen());
+      case '/inventory-losses':
+        return CupertinoPageRoute(builder: (_) => const InventoryLossScreen());
       default:
         return CupertinoPageRoute(
           builder: (_) => const LoadingScreen(),

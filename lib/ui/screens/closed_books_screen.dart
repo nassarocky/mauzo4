@@ -18,7 +18,6 @@ import '../../controllers/profile_controller.dart';
 import '../../controllers/sale_controller.dart';
 import '../../models/close_book_model.dart';
 import '../../utils/constants.dart';
-import 'package:http/http.dart' as http;
 
 class CloseBookScreen extends StatefulWidget {
   @override
@@ -252,19 +251,22 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
 
   Future<void> _resetProductQuantities() async {
     final String businessId = _businessController.business['id'];
-    final Uri url = Uri.parse(
-        'https://us-central1-hesabumauzo.cloudfunctions.net/resetBusinessResetTime?profile=$businessId'
-    );
 
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        // Optionally show success message.
-      } else {
-        errorSnackbar('Failed to update product quantities.'.tr);
-      }
+      // Update the reset_time field to the current timestamp directly in Firestore
+      await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .update({'reset_time': Timestamp.now()});
+      
+      print('Reset time successfully updated.');
+      
+      // CRITICAL: Refresh business controller to update cached reset_time
+      // This ensures sales stream uses the new reset_time for filtering
+      await _businessController.updateBusinessData();
+      print('Business controller refreshed with new reset_time.');
     } catch (e) {
-      errorSnackbar('Error: ${e.toString()}'.tr);
+      errorSnackbar('Failed to update reset time: ${e.toString()}'.tr);
     }
   }
 
@@ -364,6 +366,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
 
     pdf.addPage(
       pw.Page(
+        pageFormat: PdfPageFormat.a4,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,

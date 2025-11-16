@@ -1136,7 +1136,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       // Update the product count
       _productController.updateProductCount(
         product,
-        newQuantity,'Recovered',
+        newQuantity,'New Stock',
       );
     }
   }

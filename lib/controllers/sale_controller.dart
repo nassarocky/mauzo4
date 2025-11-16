@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/models/expences.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/download_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
@@ -17,10 +19,10 @@ import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
 import 'expence_controller.dart';
-//import 'dart:html' as html; // Only for web
 
 class SaleController extends GetxController {
   StreamSubscription<List<Sale>>? _saleSubscription;
+  StreamSubscription<List<Sale>>? _filteredSaleSubscription;
 
   final BusinessController _businessController = Get.find();
   final ExpenseController expenceController = Get.find();
@@ -55,6 +57,10 @@ class SaleController extends GetxController {
     try {
       // Remove the sale from the local list
       sales.remove(sale);
+      filteredSales.remove(sale);
+      
+      // Refresh dates list to remove empty date groups
+      setSalesByDate();
 
       // Fetch the products from the sale
       List products = sale.products;
@@ -388,42 +394,69 @@ class SaleController extends GetxController {
   }
 
   // * FILTERING
-  // Initialize the default date range
-  DateTimeRange? selectedDateRange = DateTimeRange(
-    start: DateTime.now().subtract(Duration(days: 30)), // 30 days back
-    end: DateTime.now(), // Today
-  );
+  // No default date range - will use reset time by default
+  DateTimeRange? selectedDateRange;
   final filteredSales = <Sale>[].obs;
   final saleType = 'All'.obs;
   final filterClients = <String>[].obs;
   final filterEmployee = <String>[].obs;
-  void filterSales() {
-    filteredSales.value = sales;
+  void filterSales() async {
+    // If date range is selected, query database for that range
     if (selectedDateRange != null) {
-      filteredSales.value = filteredSales.where((sale) {
-        return sale.date.toDate().isAfter(selectedDateRange!.start) &&
-            sale.date
-                .toDate()
-                .isBefore(selectedDateRange!.end.add(const Duration(days: 1)));
-      }).toList();
+      // Cancel previous filtered subscription if exists
+      await _filteredSaleSubscription?.cancel();
+      
+      // Query database for the selected date range
+      _filteredSaleSubscription = FirestoreDb()
+          .getSalesByDateRange(selectedDateRange!.start, selectedDateRange!.end)
+          .listen((data) {
+        // Start with queried data
+        var filtered = data;
+        
+        // Apply additional filters
+        if (filterClients.isNotEmpty) {
+          filtered = filtered.where((sale) {
+            return filterClients.contains(sale.client);
+          }).toList();
+        }
+        if (filterEmployee.isNotEmpty) {
+          filtered = filtered.where((sale) {
+            return filterEmployee.contains(sale.employeeId);
+          }).toList();
+        }
+        if (saleType.value == 'Debt') {
+          filtered = filtered.where((sale) {
+            return sale.debt > 0;
+          }).toList();
+        }
+        
+        filteredSales.value = filtered;
+        setSalesByDate();
+      });
+    } else {
+      // No date range selected, use in-memory filtering
+      await _filteredSaleSubscription?.cancel();
+      
+      filteredSales.value = sales;
+      
+      if (filterClients.isNotEmpty) {
+        filteredSales.value = filteredSales.where((sale) {
+          return filterClients.contains(sale.client);
+        }).toList();
+      }
+      if (filterEmployee.isNotEmpty) {
+        filteredSales.value = filteredSales.where((sale) {
+          return filterEmployee.contains(sale.employeeId);
+        }).toList();
+      }
+      if (saleType.value == 'Debt') {
+        filteredSales.value = filteredSales.where((sale) {
+          return sale.debt > 0;
+        }).toList();
+      }
+      
+      setSalesByDate();
     }
-    if (filterClients.isNotEmpty) {
-      filteredSales.value = filteredSales.where((sale) {
-        return filterClients.contains(sale.client);
-      }).toList();
-    }
-    if (filterEmployee.isNotEmpty) {
-      filteredSales.value = filteredSales.where((sale) {
-        return filterEmployee.contains(sale.employeeId);
-      }).toList();
-    }
-    if (saleType.value == 'Debt') {
-      filteredSales.value = filteredSales.where((sale) {
-        return sale.debt > 0;
-      }).toList();
-    }
-
-    setSalesByDate();
   }
   void filterSalesById(String saleId) {
     filteredSales.value = sales.where((sale) => sale.id == saleId).toList();
@@ -439,17 +472,32 @@ class SaleController extends GetxController {
     filterSales();
   }
 
+  void setFilterEmployee(List<String> employees) {
+    filterEmployee.value = employees;
+    filterSales();
+  }
+
   void setSelectedDateRange(DateTimeRange dateRange) {
     selectedDateRange = dateRange;
     filterSales();
   }
 
-  void clearSelectedDateRange() {
+  void clearSelectedDateRange() async {
     selectedDateRange = null;
+    await _filteredSaleSubscription?.cancel();
+    _filteredSaleSubscription = null;
+    filterSales();
+  }
+
+  @override
+  void onClose() {
+    _saleSubscription?.cancel();
+    _filteredSaleSubscription?.cancel();
+    super.onClose();
   }
 //for mobile app
 
-
+/*
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -598,10 +646,10 @@ class SaleController extends GetxController {
     }
 
 
-  }
+  }*/
 
 //for web app
-/*
+
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -730,16 +778,20 @@ class SaleController extends GetxController {
 
 
     final fileBytes = excel.encode();
-    // For web: Save the file to the browser's download directory
-    final blob = html.Blob([fileBytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute("download", "Sales_Report.xlsx")
-      ..click();
-    html.Url.revokeObjectUrl(url);
+    if (fileBytes != null) {
+      // Save and share the file (works on both web and mobile)
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/Sales_Report.xlsx";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
 
-
-  }*/
+      await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Sales Report',
+      );
+    }
+  }
 
   void clearSales(){
     sales.value.clear();

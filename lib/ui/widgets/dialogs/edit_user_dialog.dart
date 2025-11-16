@@ -59,7 +59,7 @@ class _EditUserDialogState extends State<EditUserDialog> {
           onSave: () {
             if (infoController.text.isNotEmpty) {
               firestore
-                  .collection('users')
+                  .collection('gmanusers')
                   .doc(profileController.user['id'])
                   .update({
                 'name': infoController.text.trim(),
