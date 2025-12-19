@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import '../../../controllers/expence_controller.dart';
 import '../../../controllers/profile_controller.dart';
+import '../../../controllers/business_controller.dart';
 import '../../../models/expences.dart';
 
 class EditExpenseScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
   String _selectedCategory = 'Food'; // Keep English value internally
   final ExpenseController _expenseController = Get.find();
   final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
 
   bool _isLoading = false;
   Expense? _expense;
@@ -298,6 +300,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                   ),
                   const SizedBox(height: 20),
                 // Source of Funds field
+                if (((_businessController.business['multiFundEnabled'] ?? false) == true))
                 Card(
                   elevation: 4,
                   shape: RoundedRectangleBorder(

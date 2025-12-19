@@ -78,10 +78,6 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         elevation: 0,
       ),
       body: Obx(() {
-        if (_expenseController.filteredExpenses.isEmpty) {
-          return Center(child: Text('No expenses yet!'.tr));
-        }
-
         // Use controller's filteredExpenses (already filtered by date range via database query)
         List<Expense> filteredExpenses = _expenseController.filteredExpenses;
 
@@ -116,8 +112,13 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
         return Column(
           children: [
             _buildFilterOptions(context),
-            _buildTotalExpensesSummary(context, totalExpenses, filteredExpenses.length),
-            Expanded(
+            if (filteredExpenses.isEmpty)
+              Expanded(
+                child: Center(child: Text('No expenses yet!'.tr)),
+              )
+            else ...[
+              _buildTotalExpensesSummary(context, totalExpenses, filteredExpenses.length),
+              Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.only(bottom: 40),
                 itemCount: groupedExpenses.length,
@@ -418,6 +419,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                 },
               ),
             ),
+            ],
           ],
         );
       }),

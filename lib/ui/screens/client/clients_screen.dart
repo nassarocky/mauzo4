@@ -7,6 +7,7 @@ import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/dialogs/sort_client_dialog.dart';
+import 'package:mauzo/ui/widgets/dialogs/filter_client_dialog.dart';
 import 'package:mauzo/ui/widgets/search_filter_icon.dart';
 import '../../widgets/bottomsheets/client_info_bottom_sheet.dart';
 import '../../../controllers/client_controller.dart';
@@ -28,6 +29,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
   void dispose() {
     Timer.run(() {
       _clientController.searchClients.value = _clientController.clients;
+      _clientController.filterType.value = 'all';
     });
     super.dispose();
   }
@@ -95,6 +97,18 @@ class _ClientsScreenState extends State<ClientsScreen> {
                           ),
                         ),
                       ),
+                    ),
+                    const SizedBox(width: 8),
+                    SearchFilterIcon(
+                      icon: Icons.filter_list,
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) {
+                            return const FilterClientDialog();
+                          },
+                        );
+                      },
                     ),
                     const SizedBox(width: 8),
                     SearchFilterIcon(

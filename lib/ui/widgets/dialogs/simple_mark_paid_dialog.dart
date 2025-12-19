@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/models/payment_record_model.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 import '../../../utils/constants.dart';
 import '../buttons/primary_button.dart';
 import '../buttons/secondary_button.dart';
@@ -21,6 +22,7 @@ class SimpleMarkPaidDialog extends StatefulWidget {
 
 class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
   final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
   final _referenceController = TextEditingController();
   final _notesController = TextEditingController();
 
@@ -93,37 +95,38 @@ class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
               ),
             ),
             const SizedBox(height: 20),
-
             // Payment Method
-            Text('Payment Method *'),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<PaymentMethod>(
-                  value: selectedPaymentMethod,
-                  isExpanded: true,
-                  items: PaymentMethod.values.map((method) {
-                    return DropdownMenuItem<PaymentMethod>(
-                      value: method,
-                      child: Text(_getPaymentMethodLabel(method)),
-                    );
-                  }).toList(),
-                  onChanged: (PaymentMethod? value) {
-                    if (value != null) {
-                      setState(() {
-                        selectedPaymentMethod = value;
-                      });
-                    }
-                  },
+            if (((_businessController.business['multiFundEnabled'] ?? false) == true)) ...[
+              Text('Payment Method *'),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<PaymentMethod>(
+                    value: selectedPaymentMethod,
+                    isExpanded: true,
+                    items: PaymentMethod.values.map((method) {
+                      return DropdownMenuItem<PaymentMethod>(
+                        value: method,
+                        child: Text(_getPaymentMethodLabel(method)),
+                      );
+                    }).toList(),
+                    onChanged: (PaymentMethod? value) {
+                      if (value != null) {
+                        setState(() {
+                          selectedPaymentMethod = value;
+                        });
+                      }
+                    },
+                  ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(height: 16),
 
             // Reference Number

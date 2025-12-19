@@ -106,6 +106,22 @@ async function deleteCollection(collectionRef, batchSize) {
 }
 
 exports.makePayment = onRequest(async (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
   try {
     const {
       phone,
@@ -370,6 +386,22 @@ exports.addSale = onCall(async (request) => {
 
 // HTTP Functions
 exports.deleteUser = onRequest(async (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
   const userId = req.body.userId;
   const businessId = req.body.businessId;
 
@@ -391,6 +423,24 @@ exports.deleteUser = onRequest(async (req, res) => {
 
 
 exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => {
+  // CORS: allow production domains (and common localhost ports for dev) and handle preflight
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
+
   const { name, email, phone, password, business, role } = req.body;
 
   if (!name) return res.status(400).send('Missing name');
@@ -720,7 +770,23 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
 
 
 exports.resetProductQuantities = onRequest(async (req, res) => {
- const profile = req.query.profile;  // Get the profile from the query parameter
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
+ const profile = req.query.profile || req.query.business;  // Get the profile from the query parameter
 
     if (!profile) {
         console.error('Missing profile parameter');
@@ -992,6 +1058,22 @@ exports.syncProductsAcrossAllBusinesses = onRequest(async (req, res) => {
 
 
 exports.saveProductToUserStore = onRequest(async (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
   const {
     id,
     storeId,

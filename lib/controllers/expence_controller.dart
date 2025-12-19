@@ -110,8 +110,8 @@ class ExpenseController extends GetxController {
       // Ensure expense.date is of type DateTime and convert to Timestamp
       Timestamp expenseTimestamp = expense.date;
 
-      // Check if the expenseTimestamp is within the specified range
-      if (expenseTimestamp.compareTo(startTimestamp) > 0 && expenseTimestamp.compareTo(endDate) < 0) {
+      // Check if the expenseTimestamp is within the specified range (INCLUSIVE boundaries)
+      if (expenseTimestamp.compareTo(startTimestamp) >= 0 && expenseTimestamp.compareTo(endDate) <= 0) {
         totalExpenses += expense.amount ?? 0;
       }
         }

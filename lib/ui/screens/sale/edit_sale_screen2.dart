@@ -73,18 +73,22 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
 
     if (picked != null) {
       setState(() {
-        // Combine picked date with current time (hours, minutes, seconds)
+        // Preserve the original time component (hours, minutes, seconds, microseconds)
+        // Only update the date part (year, month, day)
+        final DateTime originalTime = selectedDate ?? now;
         selectedDate = DateTime(
           picked.year,
           picked.month,
           picked.day,
-          now.hour,
-          now.minute,
-          now.second,
+          originalTime.hour,
+          originalTime.minute,
+          originalTime.second,
+          originalTime.millisecond,
+          originalTime.microsecond,
         );
       });
 
-      print('📅 New selected date with current time: $selectedDate');
+      print('📅 New selected date with preserved time: $selectedDate');
     }
   }
 
@@ -767,6 +771,7 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
                                   'id': item.id,
                                   'quantity': quantity,
                                   'price': _cartController.getPrice(item.id),
+                                  'buyingPrice': _cartController.getBuyingPrice(item.id),
                                   'name': item.name,
                                 });
                               }
@@ -1021,18 +1026,25 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
     _cartController.clearComment();
     _cartController.clearDiscount();
     _cartController.clearPayments();
-    _cartController.passedArgument=='NOT';
+    _cartController.passedArgument='NOT';
     _cartController.editInvoice='NOT';
   }
 
-  void updateSoldQuantity() {
+  Future<void> updateSoldQuantity() async {
+    // ✅ Batch all updates for better offline support
+    final updates = <Future>[];
+    
     for (var product in widget.sale.products) {
-      _productController.updateProductCount(
+      updates.add(_productController.updateProductCount(
           _productController.getProduct(product['id']),
           _productController.getProduct(product['id']).quantity! -
               _cartController.singleProductQuantity(product['id']) +
-              product['quantity'],'Edit');
+              product['quantity'],
+          'Edit'));
     }
+    
+    // ✅ Wait for all updates together
+    await Future.wait(updates);
   }
 
 }

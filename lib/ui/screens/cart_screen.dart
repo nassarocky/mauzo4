@@ -191,6 +191,18 @@ class _CartScreenState extends State<CartScreen> {
                       _cartController.clearPayments();
                       _cartController.addPayment(existing.amount, existing.currency, method: _paymentMethod);
                     }
+
+                    if (_cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
+                      final double calcBase = _cartController.productsPrice - _cartController.discount.value;
+                      final double calcAmount = calcBase < 0 ? 0 : calcBase;
+                      final existing = _cartController.payments[0];
+                      if ((existing.amount - calcAmount).abs() > 0.0001) {
+                        _cartController.clearPayments();
+                        _cartController.addPayment(calcAmount, existing.currency, method: existing.method);
+                        _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
+                      }
+                    }
+
                     // Keep the text field synced with the current payment when not focused
                     if (!_paidFocusNode.hasFocus) {
                       final double currentAmt =
@@ -727,15 +739,20 @@ class _CartScreenState extends State<CartScreen> {
                                 return;
                               }
                               List products = [];
+                              print('🛒 Building products array for sale');
                               for (var item in _cartController.getUniqueProducts()) {
+                                final buyingPrice = _cartController.getBuyingPrice(item.id).toDouble();
+                                print('  📦 ${item.name}: buyingPrice=$buyingPrice, price=${_cartController.getPrice(item.id)}');
                                 products.add({
                                   'id': item.id,
                                   'quantity': _cartController.singleProductQuantity(item.id),
                                   'price': (_cartController.getPrice(item.id).toDouble()),
+                                  'buyingPrice': buyingPrice,
                                   'name': item.name,
                                   'itemType': item.itemType, // <-- Ensure itemType is included
                                 });
                               }
+                              print('📋 Products array built with ${products.length} items');
 
                               if(from=='invoice'){
                                 /*
@@ -1043,6 +1060,12 @@ class _CartScreenState extends State<CartScreen> {
       'date': DateTime.now(),
     };
 
+    print('💾 Saving sale with buyingPrice: ${saleData['buyingPrice']}');
+    print('📦 Products count: ${products.length}');
+    for (var p in products) {
+      print('   - ${p['name']}: buyingPrice=${p['buyingPrice']}, qty=${p['quantity']}');
+    }
+
     // Call functions separately without `then`
     createSale(newSaleRef, saleData, businessId);
   }
@@ -1207,6 +1230,9 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Future<void> decreaseSoldQuantity() async {
+    // Collect all updates first, then execute (better offline support)
+    final updates = <Future>[];
+    
     for (var product in _cartController.getUniqueProducts()) {
       // Skip stock reduction for services
       if (product.itemType == 'service') continue;
@@ -1216,12 +1242,16 @@ class _CartScreenState extends State<CartScreen> {
       double newQuantity = currentQuantity - soldQuantity;
       newQuantity = newQuantity < 0 ? 0 : newQuantity;
 
-      _productController.updateProductCount(
+      // Add to batch - don't await yet
+      updates.add(_productController.updateProductCount(
         product,
         newQuantity,
         'Sale',
-      );
+      ));
     }
+    
+    // Wait for all updates together (works great offline!)
+    await Future.wait(updates);
   }
 
   Future<void> _printAndSubmitSale() async {
@@ -1263,15 +1293,20 @@ class _CartScreenState extends State<CartScreen> {
     try {
       // Prepare products
       List products = [];
+      print('🖨️ [printAndSave] Building products array');
       for (var item in _cartController.getUniqueProducts()) {
+        final buyingPrice = _cartController.getBuyingPrice(item.id).toDouble();
+        print('  📦 ${item.name}: buyingPrice=$buyingPrice');
         products.add({
           'id': item.id,
           'quantity': _cartController.singleProductQuantity(item.id),
           'price': (_cartController.getPrice(item.id).toDouble()),
+          'buyingPrice': buyingPrice,
           'name': item.name,
           'itemType': item.itemType,
         });
       }
+      print('💾 [printAndSave] Total buyingPrice for sale: ${_cartController.productsBuyingPrice}');
 
       // Build Sale object for printing (before saving to get data)
       final saleForPrint = Sale(

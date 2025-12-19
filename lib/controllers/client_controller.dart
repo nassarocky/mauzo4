@@ -13,6 +13,7 @@ class ClientController extends GetxController {
   final clients = <Client>[].obs;
   final searchClients = <Client>[].obs;
   final sortCategory = 'name'.obs;
+  final filterType = 'all'.obs;
 
   StreamSubscription<List<Client>>? _clientSubscription;
 
@@ -195,5 +196,29 @@ class ClientController extends GetxController {
 
   void setSortCategoryValue(String value) {
     sortCategory.value = value;
+  }
+
+  void applyFilter(String filter) {
+    filterType.value = filter;
+    
+    switch (filter) {
+      case 'all':
+        searchClients.value = clients;
+        break;
+      case 'with_debt':
+        searchClients.value = clients.where((client) => client.debt > 0).toList();
+        break;
+      case 'with_advance':
+        searchClients.value = clients.where((client) => client.advance > 0).toList();
+        break;
+      case 'no_balance':
+        searchClients.value = clients.where((client) => client.debt == 0 && client.advance == 0).toList();
+        break;
+      default:
+        searchClients.value = clients;
+    }
+    
+    // Re-apply current sort after filtering
+    sort(sortCategory.value);
   }
 }

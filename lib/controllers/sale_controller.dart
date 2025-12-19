@@ -65,7 +65,9 @@ class SaleController extends GetxController {
       // Fetch the products from the sale
       List products = sale.products;
 
-      // Update the product quantities in the inventory
+      // Batch all product quantity updates for better offline support
+      final updates = <Future>[];
+      
       for (var product in products) {
         // Skip quantity update for services
         String itemType = 'product';
@@ -81,12 +83,15 @@ class SaleController extends GetxController {
         // Fetch the product from the product controller
         var productInInventory = productController.getProduct(productId);
 
-        // Update the product quantity
+        // Add update to batch
         if (productInInventory != null) {
           double newQuantity = productInInventory.quantity! + quantityToAdd;
-          productController.updateProductCount(productInInventory, newQuantity,'Sale');
+          updates.add(productController.updateProductCount(productInInventory, newQuantity,'Sale'));
         }
       }
+      
+      // Wait for all product updates together
+      await Future.wait(updates);
 
       // Delete the sale from Firestore
       await firestore
@@ -205,10 +210,10 @@ class SaleController extends GetxController {
   double getTotalSalesByDate(DateTime date) {
     double totalSalesByDate = 0;
     date = DateUtils.dateOnly(date);
-    for (var i = 0; i < sales.length; i++) {
-      DateTime saleDate = DateUtils.dateOnly(sales[i].date.toDate());
+    for (var i = 0; i < filteredSales.length; i++) {
+      DateTime saleDate = DateUtils.dateOnly(filteredSales[i].date.toDate());
       if (saleDate == date) {
-        totalSalesByDate += sales[i].price;
+        totalSalesByDate += filteredSales[i].price;
       }
     }
     return totalSalesByDate;
@@ -224,8 +229,8 @@ class SaleController extends GetxController {
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endTimestamp) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endTimestamp) <= 0) {
           totalSales += sale.price;
         }
       } else {
@@ -244,14 +249,21 @@ class SaleController extends GetxController {
     double totalSales = 0;
     Timestamp currentTimestamp = Timestamp.now();
 
+    print('🔍 COGS Calculation Debug - Start');
+    print('📅 Date range: ${startTimestamp.toDate()} to ${endDate.toDate()}');
+    print('📦 Total sales to check: ${sales.length}');
+
     for (var sale in sales) {
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endDate) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
+          print('✅ Sale ${sale.id} - Date: ${saleTimestamp.toDate()}, BuyingPrice: ${sale.buyingPrice}');
           totalSales += sale.buyingPrice;
+        } else {
+          print('⏭️ Sale ${sale.id} - Outside range (${saleTimestamp.toDate()})');
         }
       } else {
         // If the date is not in a recognized format, log an error and skip
@@ -260,6 +272,7 @@ class SaleController extends GetxController {
       }
     }
 
+    print('💰 Total COGS: $totalSales');
     return totalSales;
   }
 
@@ -275,8 +288,8 @@ class SaleController extends GetxController {
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endDate) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
           totalPayments += sale.payment;
         }
       } else {
@@ -778,10 +791,21 @@ class SaleController extends GetxController {
 
 
     final fileBytes = excel.encode();
-    if (fileBytes != null) {
-      // Save and share the file (works on both web and mobile)
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
+
+    final fileName = 'Sales_Report.xlsx';
+
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Report downloaded successfully!');
+    } else {
+      // Mobile: Save and share the file
       final directory = await getApplicationDocumentsDirectory();
-      final filePath = "${directory.path}/Sales_Report.xlsx";
+      final filePath = "${directory.path}/$fileName";
       final file = File(filePath)
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);

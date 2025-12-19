@@ -32,8 +32,21 @@ class StoreTile extends StatelessWidget {
               topRight: Radius.circular(4),
             ),
           ),
-          builder: (_) => StoreInfoBottomSheet(
-            product: product,
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            minChildSize: 0.4,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (context, scrollController) {
+              return SafeArea(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  child: StoreInfoBottomSheet(
+                    product: product,
+                  ),
+                ),
+              );
+            },
           ),
         );
       },
@@ -150,8 +163,21 @@ class StoreTile extends StatelessWidget {
                                 topRight: Radius.circular(4),
                               ),
                             ),
-                            builder: (_) => StoreInfoBottomSheet(
-                              product: product,
+                            builder: (context) => DraggableScrollableSheet(
+                              initialChildSize: 0.7,
+                              minChildSize: 0.4,
+                              maxChildSize: 0.95,
+                              expand: false,
+                              builder: (context, scrollController) {
+                                return SafeArea(
+                                  child: SingleChildScrollView(
+                                    controller: scrollController,
+                                    child: StoreInfoBottomSheet(
+                                      product: product,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           );
                         }

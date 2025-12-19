@@ -29,6 +29,7 @@ import '../../../services/thermal_printer_service.dart';
 import '../../widgets/printer_selection_dialog.dart';
 import '../../../models/sale_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../utils/download_helper.dart';
 
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({Key? key}) : super(key: key);
@@ -718,6 +719,8 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                     ],
                   ),
                   ...invoice.products.map<pw.TableRow>((product) {
+                    final quantity = (product['quantity'] ?? 0).toDouble();
+                    final price = (product['price'] ?? 0.0).toDouble();
                     return pw.TableRow(
                       children: [
                         pw.Padding(
@@ -726,15 +729,15 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(product['quantity'].toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(quantity.toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(product['price'], currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(formatCurrency(price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(product['quantity'] * product['price'], currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(formatCurrency(quantity * price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                       ],
                     );
@@ -803,18 +806,29 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   Future<void> shareInvoice(dynamic invoice, Client client) async {
     final pdf = await _generateInvoice(invoice, client);
 
-    final output = await getTemporaryDirectory();
-    final file = File("${output.path}/invoice.pdf");
-    await file.writeAsBytes(await pdf.save());
-    final result = await Share.shareXFiles(
-      [XFile("${output.path}/invoice.pdf")],
-      text: 'Invoice Report',
-    );
+    try {
+      final pdfBytes = await pdf.save();
+      final fileName = 'Invoice_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      
+      if (DownloadHelper.isWeb) {
+        // Web: Direct download using blob
+        DownloadHelper.downloadFileWeb(pdfBytes, fileName);
+        successSnackbar('PDF downloaded successfully!');
+      } else {
+        // Mobile: Save to file and share
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath = "${directory.path}/$fileName";
+        final file = File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(pdfBytes);
 
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the report!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+        await Share.shareXFiles(
+          [XFile(filePath)],
+          text: 'Invoice Report',
+        );
+      }
+    } catch (e) {
+      errorSnackbar('Error generating PDF: $e');
     }
   }
 

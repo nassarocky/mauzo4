@@ -514,24 +514,36 @@ class StoreController extends GetxController {
       );
     });
 
-    // Save the file to the user's device
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = "${directory.path}/Store_Report.xlsx";
     final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
 
-    final file = File(filePath)
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(fileBytes!);
+    final fileName = 'Store_Report.xlsx';
 
-    final result = await Share.shareXFiles(
-      [XFile(filePath)],
-      text: 'Store Report',
-    );
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Report downloaded successfully!');
+    } else {
+      // Mobile: Save and share the file
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/$fileName";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
 
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the report!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+      final result = await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Store Report',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        print('Thank you for sharing the report!');
+      } else if (result.status == ShareResultStatus.dismissed) {
+        print('Share dismissed');
+      }
     }
   }
 

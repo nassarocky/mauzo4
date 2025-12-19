@@ -63,6 +63,7 @@ class CartController extends GetxController {
       productsPriceMap.add({
         'id': product['id'],
         'price': product['price'],
+        'buyingPrice': product['buyingPrice'] ?? 0.0,
       });
     }
     _products.value = products;
@@ -103,7 +104,16 @@ class CartController extends GetxController {
     return _products.fold(0, (sum, product) => sum + (getPrice(product.id)*product.count));
   }
   double get productsBuyingPrice {
-    return _products.fold(0, (sum, product) => sum + (getBuyingPrice(product.id)*product.count));
+    print('💵 Calculating productsBuyingPrice for ${_products.length} unique products');
+    double total = 0;
+    for (var product in _products) {
+      final buyingPrice = getBuyingPrice(product.id);
+      final productTotal = buyingPrice * product.count;
+      print('  📦 ${product.name} (${product.id}): buyingPrice=$buyingPrice x count=${product.count} = $productTotal');
+      total += productTotal;
+    }
+    print('💰 Total productsBuyingPrice: $total');
+    return total;
   }
   double get productsOriginalPrice {
     return _products.fold(0, (sum, product) => sum + (getOriginalPrice(product.id)*product.count));

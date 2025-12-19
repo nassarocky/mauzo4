@@ -635,11 +635,11 @@ class DebtCard extends StatelessWidget {
   }
 
   void _showDebtPaymentDialog(BuildContext context, DebtHistory debt) {
-    // CRITICAL SECURITY CHECK: Verify user has permission to manage debt
-    if (!_profileController.hasPermission('manage_debt')) {
+    // CRITICAL SECURITY CHECK: Verify user has permission to record debt payments
+    if (!_profileController.hasPermission('record_debt_payment')) {
       Get.snackbar(
         'Access Denied',
-        'You do not have permission to manage debt payments',
+        'You do not have permission to record debt payments',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red,
         colorText: Colors.white,
@@ -669,20 +669,21 @@ class DebtCard extends StatelessWidget {
                           decoration: InputDecoration(hintText: 'Amount'.tr),
                         ),
                         const SizedBox(height: 10),
-                        DropdownButtonFormField<String>(
-                          value: paymentMethod,
-                          decoration: InputDecoration(
-                            labelText: 'Payment Method',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        if (((_businessController.business['multiFundEnabled'] ?? false) == true))
+                          DropdownButtonFormField<String>(
+                            value: paymentMethod,
+                            decoration: InputDecoration(
+                              labelText: 'Payment Method',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                              DropdownMenuItem(value: 'bank', child: Text('Bank')),
+                              DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
+                            ],
+                            onChanged: (v) => setStateLocal(() => paymentMethod = v ?? 'cash'),
                           ),
-                          items: const [
-                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                          ],
-                          onChanged: (v) => setStateLocal(() => paymentMethod = v ?? 'cash'),
-                        ),
                       ],
                     ),
               actions: [
@@ -775,9 +776,11 @@ class DebtCard extends StatelessWidget {
 
       final newSaleRef = salesCollection.doc(newSaleData['id']);
       transaction.set(newSaleRef, newSaleData);
+      // ✅ FIXED: Only update debt, DO NOT change the original sale's date
+      // Changing the date causes the sale to appear in wrong date range queries
       transaction.update(oldSaleRef, {
         'debt': newRemainingDebt,
-        'date': Timestamp.now(),
+        // 'date': Timestamp.now(),  ← REMOVED: Don't change original sale date
       });
 
       final newPaymentRecord = {

@@ -415,7 +415,10 @@ class FirestoreDb {
   }
 
 
-  // Load debts by status only (PENDING, PARTIALLY_PAID, or PAID) - optimized to reduce reads
+  // Load debts by status only (PENDING or PAID) - optimized to reduce reads
+  // PENDING: Debts with remaining balance > 0 (new credit extended)
+  // PAID: Debts fully paid (remaining balance = 0)
+  // Note: Debt payments are recorded as new sales, so only PENDING debts count as actual debt
   Stream<List<DebtHistory>> getDebtHistory({String status = 'PENDING'}) {
     final String? business = _businessController.businessId.value;
 

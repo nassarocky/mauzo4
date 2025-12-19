@@ -20,8 +20,7 @@ Future<void> registerUser({
   required String business,
   String role = 'employee', // Default to 'employee' for backward compatibility
 }) async {
-  final Uri url = Uri.parse(
-      'https://us-central1-hesabumauzo.cloudfunctions.net/registerUser');
+  final Uri url = Uri.parse('https://registeruser-z3bhqccxda-uc.a.run.app');
 
   try {
     // Sending POST request to Cloud Function

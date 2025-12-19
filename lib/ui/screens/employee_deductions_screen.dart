@@ -5,6 +5,7 @@ import 'package:mauzo/controllers/pay_role_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/models/employee_loss_model.dart';
 import 'package:mauzo/models/early_payment_model.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 import '../../utils/constants.dart';
 
 class EmployeeDeductionsScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class EmployeeDeductionsScreen extends StatefulWidget {
 class _EmployeeDeductionsScreenState extends State<EmployeeDeductionsScreen> with SingleTickerProviderStateMixin {
   final PayRoleController _payRoleController = Get.find<PayRoleController>();
   final ProfileController _profileController = Get.find<ProfileController>();
+  final BusinessController _businessController = Get.find<BusinessController>();
   late TabController _tabController;
 
   @override
@@ -600,22 +602,24 @@ class _EmployeeDeductionsScreenState extends State<EmployeeDeductionsScreen> wit
             Text('Employee: ${payment.employeeName}'),
             Text('Amount: TSh ${payment.formattedAmount}'),
             const SizedBox(height: 16),
-            const Text('Payment Method:'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: selectedMethod,
-              items: EarlyPaymentModel.paymentMethods.map((method) {
-                return DropdownMenuItem(
-                  value: method,
-                  child: Text(method == 'cash' ? 'Cash' :
-                            method == 'bank_transfer' ? 'Bank Transfer' :
-                            method == 'mobile_money' ? 'Mobile Money' : 'Check'),
-                );
-              }).toList(),
-              onChanged: (value) {
-                selectedMethod = value!;
-              },
-            ),
+            if (((_businessController.business['multiFundEnabled'] ?? false) == true)) ...[
+              const Text('Payment Method:'),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedMethod,
+                items: EarlyPaymentModel.paymentMethods.map((method) {
+                  return DropdownMenuItem(
+                    value: method,
+                    child: Text(method == 'cash' ? 'Cash' :
+                              method == 'bank_transfer' ? 'Bank Transfer' :
+                              method == 'mobile_money' ? 'Mobile Money' : 'Check'),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  selectedMethod = value!;
+                },
+              ),
+            ],
           ],
         ),
         actions: [

@@ -12,7 +12,7 @@ class SupportScreen extends StatefulWidget {
 }
 
 class _SupportScreenState extends State<SupportScreen> {
-  String phoneNumber = '+255698720225/+255653422101';
+  String phoneNumber = '+255698720225/+255781282076';
 
   @override
   void initState() {

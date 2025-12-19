@@ -30,6 +30,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../utils/download_helper.dart';
 
 class BoughtScreen extends StatefulWidget {
   const BoughtScreen({Key? key}) : super(key: key);
@@ -725,12 +726,14 @@ class _boughtControllerState extends State<BoughtScreen> {
                     ],
                   ),
                   ...invoice.products.map<pw.TableRow>((product) {
+                    final quantity = (product['quantity'] ?? 0).toDouble();
+                    final price = (product['price'] ?? 0.0).toDouble();
                     return pw.TableRow(
                       children: [
                         pw.Text(product['name'], textAlign: pw.TextAlign.center),
-                        pw.Text(product['quantity'].toString(), textAlign: pw.TextAlign.center),
-                        pw.Text(product['price'].toString(), textAlign: pw.TextAlign.center),
-                        pw.Text((product['quantity'] * product['price']).toString(), textAlign: pw.TextAlign.center),
+                        pw.Text(quantity.toString(), textAlign: pw.TextAlign.center),
+                        pw.Text(price.toString(), textAlign: pw.TextAlign.center),
+                        pw.Text((quantity * price).toString(), textAlign: pw.TextAlign.center),
                       ],
                     );
                   }).toList(),
@@ -815,12 +818,14 @@ class _boughtControllerState extends State<BoughtScreen> {
                     ],
                   ),
                   ...invoice.products.map<pw.TableRow>((product) {
+                    final quantity = (product['quantity'] ?? 0).toDouble();
+                    final price = (product['price'] ?? 0.0).toDouble();
                     return pw.TableRow(
                       children: [
                         pw.Text(product['name'], textAlign: pw.TextAlign.center),
-                        pw.Text(product['quantity'].toString(), textAlign: pw.TextAlign.center),
-                        pw.Text(product['price'].toString(), textAlign: pw.TextAlign.center),
-                        pw.Text((product['quantity'] * product['price']).toString(), textAlign: pw.TextAlign.center),
+                        pw.Text(quantity.toString(), textAlign: pw.TextAlign.center),
+                        pw.Text(price.toString(), textAlign: pw.TextAlign.center),
+                        pw.Text((quantity * price).toString(), textAlign: pw.TextAlign.center),
                       ],
                     );
                   }).toList(),
@@ -855,20 +860,29 @@ class _boughtControllerState extends State<BoughtScreen> {
       ),
     );
 
-    final output = await getTemporaryDirectory();
-    final file = File("${output.path}/invoice.pdf");
-    await file.writeAsBytes(await pdf.save());
+    try {
+      final pdfBytes = await pdf.save();
+      final fileName = 'Purchase_Receipt_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      
+      if (DownloadHelper.isWeb) {
+        // Web: Direct download using blob
+        DownloadHelper.downloadFileWeb(pdfBytes, fileName);
+        successSnackbar('PDF downloaded successfully!');
+      } else {
+        // Mobile: Save to file and share
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath = "${directory.path}/$fileName";
+        final file = File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(pdfBytes);
 
-    final result = await Share.shareXFiles(
-      [XFile("${output.path}/invoice.pdf")],
-      text: 'Product in Store Report',
-    );
-
-    // Optionally, handle the result status
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the report!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+        await Share.shareXFiles(
+          [XFile(filePath)],
+          text: 'Purchase Receipt',
+        );
+      }
+    } catch (e) {
+      errorSnackbar('Error generating PDF: $e');
     }
   }
 

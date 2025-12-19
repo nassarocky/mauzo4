@@ -81,7 +81,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
             ),
             context: context,
-            builder: (_) => ProductInfoBottomSheet(product: product),
+            builder: (context) => DraggableScrollableSheet(
+              initialChildSize: 0.7,
+              minChildSize: 0.4,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) {
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: ProductInfoBottomSheet(product: product),
+                  ),
+                );
+              },
+            ),
           );
         } else {
           // Product not found

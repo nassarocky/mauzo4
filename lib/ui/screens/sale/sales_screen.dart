@@ -28,6 +28,7 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/printer_selection_dialog.dart';
 import '../../../services/thermal_printer_service.dart';
+import '../../../utils/download_helper.dart';
 
 import 'edit_sale_screen2.dart';
 
@@ -845,6 +846,8 @@ class _SalesScreenState extends State<SalesScreen> {
                     ],
                   ),
                   ...invoice.products.map<pw.TableRow>((product) {
+                    final quantity = (product['quantity'] ?? 0).toDouble();
+                    final price = (product['price'] ?? 0.0).toDouble();
                     return pw.TableRow(
                       children: [
                         pw.Padding(
@@ -853,15 +856,15 @@ class _SalesScreenState extends State<SalesScreen> {
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(product['quantity'].toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(quantity.toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(product['price'], currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(formatCurrency(price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(product['quantity'] * product['price'], currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
+                          child: pw.Text(formatCurrency(quantity * price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
                         ),
                       ],
                     );
@@ -913,19 +916,29 @@ class _SalesScreenState extends State<SalesScreen> {
   Future<void> shareInvoice(Sale invoice, Client client) async {
     final pdf = await _generateReceipt(invoice, client);
 
-    final output = await getTemporaryDirectory();
-    final file = File("${output.path}/sales.pdf");
-    await file.writeAsBytes(await pdf.save());
+    try {
+      final pdfBytes = await pdf.save();
+      final fileName = 'Sales_Receipt_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      
+      if (DownloadHelper.isWeb) {
+        // Web: Direct download using blob
+        DownloadHelper.downloadFileWeb(pdfBytes, fileName);
+        successSnackbar('PDF downloaded successfully!');
+      } else {
+        // Mobile: Save to file and share
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath = "${directory.path}/$fileName";
+        final file = File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(pdfBytes);
 
-    final result = await Share.shareXFiles(
-      [XFile("${output.path}/sales.pdf")],
-      text: 'Sales Receipt',
-    );
-
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the receipt!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+        await Share.shareXFiles(
+          [XFile(filePath)],
+          text: 'Sales Receipt',
+        );
+      }
+    } catch (e) {
+      errorSnackbar('Error generating PDF: $e');
     }
   }
 
@@ -966,6 +979,9 @@ class _SalesScreenState extends State<SalesScreen> {
             id: product['id'],
             name: product['name'],
             price: product['price'],
+            buyingPrice: (product['buyingPrice'] ?? 0.0) is num 
+                ? (product['buyingPrice'] as num).toDouble() 
+                : 0.0,
             discount: product['discount'],
             quantity: (product['quantity'] as num).toDouble(),
             count: (product['quantity'] as num).toDouble(),
@@ -976,10 +992,14 @@ class _SalesScreenState extends State<SalesScreen> {
       } else {
         print('✅ Product found: ${existingProduct.name}');
         existingProduct.count = (product['quantity'] as num).toDouble();
+        // Preserve historical buyingPrice from the sale, not current product buyingPrice
+        existingProduct.buyingPrice = (product['buyingPrice'] ?? existingProduct.buyingPrice) is num
+            ? ((product['buyingPrice'] ?? existingProduct.buyingPrice) as num).toDouble()
+            : existingProduct.buyingPrice;
         products.add(existingProduct);
       }
 
-      print('🔢 Product ID: ${product['id']}, Quantity from sale: ${product['quantity']}');
+      print('🔢 Product ID: ${product['id']}, Quantity from sale: ${product['quantity']}, BuyingPrice: ${product['buyingPrice']}');
     }
 
     _cartController.client = client;
@@ -1028,6 +1048,9 @@ class _SalesScreenState extends State<SalesScreen> {
             id: product['id'],
             name: product['name'],
             price: product['price'],
+            buyingPrice: (product['buyingPrice'] ?? 0.0) is num 
+                ? (product['buyingPrice'] as num).toDouble() 
+                : 0.0,
             discount: product['discount'],
             quantity: (product['quantity'] as num).toDouble(),
             code: '',
@@ -1036,6 +1059,10 @@ class _SalesScreenState extends State<SalesScreen> {
         );
       } else {
         existingProduct.quantity = (product['quantity'] as num).toDouble();
+        // Preserve historical buyingPrice from the sale, not current product buyingPrice
+        existingProduct.buyingPrice = (product['buyingPrice'] ?? existingProduct.buyingPrice) is num
+            ? ((product['buyingPrice'] ?? existingProduct.buyingPrice) as num).toDouble()
+            : existingProduct.buyingPrice;
         products.add(existingProduct);
       }
     }

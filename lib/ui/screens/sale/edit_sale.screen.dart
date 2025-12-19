@@ -734,13 +734,20 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
     });
   }
 
-  void updateSoldQuantity() {
+  Future<void> updateSoldQuantity() async {
+    // Batch all updates for better offline support
+    final updates = <Future>[];
+    
     for (var product in widget.sale.products) {
-      _productController.updateProductCount(
+      updates.add(_productController.updateProductCount(
           _productController.getProduct(product['id']),
           _productController.getProduct(product['id']).quantity! -
               _cartController.singleProductQuantity(product['id']) +
-              product['quantity'],'Edit');
+              product['quantity'],
+          'Edit'));
     }
+    
+    // Wait for all updates together
+    await Future.wait(updates);
   }
 }

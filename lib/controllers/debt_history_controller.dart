@@ -121,35 +121,41 @@ class DebtHistoryController extends GetxController {
       }).toList();
     }
   }
+  // Calculate total debt created within a date range
+  // Uses PENDING debts only (loaded via loadDebtsByStatus('PENDING'))
+  // Returns sum of remainingDebtAmount for debts incurred in the date range
+  // Note: Only PENDING debts count as actual debt - PAID debts are already converted to sales
   double getTotalDebtFromTimestamp(Timestamp startTimestamp,Timestamp endDate) {
     double totalDebt = 0;
-    Timestamp currentTimestamp = Timestamp.now();
 
     for (var debt in debtHistories) {
-      // Ensure sale.date is of type Timestamp
+      // Ensure debt.dateIncurred is of type Timestamp
       if (debt.dateIncurred is Timestamp) {
         Timestamp debtTimestamp = debt.dateIncurred;
 
-        // Check if the saleTimestamp is within the specified range
-        if (debtTimestamp.compareTo(startTimestamp) > 0 && debtTimestamp.compareTo(endDate) < 0) {
+        // Check if the debt was incurred within the specified date range (INCLUSIVE boundaries)
+        if (debtTimestamp.compareTo(startTimestamp) >= 0 && debtTimestamp.compareTo(endDate) <= 0) {
           totalDebt += debt.remainingDebtAmount;
         }
       } else {
         // If the date is not in a recognized format, log an error and skip
-        print("Unrecognized date format for sale: ${debt.dateIncurred}");
+        print("Unrecognized date format for debt: ${debt.dateIncurred}");
         continue;
       }
     }
 
     return totalDebt;
   }
+  // Calculate total debt across all loaded debts (typically PENDING status)
+  // Uses remainingDebtAmount for each debt
+  // Note: Only PENDING debts are actual outstanding debt
   double getTotalDebt() {
     double totalDebt = 0;
 
     for (var debt in debtHistories) {
       // Ensure debt.dateIncurred is of type Timestamp
       if (debt.dateIncurred is Timestamp) {
-        // Simply sum up all the remaining debt amounts
+        // Sum up all the remaining debt amounts
         totalDebt += debt.remainingDebtAmount;
       } else {
         // If the date is not in a recognized format, log an error and skip
@@ -211,8 +217,8 @@ class DebtHistoryController extends GetxController {
             // Ensure payment['date'] is of type Timestamp
             if (payment['date'] is Timestamp) {
               Timestamp paymentTimestamp = payment['date'];
-              // Check if the payment date is within the selected window (start, end)
-              if (paymentTimestamp.compareTo(startTimestamp) > 0 && paymentTimestamp.compareTo(endDate) < 0) {
+              // Check if the payment date is within the selected window (start, end) (INCLUSIVE boundaries)
+              if (paymentTimestamp.compareTo(startTimestamp) >= 0 && paymentTimestamp.compareTo(endDate) <= 0) {
                 totalPayments += payment['amount'];
               }
             } else {

@@ -34,7 +34,6 @@ Future<void> main() async {
       });
 
       await Firebase.initializeApp(
-        name: 'mauzo',
         options: DefaultFirebaseOptions.currentPlatform,
       ).then((value) => Get.put(AuthController()));
       getLocale();

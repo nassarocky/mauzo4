@@ -46,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ProfileController _profileController =Get.put(ProfileController());
   final BusinessController _businessController = Get.put(BusinessController());
   String accountName = 'Customer service / Huduma kwa wateja';
-  String accountEmail = '+255698720225/+255653422101';
+  String accountEmail = '+255698720225/+255781282076';
   bool isAccountActive = true;
   bool isInitialized = false;
   bool isBuyingStock = Preferences.getStockDisplayPreference();
@@ -70,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _initialize() async {
 
-   await _profileController.updateUserEmail(Preferences.getEmail());
+    await _profileController.updateUserEmail(Preferences.getEmail());
     await _businessController.updateBusinessId(Preferences.getBusiness());
 
     // Ensure a default Cash fund source exists (idempotent)
@@ -89,8 +89,8 @@ class _HomeScreenState extends State<HomeScreen> {
       await checkAccountStatus();
     }
     // Mark initialization as complete
-   setState(() {
-   isInitialized = true;
+    setState(() {
+      isInitialized = true;
     });
     // Start necessary operations
     startTimer();
@@ -178,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return WillPopScope(
             onWillPop: () async => false,
             child: AlertDialog(
-             // title: Text('${'Account Status:'.tr} ${_businessController.business['email']}'),
+              // title: Text('${'Account Status:'.tr} ${_businessController.business['email']}'),
               title: Text('payment'.tr),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -266,263 +266,263 @@ class _HomeScreenState extends State<HomeScreen> {
           final double netTotalLocal = cashAmountForRow - totalExpenses - purchasesCashDeduction;
 
           return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.9,
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.blue.shade50,
-                  Colors.white,
-                  Colors.green.shade50,
-                ],
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Header with gradient
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
-                    ),
-                    gradient: LinearGradient(
-                      colors: [Colors.blue.shade600, Colors.blue.shade800],
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.analytics, color: Colors.white, size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Sales and Expenses Analysis'.tr,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                      ),
-                    ],
-                  ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.9,
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.blue.shade50,
+                    Colors.white,
+                    Colors.green.shade50,
+                  ],
                 ),
-
-                // Content
-                Flexible(
-                  child: SingleChildScrollView(
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header with gradient
+                  Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(20),
-                    child: Column(
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                      gradient: LinearGradient(
+                        colors: [Colors.blue.shade600, Colors.blue.shade800],
+                      ),
+                    ),
+                    child: Row(
                       children: [
-                        // Switch: Treat missing breakdown as cash
                         Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
+                            color: Colors.white.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Treat missing breakdown as cash',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                              ),
-                              Switch(
-                                value: treatMissingAsCash,
-                                onChanged: (v) => setState(() => treatMissingAsCash = v),
-                              ),
-                            ],
-                          ),
+                          child: const Icon(Icons.analytics, color: Colors.white, size: 24),
                         ),
-                        const SizedBox(height: 12),
-                        // Total Sales Card
-                        _buildAnalyticsCard(
-                          icon: Icons.trending_up,
-                          iconColor: Colors.green,
-                          title: 'TOTAL SALES'.tr,
-                          amount: formatCurrency(totalPayments, _businessController.business['mainCurrency']),
-                          gradient: [Colors.green.shade50, Colors.green.shade100],
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Payment Methods Section
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.payment, color: Colors.blue.shade600, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Payment Methods Breakdown',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey.shade700,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              _buildPaymentMethodRow(
-                                icon: Icons.money,
-                                iconColor: Colors.green.shade600,
-                                method: 'Cash',
-                                amount: formatCurrency(cashAmountForRow, _businessController.business['mainCurrency']),
-                              ),
-                              const SizedBox(height: 8),
-                              _buildPaymentMethodRow(
-                                icon: Icons.account_balance,
-                                iconColor: Colors.blue.shade600,
-                                method: 'Bank',
-                                amount: formatCurrency(bankTotal, _businessController.business['mainCurrency']),
-                              ),
-                              const SizedBox(height: 8),
-                              _buildPaymentMethodRow(
-                                icon: Icons.phone_android,
-                                iconColor: Colors.orange.shade600,
-                                method: 'Mobile (Lipa Namba)',
-                                amount: formatCurrency(mobileTotal, _businessController.business['mainCurrency']),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Other Metrics
-                        _buildAnalyticsCard(
-                          icon: Icons.account_balance_wallet,
-                          iconColor: Colors.orange,
-                          title: 'DEBT'.tr,
-                          amount: formatCurrency(debt, _businessController.business['mainCurrency']),
-                          gradient: [Colors.orange.shade50, Colors.orange.shade100],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _buildAnalyticsCard(
-                          icon: Icons.shopping_cart,
-                          iconColor: Colors.purple,
-                          title: 'PURCHASES PAID'.tr,
-                          amount: formatCurrency(purchases, _businessController.business['mainCurrency']),
-                          gradient: [Colors.purple.shade50, Colors.purple.shade100],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _buildAnalyticsCard(
-                          icon: Icons.receipt_long,
-                          iconColor: Colors.red,
-                          title: 'EXPENSES'.tr,
-                          amount: formatCurrency(totalExpenses, _businessController.business['mainCurrency']),
-                          gradient: [Colors.red.shade50, Colors.red.shade100],
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Net Total - Special styling
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: netTotalLocal >= 0
-                                  ? [Colors.green.shade600, Colors.green.shade800]
-                                  : [Colors.red.shade600, Colors.red.shade800],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Sales and Expenses Analysis'.tr,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (netTotalLocal >= 0 ? Colors.green : Colors.red).withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
                           ),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  netTotalLocal >= 0 ? Icons.account_balance : Icons.warning,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'TOTAL CASH IN HAND'.tr,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      formatCurrency(netTotalLocal, _businessController.business['mainCurrency']),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close, color: Colors.white),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+
+                  // Content
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        children: [
+                          // Switch: Treat missing breakdown as cash
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Treat missing breakdown as cash',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ),
+                                Switch(
+                                  value: treatMissingAsCash,
+                                  onChanged: (v) => setState(() => treatMissingAsCash = v),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // Total Sales Card
+                          _buildAnalyticsCard(
+                            icon: Icons.trending_up,
+                            iconColor: Colors.green,
+                            title: 'TOTAL SALES'.tr,
+                            amount: formatCurrency(totalPayments, _businessController.business['mainCurrency']),
+                            gradient: [Colors.green.shade50, Colors.green.shade100],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // Payment Methods Section
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade200),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.payment, color: Colors.blue.shade600, size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Payment Methods Breakdown',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade700,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                _buildPaymentMethodRow(
+                                  icon: Icons.money,
+                                  iconColor: Colors.green.shade600,
+                                  method: 'Cash',
+                                  amount: formatCurrency(cashAmountForRow, _businessController.business['mainCurrency']),
+                                ),
+                                const SizedBox(height: 8),
+                                _buildPaymentMethodRow(
+                                  icon: Icons.account_balance,
+                                  iconColor: Colors.blue.shade600,
+                                  method: 'Bank',
+                                  amount: formatCurrency(bankTotal, _businessController.business['mainCurrency']),
+                                ),
+                                const SizedBox(height: 8),
+                                _buildPaymentMethodRow(
+                                  icon: Icons.phone_android,
+                                  iconColor: Colors.orange.shade600,
+                                  method: 'Mobile (Lipa Namba)',
+                                  amount: formatCurrency(mobileTotal, _businessController.business['mainCurrency']),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // Other Metrics
+                          _buildAnalyticsCard(
+                            icon: Icons.account_balance_wallet,
+                            iconColor: Colors.orange,
+                            title: 'DEBT'.tr,
+                            amount: formatCurrency(debt, _businessController.business['mainCurrency']),
+                            gradient: [Colors.orange.shade50, Colors.orange.shade100],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          _buildAnalyticsCard(
+                            icon: Icons.shopping_cart,
+                            iconColor: Colors.purple,
+                            title: 'PURCHASES PAID'.tr,
+                            amount: formatCurrency(purchases, _businessController.business['mainCurrency']),
+                            gradient: [Colors.purple.shade50, Colors.purple.shade100],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          _buildAnalyticsCard(
+                            icon: Icons.receipt_long,
+                            iconColor: Colors.red,
+                            title: 'EXPENSES'.tr,
+                            amount: formatCurrency(totalExpenses, _businessController.business['mainCurrency']),
+                            gradient: [Colors.red.shade50, Colors.red.shade100],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // Net Total - Special styling
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: netTotalLocal >= 0
+                                    ? [Colors.green.shade600, Colors.green.shade800]
+                                    : [Colors.red.shade600, Colors.red.shade800],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (netTotalLocal >= 0 ? Colors.green : Colors.red).withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    netTotalLocal >= 0 ? Icons.account_balance : Icons.warning,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'TOTAL CASH IN HAND'.tr,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        formatCurrency(netTotalLocal, _businessController.business['mainCurrency']),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
+          );
         });
       },
     );
@@ -934,7 +934,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
-                    
+
                     // GENERATE REPORTS - Independent item at the top
                     if(canEditBusiness)
                       DrawerTile(
@@ -942,13 +942,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.description,
                         route: 'reports',
                       ),
-                    
+
                     if(canEditBusiness)
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 20.0),
                         child: Divider(),
                       ),
-                    
+
                     // HR & PAYROLL SECTION
                     if(canEditBusiness)
                       ExpandableDrawerSection(
@@ -1081,98 +1081,98 @@ class _HomeScreenState extends State<HomeScreen> {
           body: SingleChildScrollView(
             child: Column(
               children: [
-            Container(
-            padding: const EdgeInsets.all(20),
-            color: primaryColor,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 25),
-                if (canEditBusiness)
-        InfoTile(
-          onTap: () async {
-            isBuyingStock = !isBuyingStock; // Toggle the value
-            await Preferences.setStockDisplayPreference(isBuyingStock); // Save the new preference
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  color: primaryColor,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 25),
+                      if (canEditBusiness)
+                        InfoTile(
+                          onTap: () async {
+                            isBuyingStock = !isBuyingStock; // Toggle the value
+                            await Preferences.setStockDisplayPreference(isBuyingStock); // Save the new preference
 
-            // Display the appropriate snackbar
-            Get.snackbar(
-              'Switched',
-              isBuyingStock
-                  ? 'Displaying STOCK by BUYING PRICE'
-                  : 'Displaying STOCK by SELLING PRICE',
-              snackPosition: SnackPosition.TOP,
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-            );
+                            // Display the appropriate snackbar
+                            Get.snackbar(
+                              'Switched',
+                              isBuyingStock
+                                  ? 'Displaying STOCK by BUYING PRICE'
+                                  : 'Displaying STOCK by SELLING PRICE',
+                              snackPosition: SnackPosition.TOP,
+                              backgroundColor: Colors.green,
+                              colorText: Colors.white,
+                            );
 
-            // Update the UI or recalculate stock values
-            setState(() {});
-          },
-          title: "total_stock".tr,
-          trailing: formatCurrency(
-            isBuyingStock
-                ? productController.calculateTotalStockBuying()
-                : productController.calculateTotalStock(),
-            _businessController.business['mainCurrency'],
-          ),
-        ),
-                InfoTile(
-                  onTap: () {
-                    _showTotalSalesDialog(
-                      context,
-                      _saleController,
-                      _debtHistoryController,
-                      _boughtController,
-                      expenceController,
-                      _businessController.business['reset_time'],
-                    );
-                  },
-                  title: "total_sales".tr,
-                  trailing: formatCurrency(
-                    _saleController.getTotalPaymentFromTimestamp(
-                        _businessController.business['reset_time'],Timestamp.now()),
-                    _businessController.business['mainCurrency'],
-                  ),
-                ),
-                // Only show service sales InfoTile if value > 0
-                Builder(
-                  builder: (context) {
-                    final serviceSales = _saleController.getTotalServiceSalesFromTimestamp(
-                      _businessController.business['reset_time'], Timestamp.now());
-                    if (serviceSales > 0) {
-                      return InfoTile(
-                        onTap: () {},
-                        title: "service_sales".tr,
+                            // Update the UI or recalculate stock values
+                            setState(() {});
+                          },
+                          title: "total_stock".tr,
+                          trailing: formatCurrency(
+                            isBuyingStock
+                                ? productController.calculateTotalStockBuying()
+                                : productController.calculateTotalStock(),
+                            _businessController.business['mainCurrency'],
+                          ),
+                        ),
+                      InfoTile(
+                        onTap: () {
+                          _showTotalSalesDialog(
+                            context,
+                            _saleController,
+                            _debtHistoryController,
+                            _boughtController,
+                            expenceController,
+                            _businessController.business['reset_time'],
+                          );
+                        },
+                        title: "total_sales".tr,
                         trailing: formatCurrency(
-                          serviceSales,
+                          _saleController.getTotalPaymentFromTimestamp(
+                              _businessController.business['reset_time'],Timestamp.now()),
                           _businessController.business['mainCurrency'],
                         ),
-                      );
-                    } else {
-                      return SizedBox.shrink();
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                  InfoTile(
-                    onTap: () {
-                      DateTimeRange range = DateTimeRange(
-                        start: DateUtils.dateOnly(DateTime.now()),
-                        end: DateTime.now(),
-                      );
-                      _saleController.setSelectedDateRange(range);
-                      Navigator.pushNamed(context, '/sales');
-                    },
-                    title: "today_sales".tr,
-                    trailing: formatCurrency(
-                      _saleController.getTodaySales(),
-                      _businessController.business['mainCurrency'],
-                    ),
+                      ),
+                      // Only show service sales InfoTile if value > 0
+                      Builder(
+                        builder: (context) {
+                          final serviceSales = _saleController.getTotalServiceSalesFromTimestamp(
+                              _businessController.business['reset_time'], Timestamp.now());
+                          if (serviceSales > 0) {
+                            return InfoTile(
+                              onTap: () {},
+                              title: "service_sales".tr,
+                              trailing: formatCurrency(
+                                serviceSales,
+                                _businessController.business['mainCurrency'],
+                              ),
+                            );
+                          } else {
+                            return SizedBox.shrink();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      InfoTile(
+                        onTap: () {
+                          DateTimeRange range = DateTimeRange(
+                            start: DateUtils.dateOnly(DateTime.now()),
+                            end: DateTime.now(),
+                          );
+                          _saleController.setSelectedDateRange(range);
+                          Navigator.pushNamed(context, '/sales');
+                        },
+                        title: "today_sales".tr,
+                        trailing: formatCurrency(
+                          _saleController.getTodaySales(),
+                          _businessController.business['mainCurrency'],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                   ),
-                const SizedBox(height: 20),
-              ],
-            ),
-          ),
+                ),
 
                 Container(
                   padding: const EdgeInsets.all(20),

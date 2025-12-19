@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import '../../utils/download_helper.dart';
 import '../../controllers/bought_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../controllers/closed_books_controller.dart';
@@ -105,31 +106,63 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
               ),
               const SizedBox(width: 16),
               ElevatedButton.icon(
-                onPressed: () {
+                onPressed: () async {
                   // Open date range picker for a custom report
-                  showDateRangePicker(
+                  final DateTimeRange? value = await showDateRangePicker(
                     context: context,
                     firstDate: DateTime(1900),
                     lastDate: DateTime.now(),
-                  ).then((DateTimeRange? value) {
-                    if (value != null) {
-                      _saleController.setSelectedDateRange(value);
-                      final String range =
-                          '${DateFormat('dd/MM/yyyy').format(value.start)} - ${DateFormat('dd/MM/yyyy').format(value.end)}';
-                      successSnackbar("${'date'.tr}: $range");
-                      generateNewReport(
+                  );
+                  
+                  if (value != null) {
+                    _saleController.setSelectedDateRange(value);
+                    final String range =
+                        '${DateFormat('dd/MM/yyyy').format(value.start)} - ${DateFormat('dd/MM/yyyy').format(value.end)}';
+                    
+                    // Show loading indicator
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (BuildContext context) {
+                        return Center(
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(),
+                                  SizedBox(height: 16),
+                                  Text('Fetching data from Firestore...'.tr),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                    
+                    try {
+                      final report = await generateNewReport(
                         customStart: value.start,
                         customEnd: value.end,
-                      ).then((report) {
-                        if (report != null) {
-                          successSnackbar('Report generated successfully!');
-                          _showReportDetail(context, report);
-                        } else {
-                          errorSnackbar('Failed to generate report.');
-                        }
-                      });
+                      );
+                      
+                      // Close loading dialog
+                      Navigator.of(context).pop();
+                      
+                      if (report != null) {
+                        successSnackbar('Report generated successfully for $range!');
+                        _showReportDetail(context, report);
+                      } else {
+                        errorSnackbar('Failed to generate report.');
+                      }
+                    } catch (e) {
+                      // Close loading dialog
+                      Navigator.of(context).pop();
+                      errorSnackbar('Error generating report: $e');
                     }
-                  });
+                  }
                 },
                 icon: Icon(Icons.date_range),
                 label: Text(''),
@@ -173,33 +206,53 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
 
     // Determine end date: customEnd if provided, else current time.
     DateTime endDate = customEnd ?? DateTime.now();
+    Timestamp endTimestamp = Timestamp.fromDate(endDate);
 
-    // Calculate report values for the period.
-    double totalSales = _saleController.getTotalSalesFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
-    double totalSalesBuying = _saleController.getTotalSalesBuyingFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
-    double totalPayment = _saleController.getTotalPaymentFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
-    double debt = _debtHistoryController.getTotalDebtFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
+    // For custom date ranges, fetch data directly from Firestore
+    // For default reports, use already loaded data from controllers
+    double totalSales, totalSalesBuying, totalPayment, debt, expenses, purchasesPaid, purchasesCashPaid;
+    
+    if (customStart != null) {
+      // Custom date range: Query Firestore directly
+      print('📊 Generating custom report from Firestore: ${startTimestamp.toDate()} to ${endTimestamp.toDate()}');
+      
+      final results = await _fetchDataFromFirestore(startTimestamp, endTimestamp);
+      totalSales = results['totalSales']!;
+      totalSalesBuying = results['totalSalesBuying']!;
+      totalPayment = results['totalPayment']!;
+      debt = results['debt']!;
+      expenses = results['expenses']!;
+      purchasesPaid = results['purchasesPaid']!;
+      purchasesCashPaid = results['purchasesCashPaid']!;
+    } else {
+      // Default report: Use already loaded data from controllers
+      print('📊 Generating default report from loaded data');
+      
+      totalSales = _saleController.getTotalSalesFromTimestamp(startTimestamp, endTimestamp);
+      totalSalesBuying = _saleController.getTotalSalesBuyingFromTimestamp(startTimestamp, endTimestamp);
+      totalPayment = _saleController.getTotalPaymentFromTimestamp(startTimestamp, endTimestamp);
+      debt = _debtHistoryController.getTotalDebtFromTimestamp(startTimestamp, endTimestamp);
+      expenses = _expenseController.getTotalExpensesFromTimestamp(startTimestamp, endTimestamp);
+      purchasesPaid = _boughtController.getTotalPurchasePaidFromTimestamp(startTimestamp, endTimestamp);
+      purchasesCashPaid = _boughtController.getTotalPurchaseCashPaidFromTimestamp(startTimestamp, endTimestamp);
+    }
+    
     double totalDebt = _debtHistoryController.getTotalDebt();
-    double expenses = _expenseController.getTotalExpensesFromTimestamp(startTimestamp, Timestamp.fromDate(endDate));
     double totalStock = _productController.calculateTotalStock();
-    double totalDiscounts = 0.0;
     String currency = _businessController.business['mainCurrency'] ?? "TZS";
 
-    // Amounts paid to suppliers in the period
-    // - purchasesPaid: all methods (cash, bank, mobile) - USED FOR PROFIT CALCULATION
-    // - purchasesCashPaid: cash-only for cash-in-hand computation
-    final double purchasesPaid = _boughtController.getTotalPurchasePaidFromTimestamp(
-      startTimestamp,
-      Timestamp.fromDate(endDate),
-    );
-    final double purchasesCashPaid = _boughtController.getTotalPurchaseCashPaidFromTimestamp(
-      startTimestamp,
-      Timestamp.fromDate(endDate),
-    );
+    // Calculate total discounts given
+    // Discounts = Original Price - (Cash + Credit)
+    double totalDiscounts = totalSales - (totalPayment + debt);
 
     // Calculate net profit using COGS (Cost of Goods Sold)
     // COGS = buying price of items actually sold in the period
-    double netProfit = totalPayment - totalSalesBuying - expenses;
+    // Formula: (Payment + Debt) - COGS - Expenses
+    // This correctly accounts for:
+    // - Cash received (totalPayment)
+    // - Credit sales (debt) 
+    // - Discounts are automatically excluded (not in payment or debt)
+    double netProfit = (totalPayment + debt) - totalSalesBuying - expenses;
 
     DateTime startDate = startTimestamp.toDate();
 
@@ -321,7 +374,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
           (book.totalPayment - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
-        _buildTableRow('${'NET PROFIT (sales - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
+        _buildTableRow('${'NET PROFIT (payments + debt - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
       ],
     );
   }
@@ -392,23 +445,28 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     );
 
     try {
-      final output = await getTemporaryDirectory();
-      final filePath = '${output.path}/report.pdf';
-      final file = File(filePath);
-      await file.writeAsBytes(await pdf.save());
+      final pdfBytes = await pdf.save();
+      final fileName = 'Report_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      
+      if (DownloadHelper.isWeb) {
+        // Web: Direct download using blob
+        DownloadHelper.downloadFileWeb(pdfBytes, fileName);
+        successSnackbar('PDF downloaded successfully!');
+      } else {
+        // Mobile: Save to file and share
+        final directory = await getApplicationDocumentsDirectory();
+        final filePath = "${directory.path}/$fileName";
+        final file = File(filePath)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(pdfBytes);
 
-      final result = await Share.shareXFiles(
-        [XFile("${output.path}/report.pdf")],
-        text: 'Report',
-      );
-
-      if (result.status == ShareResultStatus.success) {
-        print('Report shared successfully!');
-      } else if (result.status == ShareResultStatus.dismissed) {
-        print('Share dismissed');
+        await Share.shareXFiles(
+          [XFile(filePath)],
+          text: 'Closed Books Report',
+        );
       }
     } catch (e) {
-      errorSnackbar('Error sharing PDF: $e');
+      errorSnackbar('Error generating PDF: $e');
     }
   }
   //Helper function to build the PDF table
@@ -435,7 +493,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
 
         _buildPDFTableRow(
-          'NET PROFIT (sales - COGS - expenses)'.tr,
+          'NET PROFIT (payments + debt - COGS - expenses)'.tr,
           book.netProfit,
           book.currency,
         ),
@@ -458,6 +516,188 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
       ],
     );
+  }
+
+  /// Fetch data directly from Firestore for custom date ranges
+  /// This allows reports for dates before reset_time
+  Future<Map<String, double>> _fetchDataFromFirestore(Timestamp startTimestamp, Timestamp endTimestamp) async {
+    final String? businessId = _businessController.businessId.value;
+    
+    if (businessId == null || businessId.isEmpty) {
+      print('❌ Business ID is null, cannot fetch data');
+      return {
+        'totalSales': 0.0,
+        'totalSalesBuying': 0.0,
+        'totalPayment': 0.0,
+        'debt': 0.0,
+        'expenses': 0.0,
+        'purchasesPaid': 0.0,
+        'purchasesCashPaid': 0.0,
+      };
+    }
+
+    try {
+      // Query sales within date range
+      final salesSnapshot = await _firestore
+          .collection('sales')
+          .doc(businessId)
+          .collection('userSales')
+          .where('date', isGreaterThanOrEqualTo: startTimestamp)
+          .where('date', isLessThanOrEqualTo: endTimestamp)
+          .get();
+
+      double totalSales = 0.0;
+      double totalSalesBuying = 0.0;
+      double totalPayment = 0.0;
+
+      for (var doc in salesSnapshot.docs) {
+        final data = doc.data();
+        totalSales += (data['price'] ?? 0.0).toDouble();
+        totalSalesBuying += (data['buyingPrice'] ?? 0.0).toDouble();
+        totalPayment += (data['payment'] ?? 0.0).toDouble();
+      }
+
+      print('✅ Fetched ${salesSnapshot.docs.length} sales from Firestore');
+
+      // Query debt history - fetch PENDING debts only and filter by date in code
+      // PENDING debts = new credit extended (PAID debts are already converted to sales)
+      // Uses remainingDebtAmount to calculate total debt
+      final debtSnapshot = await _firestore
+          .collection('debtHistory')
+          .doc(businessId)
+          .collection('clientDebtHistory')
+          .where('status', isEqualTo: 'PENDING')
+          .get();
+
+      double debt = 0.0;
+      int debtCount = 0;
+      
+      for (var doc in debtSnapshot.docs) {
+        final data = doc.data();
+        final Timestamp? dateIncurred = data['dateIncurred'];
+        final double remainingDebt = (data['remainingDebtAmount'] ?? 0.0).toDouble();
+        
+        // Filter by date range in code
+        if (dateIncurred != null &&
+            dateIncurred.compareTo(startTimestamp) >= 0 &&
+            dateIncurred.compareTo(endTimestamp) <= 0) {
+          debt += remainingDebt;
+          debtCount++;
+        }
+      }
+
+      print('✅ Fetched ${debtSnapshot.docs.length} PENDING debts, $debtCount in date range');
+
+      // Query expenses - fetch all and filter by date in code
+      // (Using same pattern as debt_history to avoid potential permission issues)
+      final expensesSnapshot = await _firestore
+          .collection('expenses')
+          .doc(businessId)
+          .collection('userExpenses')
+          .get();
+
+      double expenses = 0.0;
+      int expenseCount = 0;
+      
+      print('🔍 Filtering expenses: start=${startTimestamp.toDate()}, end=${endTimestamp.toDate()}');
+      
+      for (var doc in expensesSnapshot.docs) {
+        final data = doc.data();
+        final Timestamp? date = data['date'];
+        final double amount = (data['amount'] ?? 0.0).toDouble();
+        
+        if (date != null) {
+          print('  📝 Expense: date=${date.toDate()}, amount=$amount');
+        }
+        
+        // Filter by date range in code
+        if (date != null &&
+            date.compareTo(startTimestamp) >= 0 &&
+            date.compareTo(endTimestamp) <= 0) {
+          expenses += amount;
+          expenseCount++;
+          print('  ✅ INCLUDED in range');
+        } else {
+          print('  ❌ EXCLUDED from range');
+        }
+      }
+
+      print('✅ Fetched ${expensesSnapshot.docs.length} total expenses, $expenseCount in date range');
+      print('💰 Total expenses amount: $expenses');
+
+      // Query purchases (recovered collection) - fetch all and filter by date in code
+      // (Using same pattern to avoid potential permission issues)
+      final purchasesSnapshot = await _firestore
+          .collection('recovered')
+          .doc(businessId)
+          .collection('userRecovered')
+          .get();
+
+      double purchasesPaid = 0.0;
+      double purchasesCashPaid = 0.0;
+      int purchaseCount = 0;
+
+      for (var doc in purchasesSnapshot.docs) {
+        final data = doc.data();
+        final Timestamp? date = data['date'];
+        
+        // Filter by date range in code
+        if (date != null &&
+            date.compareTo(startTimestamp) >= 0 &&
+            date.compareTo(endTimestamp) <= 0) {
+          final payment = (data['payment'] ?? 0.0).toDouble();
+          final paymentMethod = data['paymentMethod'] ?? 'cash';
+          
+          purchasesPaid += payment;
+          
+          if (paymentMethod.toString().toLowerCase() == 'cash') {
+            purchasesCashPaid += payment;
+          }
+          purchaseCount++;
+        }
+      }
+
+      print('✅ Fetched ${purchasesSnapshot.docs.length} total purchases, $purchaseCount in date range');
+      
+      // Debug: Print all fetched values
+      print('📊 === REPORT DATA SUMMARY ===');
+      print('💰 Total Sales (Original Price): $totalSales');
+      print('💰 Total Payment (Cash Received): $totalPayment');
+      print('💰 Debt (Credit Sales): $debt');
+      print('💰 Actual Revenue: payment + debt = ${totalPayment + debt}');
+      print('💰 Discounts Given: ${totalSales - (totalPayment + debt)}');
+      print('💰 Total Sales Buying Price (COGS): $totalSalesBuying');
+      print('💰 Expenses: $expenses');
+      print('💰 Purchases Paid: $purchasesPaid');
+      print('💰 Purchases Cash Paid: $purchasesCashPaid');
+      print('📊 ──────────────────────────────');
+      print('📊 Net Profit = (totalPayment + debt) - totalSalesBuying - expenses');
+      print('📊 Net Profit = ($totalPayment + $debt) - $totalSalesBuying - $expenses');
+      print('📊 Net Profit = ${(totalPayment + debt) - totalSalesBuying - expenses}');
+      print('📊 ==========================');
+
+      return {
+        'totalSales': totalSales,
+        'totalSalesBuying': totalSalesBuying,
+        'totalPayment': totalPayment,
+        'debt': debt,
+        'expenses': expenses,
+        'purchasesPaid': purchasesPaid,
+        'purchasesCashPaid': purchasesCashPaid,
+      };
+    } catch (e) {
+      print('❌ Error fetching data from Firestore: $e');
+      errorSnackbar('Error fetching data: $e');
+      return {
+        'totalSales': 0.0,
+        'totalSalesBuying': 0.0,
+        'totalPayment': 0.0,
+        'debt': 0.0,
+        'expenses': 0.0,
+        'purchasesPaid': 0.0,
+        'purchasesCashPaid': 0.0,
+      };
+    }
   }
 }
 

@@ -1,11 +1,11 @@
 {
-    "name": "mauzo",
-    "short_name": "mauzo",
+    "name": "Hesabu Mauzo",
+    "short_name": "Mauzo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Business management and sales tracking application",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

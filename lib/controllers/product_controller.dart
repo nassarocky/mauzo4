@@ -89,22 +89,30 @@ class ProductController extends GetxController {
       return;
     }
 
-    // For mobile: Save the file to the device and share
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = "${directory.path}/Product_Import_Template.xlsx";
-    final file = File(filePath)
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(fileBytes);
+    final fileName = 'Product_Import_Template.xlsx';
 
-    final result = await Share.shareXFiles(
-      [XFile(filePath)],
-      text: 'Product Import Template',
-    );
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Template downloaded successfully!');
+    } else {
+      // Mobile: Save the file to the device and share
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/$fileName";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
 
-    if (result.status == ShareResultStatus.success) {
-      print('Template shared successfully!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+      final result = await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Product Import Template',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        print('Template shared successfully!');
+      } else if (result.status == ShareResultStatus.dismissed) {
+        print('Share dismissed');
+      }
     }
   }
 
@@ -406,7 +414,9 @@ class ProductController extends GetxController {
     }
 
     try {
-      // Update product quantity
+      // ✅ USE BATCH for atomic writes (works great offline!)
+      final batch = firestore.batch();
+      
       final productRef = firestore
           .collection('products')
           .doc(business)
@@ -416,10 +426,10 @@ class ProductController extends GetxController {
       final currentQuantity = product.quantity ?? 0.0;
       final quantityChange = (count - currentQuantity).abs();
 
-      // Await the product quantity update
-      productRef.update({'quantity': count});
+      // Add product quantity update to batch
+      batch.update(productRef, {'quantity': count});
 
-      // After updating quantity, log the stock transaction
+      // Create transaction reference
       final transactionRef = firestore
           .collection('transactions')
           .doc(business)
@@ -429,25 +439,29 @@ class ProductController extends GetxController {
       final stockTransaction = StockTransaction(
           transactionId: transactionRef.id,
           productId: product.id,
-          quantity: quantityChange,  // Amount changed
+          quantity: quantityChange,
           previousQuantity: currentQuantity,
-          newQuantity: count,  // NEW: Final quantity after change
+          newQuantity: count,
           transactionType: count < currentQuantity ? TransactionTypes.removal : TransactionTypes.addition,
           transactionOrigin: type,
           timestamp: Timestamp.now(),
           userId: business,
           price: product.price,
-          employeeName: _profileController.user['name'],  // NEW
-          totalValue: quantityChange * product.price,     // NEW
+          employeeName: _profileController.user['name'],
+          totalValue: quantityChange * product.price,
       );
 
-      // Await the transaction logging
-      transactionRef.set(stockTransaction.toMap());
+      // Add transaction to batch
+      batch.set(transactionRef, stockTransaction.toMap());
 
-      // After transaction is logged, search for the updated product
+      // ✅ Commit batch - single await for both operations
+      await batch.commit();
+
+      // Update UI after successful commit
       search(searchText.value);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
+      // Batch failed - Firebase will retry when online
     }
   }
 
@@ -786,23 +800,35 @@ void clearProducts(){
     });
 
     final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
 
-    // For mobile: Save the file to the device and share
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath = "${directory.path}/Product_Report.xlsx";
-    final file = File(filePath)
-      ..createSync(recursive: true)
-      ..writeAsBytesSync(fileBytes!);
+    final fileName = 'Product_Report.xlsx';
 
-    final result = await Share.shareXFiles(
-      [XFile(filePath)],
-      text: 'Product Report',
-    );
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Report downloaded successfully!');
+    } else {
+      // Mobile: Save the file to the device and share
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/$fileName";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
 
-    if (result.status == ShareResultStatus.success) {
-      print('Thank you for sharing the report!');
-    } else if (result.status == ShareResultStatus.dismissed) {
-      print('Share dismissed');
+      final result = await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Product Report',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        print('Thank you for sharing the report!');
+      } else if (result.status == ShareResultStatus.dismissed) {
+        print('Share dismissed');
+      }
     }
   }
 

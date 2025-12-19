@@ -41,10 +41,10 @@ class AuthController extends GetxController {
       if (Preferences.isLoggedIn()) {
         await _profileController.updateUserData();
         await _businessController.updateBusinessData();
-        
+
         // Initialize automatic payment generation after user data is loaded
         _initializePaymentGeneration();
-        
+
         Get.offAllNamed('/home');
       } else if (user == null) {
         Get.offAllNamed('/login');
@@ -57,13 +57,13 @@ class AuthController extends GetxController {
       // Import controllers dynamically to avoid circular dependencies
       final payRoleController = Get.put(PayRoleController());
       final paymentController = Get.put(PaymentController());
-      
+
       // Wait a bit for controllers to initialize
       await Future.delayed(const Duration(seconds: 2));
-      
+
       // Initialize automatic payment generation
       await paymentController.initializeAutomaticPayments();
-      
+
       print('Automatic payment generation initialized');
     } catch (e) {
       print('Error initializing automatic payment generation: $e');

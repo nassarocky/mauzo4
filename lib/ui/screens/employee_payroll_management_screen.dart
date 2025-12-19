@@ -8,6 +8,7 @@ import 'package:mauzo/models/employee_loss_model.dart';
 import 'package:mauzo/ui/widgets/dialogs/add_early_payment_dialog.dart';
 import 'package:mauzo/ui/widgets/dialogs/add_employee_loss_dialog.dart';
 import '../../utils/constants.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 
 class EmployeePayrollManagementScreen extends StatefulWidget {
   final String? employeeFilter;
@@ -27,6 +28,7 @@ class _EmployeePayrollManagementScreenState extends State<EmployeePayrollManagem
     with SingleTickerProviderStateMixin {
   final PayRoleController _payRoleController = Get.find();
   final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
 
@@ -617,24 +619,25 @@ class _EmployeePayrollManagementScreenState extends State<EmployeePayrollManagem
               const SizedBox(height: 16),
               const Text('Payment Method:'),
               const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: selectedMethod,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              if (((_businessController.business['multiFundEnabled'] ?? false) == true))
+                DropdownButtonFormField<String>(
+                  value: selectedMethod,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: paymentMethods.map((method) {
+                    return DropdownMenuItem(
+                      value: method,
+                      child: Text(method),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      selectedMethod = value!;
+                    });
+                  },
                 ),
-                items: paymentMethods.map((method) {
-                  return DropdownMenuItem(
-                    value: method,
-                    child: Text(method),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedMethod = value!;
-                  });
-                },
-              ),
             ],
           ),
           actions: [

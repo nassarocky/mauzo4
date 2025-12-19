@@ -1120,6 +1120,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
 
   Future<void>  increaseBoughtQuantity() async {
+    // Batch all updates for better offline support
+    final updates = <Future>[];
+    
     for (var product in _cartController.getUniqueProducts()) {
       // Get the current quantity of the product
       double currentQuantity = product.quantity;
@@ -1133,12 +1136,15 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       // Make sure that the quantity doesn't go below zero
       newQuantity = newQuantity < 0 ? 0 : newQuantity;
 
-      // Update the product count
-      _productController.updateProductCount(
+      // Add to batch - don't await yet
+      updates.add(_productController.updateProductCount(
         product,
         newQuantity,'New Stock',
-      );
+      ));
     }
+    
+    // Wait for all updates together
+    await Future.wait(updates);
   }
 
   Future<void> addToStoreQuantity() async {
@@ -1234,11 +1240,14 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     }
   }
 
-  void updateBoughtQuantity() {
+  Future<void> updateBoughtQuantity() async {
     if (_originalPurchaseData == null) return;
 
     final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
     final currentProducts = _cartController.getUniqueProducts();
+
+    // ✅ Batch all updates for better offline support
+    final updates = <Future>[];
 
     // Create a map of original products for quick lookup
     Map<String, double> originalProductQuantities = {};
@@ -1257,11 +1266,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         // Calculate: current_quantity - original_quantity + new_quantity
         // This reverses the original purchase and applies the new purchase
         final adjustedQuantity = product.quantity! - originalQuantity + newQuantity;
-        _productController.updateProductCount(
+        updates.add(_productController.updateProductCount(
           product,
           adjustedQuantity,
           'Edit Purchase',
-        );
+        ));
       }
     }
 
@@ -1278,13 +1287,16 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         final product = _productController.getProduct(productId);
         if (product.id != '') {
           final adjustedQuantity = product.quantity! - originalQuantity;
-          _productController.updateProductCount(
+          updates.add(_productController.updateProductCount(
             product,
             adjustedQuantity,
             'Edit Purchase - Removed',
-          );
+          ));
         }
       }
     }
+    
+    // ✅ Wait for all updates together
+    await Future.wait(updates);
   }
 }

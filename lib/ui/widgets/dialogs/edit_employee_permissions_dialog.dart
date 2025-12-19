@@ -89,10 +89,12 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
         throw Exception('Missing business ID or employee ID');
       }
 
-      // Data to update
+      // Data to update (custom permissions temporarily disabled)
       final Map<String, dynamic> updateData = {
         'role': selectedRole,
-        'permissions': selectedPermissions,
+        // TODO: Re-enable when custom permissions are needed
+        // 'permissions': selectedPermissions,
+        'permissions': [], // Clear custom permissions, rely on role-based permissions only
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -121,11 +123,11 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
       // Show success message
       Get.snackbar(
         'success'.tr,
-        '${'employee_permissions_updated'.tr}\n${'role_colon'.tr} $selectedRole\n${'permissions_colon'.tr} ${selectedPermissions.length} ${'custom_permissions_count'.tr}',
+        '${'employee_permissions_updated'.tr}\n${'role_colon'.tr} $selectedRole',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.green,
         colorText: Colors.white,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 3),
       );
 
       // Close dialog
@@ -260,113 +262,114 @@ class _EditEmployeePermissionsDialogState extends State<EditEmployeePermissionsD
             ),
             const SizedBox(height: 20),
             
+            // TODO: Re-enable custom permissions feature later
             // Custom Permissions Toggle Section
-            InkWell(
-              onTap: () {
-                setState(() {
-                  showCustomPermissions = !showCustomPermissions;
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: borderColor),
-                  borderRadius: BorderRadius.circular(8),
-                  color: showCustomPermissions ? primaryColor.withOpacity(0.05) : Colors.transparent,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      showCustomPermissions ? Icons.expand_less : Icons.expand_more,
-                      color: primaryColor,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'custom_permissions'.tr,
-                            style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                          ),
-                          if (selectedPermissions.isNotEmpty)
-                            Text(
-                              '${selectedPermissions.length} ${'permission_selected'.tr}',
-                              style: bodyText(primaryColor),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (selectedPermissions.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${selectedPermissions.length}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Collapsible Permissions Section
-            if (showCustomPermissions) ...[
-              const SizedBox(height: 12),
-              Text(
-                'permissions_override_note'.tr,
-                style: bodyText(textPlaceholderColor),
-              ),
-              const SizedBox(height: 12),
-              
-              // Permissions list
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: borderColor),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: availablePermissions.length,
-                    itemBuilder: (context, index) {
-                      final permission = availablePermissions[index];
-                      final isSelected = selectedPermissions.contains(permission);
-                      
-                      return CheckboxListTile(
-                        title: Text(
-                          permission.tr,
-                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                        ),
-                        value: isSelected,
-                        onChanged: (checked) {
-                          setState(() {
-                            if (checked == true) {
-                              selectedPermissions.add(permission);
-                            } else {
-                              selectedPermissions.remove(permission);
-                            }
-                          });
-                        },
-                        controlAffinity: ListTileControlAffinity.leading,
-                        dense: true,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ] else ...[
-              // When collapsed, show a more compact view
-              const Spacer(),
-            ],
+            // InkWell(
+            //   onTap: () {
+            //     setState(() {
+            //       showCustomPermissions = !showCustomPermissions;
+            //     });
+            //   },
+            //   child: Container(
+            //     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            //     decoration: BoxDecoration(
+            //       border: Border.all(color: borderColor),
+            //       borderRadius: BorderRadius.circular(8),
+            //       color: showCustomPermissions ? primaryColor.withOpacity(0.05) : Colors.transparent,
+            //     ),
+            //     child: Row(
+            //       children: [
+            //         Icon(
+            //           showCustomPermissions ? Icons.expand_less : Icons.expand_more,
+            //           color: primaryColor,
+            //         ),
+            //         const SizedBox(width: 8),
+            //         Expanded(
+            //           child: Column(
+            //             crossAxisAlignment: CrossAxisAlignment.start,
+            //             children: [
+            //               Text(
+            //                 'custom_permissions'.tr,
+            //                 style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
+            //               ),
+            //               if (selectedPermissions.isNotEmpty)
+            //                 Text(
+            //                   '${selectedPermissions.length} ${'permission_selected'.tr}',
+            //                   style: bodyText(primaryColor),
+            //                 ),
+            //             ],
+            //           ),
+            //         ),
+            //         if (selectedPermissions.isNotEmpty)
+            //           Container(
+            //             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            //             decoration: BoxDecoration(
+            //               color: primaryColor,
+            //               borderRadius: BorderRadius.circular(12),
+            //             ),
+            //             child: Text(
+            //               '${selectedPermissions.length}',
+            //               style: const TextStyle(
+            //                 color: Colors.white,
+            //                 fontSize: 12,
+            //                 fontWeight: FontWeight.bold,
+            //               ),
+            //             ),
+            //           ),
+            //       ],
+            //     ),
+            //   ),
+            // ),
+            // 
+            // // Collapsible Permissions Section
+            // if (showCustomPermissions) ...[
+            //   const SizedBox(height: 12),
+            //   Text(
+            //     'permissions_override_note'.tr,
+            //     style: bodyText(textPlaceholderColor),
+            //   ),
+            //   const SizedBox(height: 12),
+            //   
+            //   // Permissions list
+            //   Expanded(
+            //     child: Container(
+            //       decoration: BoxDecoration(
+            //         border: Border.all(color: borderColor),
+            //         borderRadius: BorderRadius.circular(4),
+            //       ),
+            //       child: ListView.builder(
+            //         shrinkWrap: true,
+            //         itemCount: availablePermissions.length,
+            //         itemBuilder: (context, index) {
+            //           final permission = availablePermissions[index];
+            //           final isSelected = selectedPermissions.contains(permission);
+            //           
+            //           return CheckboxListTile(
+            //             title: Text(
+            //               permission.tr,
+            //               style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+            //             ),
+            //             value: isSelected,
+            //             onChanged: (checked) {
+            //               setState(() {
+            //                 if (checked == true) {
+            //                   selectedPermissions.add(permission);
+            //                 } else {
+            //                   selectedPermissions.remove(permission);
+            //                 }
+            //               });
+            //             },
+            //             controlAffinity: ListTileControlAffinity.leading,
+            //             dense: true,
+            //           );
+            //         },
+            //       ),
+            //     ),
+            //   ),
+            // ] else ...[
+            //   // When collapsed, show a more compact view
+            //   const Spacer(),
+            // ],
             const SizedBox(height: 16),
             
             // Action buttons

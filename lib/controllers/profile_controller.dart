@@ -28,11 +28,11 @@ class ProfileController extends GetxController {
       ],
       'cashier': [
         'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
-        'print_invoices', 'share_invoices'
+        'print_invoices', 'share_invoices', 'record_debt_payment'
       ],
       'sales_person': [
         'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
-        'print_invoices', 'share_invoices', 'buy_products', 'sale_invoices'
+        'print_invoices', 'share_invoices', 'buy_products', 'sale_invoices', 'record_debt_payment'
       ],
       'agent': [
         'view_products', 'view_sales', 'view_reports', 'view_statistics'

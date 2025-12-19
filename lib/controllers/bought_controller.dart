@@ -75,23 +75,29 @@ void clearBought(){
       // Fetch the products from the sale
       List products = sale.products;
 
+      // Batch all product quantity updates for better offline support
+      final updates = <Future>[];
+
       // Reverse the product quantities in inventory (subtract purchased amounts)
       for (var product in products) {
         String productId = product['id'];
         // Handle both int and double types from Firestore
-        double quantityToRemove = (product['quantity'] is int) 
-            ? (product['quantity'] as int).toDouble() 
+        double quantityToRemove = (product['quantity'] is int)
+            ? (product['quantity'] as int).toDouble()
             : (product['quantity'] as num).toDouble();
 
         // Fetch the product from the product controller
         var productInInventory = productController.getProduct(productId);
 
-        // Subtract the purchased quantity (reverse the purchase)
+        // Add update to batch
         if (productInInventory != null) {
           double newQuantity = productInInventory.quantity! - quantityToRemove;
-          productController.updateProductCount(productInInventory, newQuantity,'Purchase Deleted');
+          updates.add(productController.updateProductCount(productInInventory, newQuantity, 'Purchase Deleted'));
         }
       }
+
+      // Wait for all product updates together
+      await Future.wait(updates);
 
       // Delete the purchase from Firestore
       await firestore
@@ -242,8 +248,8 @@ void clearBought(){
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endDate) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
           totalSales += sale.price;
         }
       } else {
@@ -266,8 +272,8 @@ void clearBought(){
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(currentTimestamp) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(currentTimestamp) <= 0) {
           totalSales += sale.buyingPrice;
         }
       } else {
@@ -288,8 +294,8 @@ void clearBought(){
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
-        // Check if the saleTimestamp is within the specified range
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(currentTimestamp) < 0) {
+        // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(currentTimestamp) <= 0) {
           totalPayments += sale.payment;
         }
       } else {
@@ -311,7 +317,7 @@ void clearBought(){
     for (final purchase in sales) {
       if (purchase.date is Timestamp) {
         final Timestamp ts = purchase.date;
-        if (ts.compareTo(startTimestamp) > 0 && ts.compareTo(endTimestamp) < 0) {
+        if (ts.compareTo(startTimestamp) >= 0 && ts.compareTo(endTimestamp) <= 0) {
           if (purchase.payments.isNotEmpty) {
             for (final p in purchase.payments) {
               final dynamic rawAmount = p['amount'];
@@ -343,7 +349,7 @@ void clearBought(){
     for (final purchase in sales) {
       if (purchase.date is Timestamp) {
         final Timestamp ts = purchase.date;
-        if (ts.compareTo(startTimestamp) > 0 && ts.compareTo(endTimestamp) < 0) {
+        if (ts.compareTo(startTimestamp) >= 0 && ts.compareTo(endTimestamp) <= 0) {
           if (purchase.payments.isNotEmpty) {
             for (final p in purchase.payments) {
               // Treat missing, null, or empty method as 'cash' for backward compatibility
@@ -628,10 +634,21 @@ void clearBought(){
     });
 
     final fileBytes = excel.encode();
-    if (fileBytes != null) {
-      // Save and share the file (works on both web and mobile)
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
+
+    final fileName = 'Purchases_Report.xlsx';
+
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Report downloaded successfully!');
+    } else {
+      // Mobile: Save and share the file
       final directory = await getApplicationDocumentsDirectory();
-      final filePath = "${directory.path}/Purchases_Report.xlsx";
+      final filePath = "${directory.path}/$fileName";
       final file = File(filePath)
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);

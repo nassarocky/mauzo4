@@ -300,20 +300,21 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: selectedMethod,
-              decoration: const InputDecoration(
-                labelText: 'Payment Method',
-                border: OutlineInputBorder(),
+            if (((_businessController.business['multiFundEnabled'] ?? false) == true))
+              DropdownButtonFormField<String>(
+                value: selectedMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method',
+                  border: OutlineInputBorder(),
+                ),
+                items: ['Cash', 'Bank Transfer', 'Mobile Money', 'Check']
+                    .map((method) => DropdownMenuItem(
+                          value: method,
+                          child: Text(method),
+                        ))
+                    .toList(),
+                onChanged: (value) => selectedMethod = value ?? 'Cash',
               ),
-              items: ['Cash', 'Bank Transfer', 'Mobile Money', 'Check']
-                  .map((method) => DropdownMenuItem(
-                        value: method,
-                        child: Text(method),
-                      ))
-                  .toList(),
-              onChanged: (value) => selectedMethod = value ?? 'Cash',
-            ),
             const SizedBox(height: 16),
             TextField(
               controller: noteController,
