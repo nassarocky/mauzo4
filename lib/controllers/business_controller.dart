@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/business_model.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
@@ -87,6 +88,9 @@ class BusinessController extends GetxController {
             'mainCurrency': business.mainCurrency,
             'secondaryCurrency': business.secondaryCurrency,
             'date': business.date,
+            'trialStart': business.trialStart,
+            'paymentStart': business.paymentStart,
+            'paymentLast': business.paymentLast,
           };
 
           print('Business data updated: ${_business.value}');
@@ -158,5 +162,70 @@ class BusinessController extends GetxController {
   Future<bool> isAccountActive() async {
     await updateBusinessData();
     return _business.value['subscriptionStatus'] == 'subscription_ok' || _business.value['subscriptionStatus'] == 'subscription_ontrial';
+  }
+
+  // Get subscription expiry date (works for both trial and paid)
+  DateTime? getSubscriptionExpiryDate() {
+    // PAID BUSINESS: Use paymentLast
+    if (_business.value['paymentLast'] != null) {
+      return (_business.value['paymentLast'] as Timestamp).toDate();
+    }
+    
+    // TRIAL BUSINESS: Calculate trialStart + 30 days
+    if (_business.value['trialStart'] != null) {
+      final trialStart = (_business.value['trialStart'] as Timestamp).toDate();
+      return trialStart.add(Duration(days: 30));
+    }
+    
+    // NEW BUSINESS: No dates set yet
+    return null;
+  }
+
+  // Calculate days until subscription expires
+  int? getDaysUntilSubscriptionExpiry() {
+    final expiryDate = getSubscriptionExpiryDate();
+    if (expiryDate == null) return null;
+    
+    final now = DateTime.now();
+    final difference = expiryDate.difference(now);
+    
+    return difference.inDays;
+  }
+
+  // Check if should show subscription warning
+  bool shouldShowSubscriptionWarning() {
+    final daysLeft = getDaysUntilSubscriptionExpiry();
+    if (daysLeft == null) return false;
+    
+    // Show warning 7 days before expiry
+    const warningThreshold = 7;
+    return daysLeft >= 0 && daysLeft <= warningThreshold;
+  }
+
+  // Get subscription type for display
+  String getSubscriptionType() {
+    if (_business.value['paymentLast'] != null) {
+      return 'Paid';
+    }
+    if (_business.value['trialStart'] != null) {
+      return 'Trial';
+    }
+    // Fallback: check subscriptionStatus if no date fields
+    final status = _business.value['subscriptionStatus'];
+    if (status == 'subscription_ontrial') {
+      return 'Trial';
+    }
+    if (status == 'subscription_ok') {
+      return 'Paid';
+    }
+    return 'Unknown';
+  }
+
+  // Get formatted expiry date string
+  String? getFormattedExpiryDate() {
+    final expiryDate = getSubscriptionExpiryDate();
+    if (expiryDate == null) return null;
+    
+    return '${expiryDate.day.toString().padLeft(2, '0')}.${expiryDate.month.toString().padLeft(2, '0')}.${expiryDate.year}';
   }
 }

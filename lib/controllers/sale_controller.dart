@@ -225,6 +225,11 @@ class SaleController extends GetxController {
     Timestamp currentTimestamp = Timestamp.now();
 
     for (var sale in sales) {
+      // Skip debt repayment sales - they are not new revenue
+      if (sale.saleType == 'debt_repayment') {
+        continue;
+      }
+      
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
@@ -254,6 +259,11 @@ class SaleController extends GetxController {
     print('📦 Total sales to check: ${sales.length}');
 
     for (var sale in sales) {
+      // Skip debt repayment sales - they have no COGS
+      if (sale.saleType == 'debt_repayment') {
+        continue;
+      }
+      
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
@@ -284,6 +294,11 @@ class SaleController extends GetxController {
     Timestamp currentTimestamp = Timestamp.now();
 
     for (var sale in sales) {
+      // Skip debt repayment sales - they are not new revenue
+      if (sale.saleType == 'debt_repayment') {
+        continue;
+      }
+      
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
@@ -300,6 +315,26 @@ class SaleController extends GetxController {
     }
 
     return totalPayments;
+  }
+
+  double getDebtCollectedFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
+    double debtCollected = 0;
+    
+    for (var sale in sales) {
+      // Only count debt repayment sales - these are collections on old debts
+      if (sale.saleType == 'debt_repayment') {
+        if (sale.date is Timestamp) {
+          Timestamp saleTimestamp = sale.date;
+          
+          // Check if the saleTimestamp is within the specified range
+          if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endTimestamp) <= 0) {
+            debtCollected += sale.payment;
+          }
+        }
+      }
+    }
+    
+    return debtCollected;
   }
 
   double getTotalServiceSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {

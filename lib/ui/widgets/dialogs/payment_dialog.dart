@@ -2,8 +2,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../controllers/business_controller.dart';
+import '../../../controllers/profile_controller.dart';
+import '../../../models/subscription_pricing_model.dart';
 import '../../../utils/constants.dart';
 
 class PaymentDialogContent extends StatefulWidget {
@@ -15,6 +18,7 @@ class PaymentDialogContent extends StatefulWidget {
 
 class _PaymentDialogContentState extends State<PaymentDialogContent> {
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
 
   String selectedProvider = 'Tigo';
   String accountNumber = '';
@@ -22,6 +26,40 @@ class _PaymentDialogContentState extends State<PaymentDialogContent> {
   String selectedDurationSeconds = '';
   String selectedPrice = '';
   bool isLoading = false;
+  bool isPricingLoading = true;
+  int businessCount = 1;
+  SubscriptionPricingModel? pricingModel;
+
+  @override
+  void initState() {
+    super.initState();
+    // Get the number of businesses the user owns
+    final userBusinesses = _profileController.user['business'] as List<dynamic>?;
+    businessCount = userBusinesses?.length ?? 1;
+    if (businessCount < 1) businessCount = 1; // Minimum 1 business
+    _loadPricing();
+  }
+
+  Future<void> _loadPricing() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('subscriptionPricing')
+          .doc('config')
+          .get();
+
+      if (doc.exists) {
+        pricingModel = SubscriptionPricingModel.fromFirestore(doc);
+      } else {
+        pricingModel = SubscriptionPricingModel.getDefault();
+      }
+
+      setState(() => isPricingLoading = false);
+    } catch (e) {
+      print('Error loading pricing: $e');
+      pricingModel = SubscriptionPricingModel.getDefault();
+      setState(() => isPricingLoading = false);
+    }
+  }
 
   void successSnackbar(String message, {Duration duration = const Duration(seconds: 3)}) {
     Get.snackbar(
@@ -34,6 +72,40 @@ class _PaymentDialogContentState extends State<PaymentDialogContent> {
       margin: const EdgeInsets.all(12),
       borderRadius: 8,
     );
+  }
+
+  List<DropdownMenuItem<String>> _buildPackageItems() {
+    if (pricingModel == null) return [];
+
+    final tierPrices = pricingModel!.getPricesForBusinessCount(businessCount);
+    final durationSeconds = pricingModel!.durationSeconds;
+
+    final packages = [
+      {'key': 'week', 'label': 'Wiki'},
+      {'key': 'month', 'label': 'Mwezi'},
+      {'key': 'sixMonths', 'label': 'Miezi 6'},
+      {'key': 'year', 'label': 'Mwaka'},
+    ];
+
+    return packages.map((pkg) {
+      final key = pkg['key']!;
+      final price = tierPrices[key] ?? 0;
+      final formattedPrice = price.toString().replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+        (Match m) => '${m[1]},',
+      );
+      
+      final label = '${pkg['label']} - $formattedPrice TSH';
+      
+      return DropdownMenuItem<String>(
+        value: label,
+        child: Text(label),
+        onTap: () {
+          selectedDurationSeconds = durationSeconds[key] ?? '';
+          selectedPrice = price.toString();
+        },
+      );
+    }).toList();
   }
 
   Future<void> callCloudPaymentFunction() async {
@@ -88,22 +160,56 @@ class _PaymentDialogContentState extends State<PaymentDialogContent> {
 
     return Stack(
       children: [
-        Opacity(
-          opacity: isLoading ? 0.4 : 1.0,
-          child: AbsorbPointer(
-            absorbing: isLoading,
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Taarifa za Malipo',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        if (isPricingLoading)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(40),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else
+          Opacity(
+            opacity: isLoading ? 0.4 : 1.0,
+            child: AbsorbPointer(
+              absorbing: isLoading,
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Taarifa za Malipo',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    // Show business count info
+                    Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.business, color: Colors.blue.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Biashara: $businessCount ${businessCount == 1 ? "biashara" : "biashara"}',
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 20),
 
@@ -136,21 +242,7 @@ class _PaymentDialogContentState extends State<PaymentDialogContent> {
                   DropdownButtonFormField<String>(
                     decoration: inputDecoration.copyWith(labelText: 'Chagua Kifurushi'),
                     value: selectedPackage.isEmpty ? null : selectedPackage,
-                    items: [
-                      {'label': 'Wiki - 5000 TSH', 'seconds': '604800', 'price': '5000'},
-                      {'label': 'Mwezi - 15,000 TSH', 'seconds': '2592000', 'price': '15000'},
-                      {'label': 'Miezi 6 - 75,000 TSH', 'seconds': '15552000', 'price': '75000'},
-                      {'label': 'Mwaka - 130,000 TSH', 'seconds': '31622400', 'price': '130000'},
-                    ].map((pkg) {
-                      return DropdownMenuItem<String>(
-                        value: pkg['label'],
-                        child: Text(pkg['label']!),
-                        onTap: () {
-                          selectedDurationSeconds = pkg['seconds']!;
-                          selectedPrice = pkg['price']!;
-                        },
-                      );
-                    }).toList(),
+                    items: _buildPackageItems(),
                     onChanged: (value) => setState(() => selectedPackage = value!),
                   ),
                   const SizedBox(height: 24),

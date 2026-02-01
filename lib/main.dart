@@ -33,9 +33,11 @@ Future<void> main() async {
         print("BusinessController initialized");
       });
 
+      // Firebase initialization for all supported platforms
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       ).then((value) => Get.put(AuthController()));
+      
       getLocale();
 
       runApp(const MyApp());

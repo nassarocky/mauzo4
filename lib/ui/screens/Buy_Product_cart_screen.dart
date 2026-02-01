@@ -46,6 +46,10 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   
   // Purchase destination state
   String _purchaseDestination = 'shop'; // shop | store
+  
+  // Track manual edits and total changes
+  bool _userEditedPaid = false;
+  double _lastProductsTotal = 0.0;
 
   @override
   void initState() {
@@ -184,24 +188,34 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       : (_fundSource == 'mobile'
                           ? 'mobile'
                           : (_fundSource == 'bank' ? 'bank' : 'cash'));
+                  
+                  // Calculate current total
+                  final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
+                  final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
+                  
+                  // Check if total changed (product added/removed or discount changed)
+                  if ((_lastProductsTotal - currentTotal).abs() > 0.0001) {
+                    _lastProductsTotal = currentTotal;
+                    _userEditedPaid = false; // Reset user edit flag when total changes
+                  }
+                  
                   if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
-                    final double base = _cartController.productsPrice - _cartController.discount.value;
-                    final double amount = base < 0 ? 0 : base;
-                    _cartController.addPayment(amount, chosenCurrency, method: defaultMethod);
-                    _paidController.text = formatCurrencyWithoutSymbol(amount);
+                    _cartController.addPayment(calcAmount, chosenCurrency, method: defaultMethod);
+                    _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
                   } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != defaultMethod) {
                     // If the fund source changed, update only the method and preserve amount and currency
                     final existing = _cartController.payments[0];
                     _cartController.clearPayments();
                     _cartController.addPayment(existing.amount, existing.currency, method: defaultMethod);
                   }
-                  // Keep the text field synced with the current payment when not focused
-                  if (!_paidFocusNode.hasFocus) {
-                    final double currentAmt =
-                        _cartController.payments.length > 0 ? _cartController.payments[0].amount : 0.0;
-                    final String currentText = formatCurrencyWithoutSymbol(currentAmt);
-                    if (_paidController.text != currentText) {
-                      _paidController.text = currentText;
+                  
+                  // Only auto-fill if user hasn't manually edited AND field is not focused
+                  if (!_userEditedPaid && _cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
+                    final existing = _cartController.payments[0];
+                    if ((existing.amount - calcAmount).abs() > 0.0001) {
+                      _cartController.clearPayments();
+                      _cartController.addPayment(calcAmount, existing.currency, method: existing.method);
+                      _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
                     }
                   }
                 });
@@ -371,46 +385,49 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                         child: Row(
                           children: [
                             Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _purchaseDestination = 'shop';
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                                  decoration: BoxDecoration(
-                                    color: _purchaseDestination == 'shop'
-                                        ? primaryColor.withOpacity(0.1)
-                                        : Colors.transparent,
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(4),
-                                      bottomLeft: Radius.circular(4),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.business,
-                                        color: _purchaseDestination == 'shop'
-                                            ? primaryColor
-                                            : Colors.grey,
-                                        size: 20,
+                              child: Opacity(
+                                opacity: _cartController.passedArgument != 'NOT' ? 0.5 : 1.0,
+                                child: InkWell(
+                                  onTap: _cartController.passedArgument != 'NOT' ? null : () {
+                                    setState(() {
+                                      _purchaseDestination = 'shop';
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      color: _purchaseDestination == 'shop'
+                                          ? primaryColor.withOpacity(0.1)
+                                          : Colors.transparent,
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(4),
+                                        bottomLeft: Radius.circular(4),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Shop/Business',
-                                        style: TextStyle(
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.business,
                                           color: _purchaseDestination == 'shop'
                                               ? primaryColor
-                                              : Theme.of(context).textTheme.bodyLarge!.color,
-                                          fontWeight: _purchaseDestination == 'shop'
-                                              ? FontWeight.w600
-                                              : FontWeight.normal,
+                                              : Colors.grey,
+                                          size: 20,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Shop/Business',
+                                          style: TextStyle(
+                                            color: _purchaseDestination == 'shop'
+                                                ? primaryColor
+                                                : Theme.of(context).textTheme.bodyLarge!.color,
+                                            fontWeight: _purchaseDestination == 'shop'
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -423,46 +440,49 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                   : borderColor,
                             ),
                             Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _purchaseDestination = 'store';
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                                  decoration: BoxDecoration(
-                                    color: _purchaseDestination == 'store'
-                                        ? primaryColor.withOpacity(0.1)
-                                        : Colors.transparent,
-                                    borderRadius: const BorderRadius.only(
-                                      topRight: Radius.circular(4),
-                                      bottomRight: Radius.circular(4),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.store,
-                                        color: _purchaseDestination == 'store'
-                                            ? primaryColor
-                                            : Colors.grey,
-                                        size: 20,
+                              child: Opacity(
+                                opacity: _cartController.passedArgument != 'NOT' ? 0.5 : 1.0,
+                                child: InkWell(
+                                  onTap: _cartController.passedArgument != 'NOT' ? null : () {
+                                    setState(() {
+                                      _purchaseDestination = 'store';
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      color: _purchaseDestination == 'store'
+                                          ? primaryColor.withOpacity(0.1)
+                                          : Colors.transparent,
+                                      borderRadius: const BorderRadius.only(
+                                        topRight: Radius.circular(4),
+                                        bottomRight: Radius.circular(4),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Store',
-                                        style: TextStyle(
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.store,
                                           color: _purchaseDestination == 'store'
                                               ? primaryColor
-                                              : Theme.of(context).textTheme.bodyLarge!.color,
-                                          fontWeight: _purchaseDestination == 'store'
-                                              ? FontWeight.w600
-                                              : FontWeight.normal,
+                                              : Colors.grey,
+                                          size: 20,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Store',
+                                          style: TextStyle(
+                                            color: _purchaseDestination == 'store'
+                                                ? primaryColor
+                                                : Theme.of(context).textTheme.bodyLarge!.color,
+                                            fontWeight: _purchaseDestination == 'store'
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -668,6 +688,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                           focusNode: _paidFocusNode,
                           keyboardType: TextInputType.number,
                           onChanged: (value) {
+                            // Mark that user has manually edited the paid field
+                            _userEditedPaid = true;
                             final String v = value.trim();
                             double amt = 0.0;
                             if (v.isNotEmpty) {
@@ -874,8 +896,14 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                   try {
                                     // Check if we are updating an existing purchase
                                     if (_cartController.passedArgument != 'NOT') {
-                                      // Update bought quantities first using original data
-                                      updateBoughtQuantity();
+                                      // Check the CURRENT destination to update the right inventory
+                                      if (_purchaseDestination == 'shop') {
+                                        // Update business inventory
+                                        await updateBoughtQuantity();
+                                      } else {
+                                        // Update store inventory
+                                        await updateStoreQuantity();
+                                      }
                                       // Then update the purchase record
                                       updatePurchase(products);
                                     } else {
@@ -1097,6 +1125,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'date': selectedDate ?? DateTime.now(),
       'fundSource': _fundSource,
       'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
+      'purchaseDestination': _purchaseDestination, // shop | store
     };
 
     purchaseRef.update(updatedData).then((_) {
@@ -1298,5 +1327,118 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     
     // ✅ Wait for all updates together
     await Future.wait(updates);
+  }
+
+  Future<void> updateStoreQuantity() async {
+    if (_originalPurchaseData == null) return;
+
+    final String? businessId = _businessController.business['id'];
+    final String? storeId = _businessController.business['owner']; // Use owner ID as store ID
+    
+    if (businessId == null || storeId == null) {
+      errorSnackbar('Business or Store ID is null');
+      return;
+    }
+
+    final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
+    final currentProducts = _cartController.getUniqueProducts();
+
+    // Create a map of original products for quick lookup
+    Map<String, double> originalProductQuantities = {};
+    for (var originalProduct in originalProducts) {
+      originalProductQuantities[originalProduct['id']] = (originalProduct['quantity'] as num).toDouble();
+    }
+
+    // Process all current products in the cart
+    for (var currentProduct in currentProducts) {
+      final productId = currentProduct.id;
+      final newQuantity = _cartController.singleProductQuantity(productId).toDouble();
+      final originalQuantity = originalProductQuantities[productId] ?? 0.0; // 0 if new product
+      
+      try {
+        // Get store product reference
+        final storeProductRef = firestore
+            .collection('store')
+            .doc(storeId)
+            .collection('userStore')
+            .doc(productId);
+            
+        final storeProductDoc = await storeProductRef.get();
+        
+        if (storeProductDoc.exists) {
+          // Update existing store product quantity
+          final currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
+          // Calculate: current_quantity - original_quantity + new_quantity
+          final adjustedQuantity = currentStoreQuantity - originalQuantity + newQuantity;
+          
+          await storeProductRef.update({
+            'quantity': adjustedQuantity,
+            'total': adjustedQuantity,
+          });
+        } else if (newQuantity > 0) {
+          // Create new store product entry if it doesn't exist
+          final product = _productController.getProduct(productId);
+          if (product.id != '') {
+            final productData = {
+              'id': product.id,
+              'storeId': storeId,
+              'owner': businessId,
+              'businessId': businessId,
+              'name': product.name,
+              'price': product.price,
+              'buyingPrice': product.buyingPrice,
+              'quantity': newQuantity,
+              'total': newQuantity,
+              'category': product.category,
+              'image': product.image,
+              'storeQuantity': 0,
+              'understock': product.understock,
+              'code': product.code,
+              'details': product.details,
+              'manufacturer': product.manufacturer,
+              'location': product.location,
+            };
+            
+            await storeProductRef.set(productData);
+          }
+        }
+      } catch (e) {
+        print('Error updating store product $productId: $e');
+      }
+    }
+
+    // Handle products that were removed from the purchase (in original but not in current)
+    for (var originalProduct in originalProducts) {
+      final productId = originalProduct['id'];
+      final originalQuantity = (originalProduct['quantity'] as num).toDouble();
+      
+      // Check if this product is still in the current cart
+      bool stillInCart = currentProducts.any((p) => p.id == productId);
+      
+      if (!stillInCart) {
+        try {
+          // Product was removed, so we need to subtract its original quantity from store
+          final storeProductRef = firestore
+              .collection('store')
+              .doc(storeId)
+              .collection('userStore')
+              .doc(productId);
+              
+          final storeProductDoc = await storeProductRef.get();
+          
+          if (storeProductDoc.exists) {
+            final currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
+            final adjustedQuantity = currentStoreQuantity - originalQuantity;
+            
+            await storeProductRef.update({
+              'quantity': adjustedQuantity,
+              'total': adjustedQuantity,
+            });
+          }
+        } catch (e) {
+          print('Error removing store product $productId: $e');
+        }
+      }
+    }
   }
 }

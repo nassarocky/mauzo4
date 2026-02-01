@@ -84,16 +84,26 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return todaysSales;
   }
 
+  double _getYesterdaySales() {
+    double yesterdaySales = 0;
+    DateTime yesterday = DateUtils.dateOnly(DateTime.now().subtract(const Duration(days: 1)));
+    for (var sale in _allSales) {
+      DateTime saleDate = DateUtils.dateOnly(sale.date.toDate());
+      if (saleDate == yesterday) {
+        yesterdaySales += sale.price;
+      }
+    }
+    return yesterdaySales;
+  }
+
   double _getLastWeekSales() {
     double lastWeekSales = 0;
-    var date = DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
-    var weekDay = date.weekday;
-    var firstDayOfWeek = date.subtract(Duration(days: weekDay - 1));
+    DateTime now = DateTime.now();
+    DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
 
     for (var sale in _allSales) {
       DateTime saleDate = sale.date.toDate();
-      if (saleDate.isAfter(firstDayOfWeek) &&
-          saleDate.isBefore(firstDayOfWeek.add(const Duration(days: 7)))) {
+      if (saleDate.isAfter(sevenDaysAgo)) {
         lastWeekSales += sale.price;
       }
     }
@@ -102,13 +112,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   double _getLastMonthSales() {
     double lastMonthSales = 0;
-    var date = DateUtils.dateOnly(DateTime.now());
-    var firstDayOfMonth = DateTime(date.year, date.month - 1, 1);
-    var lastDayOfMonth = DateTime(date.year, date.month, 1);
+    DateTime now = DateTime.now();
+    DateTime thirtyDaysAgo = now.subtract(const Duration(days: 30));
 
     for (var sale in _allSales) {
       DateTime saleDate = sale.date.toDate();
-      if (saleDate.isAfter(firstDayOfMonth) && saleDate.isBefore(lastDayOfMonth)) {
+      if (saleDate.isAfter(thirtyDaysAgo)) {
         lastMonthSales += sale.price;
       }
     }
@@ -117,13 +126,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   double _getLastYearSales() {
     double lastYearSales = 0;
-    var date = DateUtils.dateOnly(DateTime.now());
-    var firstDayOfYear = DateTime(date.year - 1, 1, 1);
-    var lastDayOfYear = DateTime(date.year, 1, 1);
+    DateTime now = DateTime.now();
+    DateTime oneYearAgo = now.subtract(const Duration(days: 365));
 
     for (var sale in _allSales) {
       DateTime saleDate = sale.date.toDate();
-      if (saleDate.isAfter(firstDayOfYear) && saleDate.isBefore(lastDayOfYear)) {
+      if (saleDate.isAfter(oneYearAgo)) {
         lastYearSales += sale.price;
       }
     }
@@ -142,25 +150,39 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     Map<String, Map<String, dynamic>> productStats = {};
     
     DateTime now = DateTime.now();
-    DateTime filterDate;
     
-    if (timeFilter == 'today'.tr) {
-      filterDate = DateUtils.dateOnly(now);
-    } else if (timeFilter == 'last_week'.tr) {
-      var date = DateUtils.dateOnly(now).subtract(const Duration(days: 7));
-      var weekDay = date.weekday;
-      filterDate = date.subtract(Duration(days: weekDay - 1));
-    } else if (timeFilter == 'last_month'.tr) {
-      filterDate = DateTime(now.year, now.month - 1, 1);
-    } else if (timeFilter == 'last_year'.tr) {
-      filterDate = DateTime(now.year - 1, 1, 1);
-    } else {
-      filterDate = DateTime(1900, 1, 1); // All time
-    }
-
     for (var sale in _allSales) {
       DateTime saleDate = sale.date.toDate();
-      if (saleDate.isAfter(filterDate)) {
+      bool includeThisSale = false;
+      
+      if (timeFilter == 'today'.tr) {
+        // Only today's sales
+        DateTime today = DateUtils.dateOnly(now);
+        DateTime saleDateOnly = DateUtils.dateOnly(saleDate);
+        includeThisSale = saleDateOnly == today;
+      } else if (timeFilter == 'yesterday'.tr) {
+        // Only yesterday's sales
+        DateTime yesterday = DateUtils.dateOnly(now.subtract(const Duration(days: 1)));
+        DateTime saleDateOnly = DateUtils.dateOnly(saleDate);
+        includeThisSale = saleDateOnly == yesterday;
+      } else if (timeFilter == 'last_week'.tr) {
+        // Last 7 days
+        DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
+        includeThisSale = saleDate.isAfter(sevenDaysAgo);
+      } else if (timeFilter == 'last_month'.tr) {
+        // Last 30 days
+        DateTime thirtyDaysAgo = now.subtract(const Duration(days: 30));
+        includeThisSale = saleDate.isAfter(thirtyDaysAgo);
+      } else if (timeFilter == 'last_year'.tr) {
+        // Last 365 days
+        DateTime oneYearAgo = now.subtract(const Duration(days: 365));
+        includeThisSale = saleDate.isAfter(oneYearAgo);
+      } else {
+        // All time
+        includeThisSale = true;
+      }
+      
+      if (includeThisSale) {
         for (var product in sale.products) {
           String productId = product['id'];
           String productName = product['name'];
@@ -190,6 +212,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   double _getSalesForTimeFilter(String timeFilter) {
     if (timeFilter == 'today'.tr) {
       return _getTodaySales();
+    } else if (timeFilter == 'yesterday'.tr) {
+      return _getYesterdaySales();
     } else if (timeFilter == 'last_week'.tr) {
       return _getLastWeekSales();
     } else if (timeFilter == 'last_month'.tr) {
@@ -205,6 +229,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Widget build(BuildContext context) {
     final List<String> items = [
       'today'.tr,
+      'yesterday'.tr,
       'last_week'.tr,
       'last_month'.tr,
       'last_year'.tr,

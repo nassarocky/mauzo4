@@ -50,8 +50,8 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Get.back();
         Get.snackbar(
-          'Access Denied',
-          'Only business owners can access payment management',
+          'Access Denied'.tr,
+          'Only business owners can access payment management'.tr,
           backgroundColor: Colors.red,
           colorText: Colors.white,
         );
@@ -81,8 +81,8 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(employeeName != null 
-            ? 'Payments - $employeeName' 
-            : 'Payment Management'),
+            ? '${'Payments - '.tr}$employeeName' 
+            : 'Payment Management'.tr),
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,

@@ -1,9 +1,13 @@
 import 'dart:typed_data';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../models/sale_model.dart';
 import '../models/client_model.dart';
 
@@ -21,8 +25,17 @@ class ThermalPrinterService extends GetxController {
 
   /// Check if connected to a printer
   Future<void> _checkConnection() async {
-    final connected = await PrintBluetoothThermal.connectionStatus;
-    isConnected.value = connected;
+    // On web and Windows desktop, Bluetooth thermal plugin is not used
+    if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+      isConnected.value = false;
+      return;
+    }
+    try {
+      final connected = await PrintBluetoothThermal.connectionStatus;
+      isConnected.value = connected;
+    } catch (_) {
+      isConnected.value = false;
+    }
   }
 
   /// Start scanning for Bluetooth printers
@@ -31,6 +44,19 @@ class ThermalPrinterService extends GetxController {
     devices.clear();
     
     try {
+      // On web and Windows desktop, scanning is not supported in this flow
+      if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+        isScanning.value = false;
+        Get.snackbar(
+          'Desktop Printing',
+          'On desktop, use the system print dialog when printing a receipt.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.blue,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+        return;
+      }
       // Request Bluetooth permissions
       bool permissionGranted = await _requestBluetoothPermissions();
       
@@ -134,6 +160,199 @@ class ThermalPrinterService extends GetxController {
     }
   }
 
+  /// Desktop (Windows) implementation using PDF + OS print dialog (58mm paper width)
+  Future<void> _printReceiptDesktop({
+    required Sale sale,
+    required Client client,
+    required Map<String, dynamic> business,
+    String? employeeName,
+  }) async {
+    final doc = pw.Document();
+
+    // 58mm roll-like format (approx. long page). Use generous height to avoid truncation.
+    // If your pdf version supports roll57, you can replace with PdfPageFormat.roll57
+    final pageFormat = PdfPageFormat(58 * PdfPageFormat.mm, 300 * PdfPageFormat.mm);
+    final pageTheme = pw.PageTheme(
+      pageFormat: pageFormat,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+    );
+
+    // Prepare receipt content
+    final currency = (business['mainCurrency'] ?? '').toString();
+    final businessName = (business['name'] ?? 'Business Name').toString();
+    final businessPhone = (business['phone'] ?? '').toString();
+    final businessTin = business['tin']?.toString();
+    final dateTime = sale.date.toDate();
+
+    // Build items and totals
+    double subtotal = 0;
+    final List<pw.TableRow> itemRows = [];
+
+    itemRows.add(
+      pw.TableRow(
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text('Item', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text('Qty', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text('Total', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    for (var product in sale.products) {
+      String productName = '';
+      double quantity = 0;
+      double price = 0;
+
+      if (product is Map<String, dynamic>) {
+        productName = product['name']?.toString() ?? '';
+        quantity = double.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
+        price = double.tryParse(product['price']?.toString() ?? '0') ?? 0;
+      } else {
+        // Fallback for typed product objects
+        try {
+          // ignore: avoid_dynamic_calls
+          productName = (product.name ?? '').toString();
+          // ignore: avoid_dynamic_calls
+          quantity = (product.quantity ?? 0).toDouble();
+          // ignore: avoid_dynamic_calls
+          price = (product.price ?? 0).toDouble();
+        } catch (_) {}
+      }
+
+      final itemTotal = quantity * price;
+      subtotal += itemTotal;
+
+      itemRows.add(
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(productName, style: const pw.TextStyle(fontSize: 8), maxLines: 1, overflow: pw.TextOverflow.clip),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(quantity.toStringAsFixed(0), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8)),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(itemTotal.toStringAsFixed(0), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final payment = sale.payment;
+    final debt = sale.price - sale.payment;
+
+    doc.addPage(
+      pw.MultiPage(
+        pageTheme: pageTheme,
+        build: (context) => [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.SizedBox(height: 4),
+              pw.Center(
+                child: pw.Text(
+                  businessName,
+                  style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+              if (businessPhone.isNotEmpty)
+                pw.Center(
+                  child: pw.Text('Phone: $businessPhone', style: const pw.TextStyle(fontSize: 8)),
+                ),
+              if (businessTin != null && businessTin.isNotEmpty)
+                pw.Center(
+                  child: pw.Text('TIN: $businessTin', style: const pw.TextStyle(fontSize: 8)),
+                ),
+              pw.SizedBox(height: 6),
+              pw.Divider(thickness: 1),
+              pw.Center(child: pw.Text('RECEIPT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
+              pw.SizedBox(height: 4),
+
+              // Meta
+              pw.Text('Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Date: ${DateFormat('yyyy-MM-dd HH:mm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Client: ${client.name}', style: const pw.TextStyle(fontSize: 8)),
+              if (employeeName != null)
+                pw.Text('Served by: $employeeName', style: const pw.TextStyle(fontSize: 8)),
+
+              pw.SizedBox(height: 6),
+              pw.Divider(thickness: 1),
+
+              // Items
+              pw.Table(
+                border: null,
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(3),
+                  1: pw.FlexColumnWidth(1),
+                  2: pw.FlexColumnWidth(1),
+                },
+                children: itemRows,
+              ),
+
+              pw.Divider(thickness: 1),
+
+              // Totals
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Subtotal:', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('$currency ${subtotal.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                ],
+              ),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Payment:', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('$currency ${payment.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                ],
+              ),
+              if (debt > 0)
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('Balance Due:', style: const pw.TextStyle(fontSize: 9)),
+                    pw.Text('$currency ${debt.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                  ],
+                )
+              else if (debt < 0)
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('Change:', style: const pw.TextStyle(fontSize: 9)),
+                    pw.Text('$currency ${(-debt).toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                  ],
+                ),
+
+              pw.SizedBox(height: 8),
+              pw.Center(child: pw.Text('Thank you for your business!', style: const pw.TextStyle(fontSize: 9))),
+            ],
+          )
+        ],
+      ),
+    );
+
+    // Show OS print dialog and print
+    await Printing.layoutPdf(
+      name: 'Receipt',
+      format: pageFormat,
+      onLayout: (PdfPageFormat _) async => doc.save(),
+    );
+  }
+
   /// Stop scanning
   void stopScan() {
     isScanning.value = false;
@@ -141,6 +360,17 @@ class ThermalPrinterService extends GetxController {
 
   /// Select and connect to a printer
   Future<void> selectPrinter(BluetoothInfo device) async {
+    // On web and Windows desktop, Bluetooth selection is not required
+    if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+      Get.snackbar(
+        'Desktop Printing',
+        'Bluetooth selection is not needed on desktop. Use the print dialog.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.blue,
+        colorText: Colors.white,
+      );
+      return;
+    }
     // Show loading dialog
     Get.dialog(
       const Center(
@@ -233,6 +463,34 @@ class ThermalPrinterService extends GetxController {
     required Map<String, dynamic> business,
     String? employeeName,
   }) async {
+    // On Windows desktop, use OS printing via PDF (58mm) instead of Bluetooth
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      try {
+        await _printReceiptDesktop(
+          sale: sale,
+          client: client,
+          business: business,
+          employeeName: employeeName,
+        );
+        Get.snackbar(
+          'Success',
+          'Receipt sent to printer',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+        );
+      } catch (e) {
+        Get.snackbar(
+          'Print Error',
+          'Failed to print on desktop: $e',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+      }
+      return;
+    }
+
     if (!isConnected.value || selectedPrinter.value == null) {
       Get.snackbar(
         'Not Connected',

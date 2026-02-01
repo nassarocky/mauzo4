@@ -24,6 +24,11 @@ class BusinessModel {
   final bool allowSalesView; // New field
   final int discountPercent; // New field with default value
 
+  // Subscription date fields
+  final Timestamp? trialStart; // When trial started (for trial businesses)
+  final Timestamp? paymentStart; // When payment was made (for paid businesses)
+  final Timestamp? paymentLast; // When subscription ends (for paid businesses)
+
   // Additional fields
   final double additionalDouble1;
   final double additionalDouble2;
@@ -61,6 +66,9 @@ class BusinessModel {
     this.additionalString2 = '',
     this.additionalList1 = const [],
     this.additionalList2 = const [],
+    this.trialStart,
+    this.paymentStart,
+    this.paymentLast,
   });
 
   // Factory method to create a BusinessModel from Firestore snapshot
@@ -99,6 +107,9 @@ class BusinessModel {
       additionalList1: List<String>.from(data['additionalList1'] ?? const []),
       additionalList2: List<String>.from(data['additionalList2'] ?? const []),
       ownerId: data['ownerId'] ?? '',
+      trialStart: data['trialStart'] as Timestamp?,
+      paymentStart: data['paymentStart'] as Timestamp?,
+      paymentLast: data['paymentLast'] as Timestamp?,
     );
   }
 
@@ -132,6 +143,9 @@ class BusinessModel {
       'additionalString2': additionalString2,
       'additionalList1': additionalList1,
       'additionalList2': additionalList2,
+      if (trialStart != null) 'trialStart': trialStart,
+      if (paymentStart != null) 'paymentStart': paymentStart,
+      if (paymentLast != null) 'paymentLast': paymentLast,
     };
   }
 }

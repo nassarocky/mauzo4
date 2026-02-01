@@ -76,6 +76,19 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
       appBar: AppBar(
         title: Text('expenses'.tr),
         elevation: 0,
+        actions: [
+          if (canManageExpenses)
+            IconButton(
+              icon: Image.asset(
+                'assets/images/excel.png',
+                width: 24,
+                height: 24,
+              ),
+              onPressed: () {
+                _expenseController.generateExcelFromExpenses();
+              },
+            ),
+        ],
       ),
       body: Obx(() {
         // Use controller's filteredExpenses (already filtered by date range via database query)

@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/client_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
+import 'package:mauzo/controllers/store_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/models/expences.dart';
 import 'package:mauzo/utils/constants.dart';
@@ -24,6 +25,7 @@ class BoughtController extends GetxController {
   final BusinessController _businessController = Get.find();
   final ClientController clientController = Get.find();
   final ProductController productController = Get.find();
+  final StoreController storeController = Get.find();
 
   final sales = <Sale>[].obs;
   final filteredSales = <Sale>[].obs;
@@ -74,6 +76,20 @@ void clearBought(){
 
       // Fetch the products from the sale
       List products = sale.products;
+      
+      // Fetch purchase destination from Firestore to determine which inventory to update
+      String purchaseDestination = 'shop'; // Default for old purchases without this field
+      final purchaseDoc = await firestore
+          .collection('recovered')
+          .doc(businessId)
+          .collection('userRecovered')
+          .doc(sale.id)
+          .get();
+      
+      if (purchaseDoc.exists) {
+        final purchaseData = purchaseDoc.data();
+        purchaseDestination = purchaseData?['purchaseDestination'] ?? 'shop';
+      }
 
       // Batch all product quantity updates for better offline support
       final updates = <Future>[];
@@ -86,13 +102,36 @@ void clearBought(){
             ? (product['quantity'] as int).toDouble()
             : (product['quantity'] as num).toDouble();
 
-        // Fetch the product from the product controller
-        var productInInventory = productController.getProduct(productId);
-
-        // Add update to batch
-        if (productInInventory != null) {
-          double newQuantity = productInInventory.quantity! - quantityToRemove;
-          updates.add(productController.updateProductCount(productInInventory, newQuantity, 'Purchase Deleted'));
+        if (purchaseDestination == 'store') {
+          // Update store inventory
+          var productInStore = storeController.products.firstWhere(
+            (p) => p.id == productId,
+            orElse: () => Product(
+              id: '',
+              name: '',
+              code: '',
+              price: 0,
+              buyingPrice: 0,
+              quantity: 0,
+              category: null,
+              owner: '',
+              image: '',
+              itemType: 'product',
+            ),
+          );
+          
+          if (productInStore.id.isNotEmpty) {
+            double newQuantity = productInStore.quantity! - quantityToRemove;
+            updates.add(storeController.updateProductCount(productInStore, newQuantity));
+          }
+        } else {
+          // Update business inventory (default behavior)
+          var productInInventory = productController.getProduct(productId);
+          
+          if (productInInventory != null) {
+            double newQuantity = productInInventory.quantity! - quantityToRemove;
+            updates.add(productController.updateProductCount(productInInventory, newQuantity, 'Purchase Deleted'));
+          }
         }
       }
 
@@ -217,10 +256,10 @@ void clearBought(){
   double getTotalPaidByDate(DateTime date) {
     double totalPaidByDate = 0;
     final target = DateUtils.dateOnly(date);
-    for (var i = 0; i < sales.length; i++) {
-      DateTime saleDate = DateUtils.dateOnly(sales[i].date.toDate());
+    for (var i = 0; i < filteredSales.length; i++) {
+      DateTime saleDate = DateUtils.dateOnly(filteredSales[i].date.toDate());
       if (saleDate == target) {
-        totalPaidByDate += sales[i].payment;
+        totalPaidByDate += filteredSales[i].payment;
       }
     }
     return totalPaidByDate;

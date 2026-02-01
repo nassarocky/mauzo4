@@ -124,4 +124,19 @@ class ClosedBooksController extends GetxController {
     closedBooks.value.clear();
     filteredClosedBooks.value.clear();
   }
+
+  Future<void> deleteClosedBook(String businessId, String bookId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('closedbooks')
+          .doc(businessId)
+          .collection('userClosedBooks')
+          .doc(bookId)
+          .delete();
+      print('✅ Closed book deleted successfully: $bookId');
+    } catch (e) {
+      print('❌ Error deleting closed book: $e');
+      throw e;
+    }
+  }
 }

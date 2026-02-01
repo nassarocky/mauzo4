@@ -120,6 +120,7 @@ class AuthController extends GetxController {
         'email': email,
         'phone': phoneNumber.value,
         'subscriptionStatus': 'subscription_ontrial',
+        'trialStart': FieldValue.serverTimestamp(),
         'tin': 'TIN',
         'categories': [],
         'manufacturer': [],

@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Pricing Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 1rem 2rem;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .logout-button {
+            background-color: white;
+            color: #4CAF50;
+            border: none;
+            padding: 0.5rem 1rem;
+            font-size: 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .logout-button:hover {
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .info-box {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            border-radius: 4px;
+        }
+
+        .tier-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        .tier-header {
+            padding: 1rem 1.5rem;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+
+        .tier-header i {
+            margin-right: 0.5rem;
+            font-size: 1.5rem;
+        }
+
+        .tier-body {
+            padding: 1.5rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .tier-1 .tier-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .tier-2 .tier-header { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .tier-3 .tier-header { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .tier-4 .tier-header { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        .tier-5 .tier-header { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .input-group label {
+            font-weight: bold;
+            margin-bottom: 0.3rem;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .input-group input {
+            padding: 0.7rem;
+            font-size: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        .save-button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            margin: 2rem auto;
+            display: block;
+            width: 300px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .save-button:hover {
+            background-color: #45a049;
+        }
+
+        .save-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            font-size: 1.2rem;
+            color: #666;
+        }
+
+        .last-updated {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 1rem;
+            background-color: #4CAF50;
+            color: white;
+            margin-top: 3rem;
+        }
+
+        @media (max-width: 768px) {
+            .tier-body {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Subscription Pricing Management</h1>
+        <button class="logout-button" onclick="logout()">Logout</button>
+    </header>
+
+    <main class="container">
+        <div class="info-box">
+            <strong>ℹ️ Information:</strong> Set subscription prices for different business tiers. 
+            Prices are in TZS and will be applied immediately to all users.
+        </div>
+
+        <div id="last-updated" class="last-updated" style="display: none;">
+            <strong>Last Updated:</strong> <span id="update-time"></span> by <span id="update-user"></span>
+        </div>
+
+        <div id="loading" class="loading">Loading pricing data...</div>
+
+        <div id="pricing-form" style="display: none;">
+            <!-- Tier 1: 1 Business -->
+            <div class="tier-section tier-1">
+                <div class="tier-header">
+                    <span>🏪 Tier 1: 1 Business</span>
+                </div>
+                <div class="tier-body">
+                    <div class="input-group">
+                        <label>Week (Wiki)</label>
+                        <input type="number" id="tier1-week" placeholder="5000">
+                    </div>
+                    <div class="input-group">
+                        <label>Month (Mwezi)</label>
+                        <input type="number" id="tier1-month" placeholder="15000">
+                    </div>
+                    <div class="input-group">
+                        <label>6 Months (Miezi 6)</label>
+                        <input type="number" id="tier1-sixMonths" placeholder="75000">
+                    </div>
+                    <div class="input-group">
+                        <label>Year (Mwaka)</label>
+                        <input type="number" id="tier1-year" placeholder="130000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier 2: 2 Businesses -->
+            <div class="tier-section tier-2">
+                <div class="tier-header">
+                    <span>🏪🏪 Tier 2: 2 Businesses</span>
+                </div>
+                <div class="tier-body">
+                    <div class="input-group">
+                        <label>Week (Wiki)</label>
+                        <input type="number" id="tier2-week" placeholder="10000">
+                    </div>
+                    <div class="input-group">
+                        <label>Month (Mwezi)</label>
+                        <input type="number" id="tier2-month" placeholder="30000">
+                    </div>
+                    <div class="input-group">
+                        <label>6 Months (Miezi 6)</label>
+                        <input type="number" id="tier2-sixMonths" placeholder="150000">
+                    </div>
+                    <div class="input-group">
+                        <label>Year (Mwaka)</label>
+                        <input type="number" id="tier2-year" placeholder="260000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier 3: 3 Businesses -->
+            <div class="tier-section tier-3">
+                <div class="tier-header">
+                    <span>🏪🏪🏪 Tier 3: 3 Businesses</span>
+                </div>
+                <div class="tier-body">
+                    <div class="input-group">
+                        <label>Week (Wiki)</label>
+                        <input type="number" id="tier3-week" placeholder="15000">
+                    </div>
+                    <div class="input-group">
+                        <label>Month (Mwezi)</label>
+                        <input type="number" id="tier3-month" placeholder="45000">
+                    </div>
+                    <div class="input-group">
+                        <label>6 Months (Miezi 6)</label>
+                        <input type="number" id="tier3-sixMonths" placeholder="225000">
+                    </div>
+                    <div class="input-group">
+                        <label>Year (Mwaka)</label>
+                        <input type="number" id="tier3-year" placeholder="390000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier 4: 4 Businesses -->
+            <div class="tier-section tier-4">
+                <div class="tier-header">
+                    <span>🏪🏪🏪🏪 Tier 4: 4 Businesses</span>
+                </div>
+                <div class="tier-body">
+                    <div class="input-group">
+                        <label>Week (Wiki)</label>
+                        <input type="number" id="tier4-week" placeholder="20000">
+                    </div>
+                    <div class="input-group">
+                        <label>Month (Mwezi)</label>
+                        <input type="number" id="tier4-month" placeholder="60000">
+                    </div>
+                    <div class="input-group">
+                        <label>6 Months (Miezi 6)</label>
+                        <input type="number" id="tier4-sixMonths" placeholder="300000">
+                    </div>
+                    <div class="input-group">
+                        <label>Year (Mwaka)</label>
+                        <input type="number" id="tier4-year" placeholder="520000">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tier 5: 5+ Businesses -->
+            <div class="tier-section tier-5">
+                <div class="tier-header">
+                    <span>🏪🏪🏪🏪🏪+ Tier 5: 5+ Businesses</span>
+                </div>
+                <div class="tier-body">
+                    <div class="input-group">
+                        <label>Week (Wiki)</label>
+                        <input type="number" id="tier5Plus-week" placeholder="25000">
+                    </div>
+                    <div class="input-group">
+                        <label>Month (Mwezi)</label>
+                        <input type="number" id="tier5Plus-month" placeholder="75000">
+                    </div>
+                    <div class="input-group">
+                        <label>6 Months (Miezi 6)</label>
+                        <input type="number" id="tier5Plus-sixMonths" placeholder="375000">
+                    </div>
+                    <div class="input-group">
+                        <label>Year (Mwaka)</label>
+                        <input type="number" id="tier5Plus-year" placeholder="650000">
+                    </div>
+                </div>
+            </div>
+
+            <button class="save-button" onclick="savePricing()" id="save-button">
+                💾 Save Pricing
+            </button>
+        </div>
+    </main>
+
+    <footer>
+        <p>© 2024 HesabuMauzo - Subscription Pricing Management</p>
+    </footer>
+
+    <script>
+        if (!localStorage.getItem('isAuthenticated')) {
+            window.location.href = '../login';
+        }
+
+        async function fetchPricing() {
+            try {
+                const response = await fetch('https://us-central1-hesabumauzo.cloudfunctions.net/getSubscriptionPricing');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const pricing = await response.json();
+                populateForm(pricing);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('pricing-form').style.display = 'block';
+            } catch (error) {
+                console.error('Error fetching pricing:', error);
+                document.getElementById('loading').textContent = 'Error loading pricing data. Using defaults.';
+                document.getElementById('pricing-form').style.display = 'block';
+            }
+        }
+
+        function populateForm(pricing) {
+            const tiers = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5Plus'];
+            const packages = ['week', 'month', 'sixMonths', 'year'];
+
+            tiers.forEach(tier => {
+                packages.forEach(pkg => {
+                    const element = document.getElementById(`${tier}-${pkg}`);
+                    if (element && pricing[tier] && pricing[tier][pkg]) {
+                        element.value = pricing[tier][pkg];
+                    }
+                });
+            });
+
+            // Show last updated info if available
+            if (pricing.lastUpdated) {
+                const updateTime = new Date(pricing.lastUpdated._seconds * 1000);
+                document.getElementById('update-time').textContent = updateTime.toLocaleString();
+                document.getElementById('update-user').textContent = pricing.updatedBy || 'Admin';
+                document.getElementById('last-updated').style.display = 'block';
+            }
+        }
+
+        async function savePricing() {
+            const saveButton = document.getElementById('save-button');
+            saveButton.disabled = true;
+            saveButton.textContent = '⏳ Saving...';
+
+            const tiers = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5Plus'];
+            const packages = ['week', 'month', 'sixMonths', 'year'];
+            const pricingData = {
+                durationSeconds: {
+                    week: '604800',
+                    month: '2592000',
+                    sixMonths: '15552000',
+                    year: '31622400'
+                }
+            };
+
+            tiers.forEach(tier => {
+                pricingData[tier] = {};
+                packages.forEach(pkg => {
+                    const element = document.getElementById(`${tier}-${pkg}`);
+                    const value = parseInt(element.value);
+                    if (isNaN(value) || value < 0) {
+                        alert(`Please enter a valid price for ${tier} - ${pkg}`);
+                        saveButton.disabled = false;
+                        saveButton.textContent = '💾 Save Pricing';
+                        throw new Error('Invalid input');
+                    }
+                    pricingData[tier][pkg] = value;
+                });
+            });
+
+            try {
+                const response = await fetch('https://us-central1-hesabumauzo.cloudfunctions.net/updateSubscriptionPricing', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(pricingData),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                alert(result.message || 'Pricing updated successfully!');
+                
+                // Refresh the page to show updated data
+                fetchPricing();
+            } catch (error) {
+                console.error('Error saving pricing:', error);
+                alert('Failed to save pricing. Please try again.');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.textContent = '💾 Save Pricing';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('isAuthenticated');
+            window.location.href = '../login';
+        }
+
+        fetchPricing();
+    </script>
+</body>
+</html>

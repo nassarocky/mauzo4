@@ -33,6 +33,7 @@ import '../../utils/preferences.dart';
 import '../widgets/dialogs/payment_dialog.dart';
 import '../widgets/screens_card.dart';
 import '../widgets/tiles/info_tile.dart';
+import '../widgets/subscription_expiry_banner.dart';
 import 'package:mauzo/services/fund_source_service.dart';
 
 
@@ -387,7 +388,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     Icon(Icons.payment, color: Colors.blue.shade600, size: 20),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'Payment Methods Breakdown',
+                                      'Payment Methods Breakdown'.tr,
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: Colors.grey.shade700,
@@ -949,104 +950,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Divider(),
                       ),
 
-                    // HR & PAYROLL SECTION
-                    if(canEditBusiness)
-                      ExpandableDrawerSection(
-                        title: 'HR & Payroll',
-                        icon: Icons.people,
-                        initiallyExpanded: false,
-                        items: [
-                          DrawerMenuItem(
-                            title: 'Employees'.tr,
-                            icon: Icons.person_add,
-                            route: 'addemployee',
-                          ),
-                          if(_profileController.hasPermission('manage_payroll'))
-                            DrawerMenuItem(
-                              title: 'Pay Roles'.tr,
-                              icon: Icons.payment,
-                              route: 'pay-roles',
-                            ),
-                          if(_profileController.hasPermission('manage_payroll'))
-                            DrawerMenuItem(
-                              title: 'Payment Management'.tr,
-                              icon: Icons.account_balance,
-                              route: 'payment-management',
-                            ),
-                        ].where((item) => item != null).cast<DrawerMenuItem>().toList(),
+                    // TOP LEVEL ITEMS - Frequently accessed
+                    DrawerTile(
+                      title: 'expenses'.tr,
+                      icon: Icons.account_balance_wallet,
+                      route: 'expenses',
+                    ),
+                    
+                    if (_businessController.business['purchases']=='true')
+                      DrawerTile(
+                        title: 'Purchases'.tr,
+                        icon: Icons.import_export,
+                        route: 'bought',
                       ),
-
-                    // INVENTORY & PRODUCTS SECTION
-                    ExpandableDrawerSection(
-                      title: 'Inventory & Products',
-                      icon: Icons.inventory,
-                      initiallyExpanded: false,
-                      items: [
-                        if (canEditBusiness)
-                          DrawerMenuItem(
-                            title: 'Products in Store'.tr,
-                            icon: Icons.production_quantity_limits_rounded,
-                            route: 'store/add',
-                          ),
-                        DrawerMenuItem(
-                          title: 'Transfer Requests'.tr,
-                          icon: Icons.swap_horiz,
-                          route: 'transfer_requests',
-                        ),
-                        if (canEditBusiness)
-                          DrawerMenuItem(
-                            title: 'Inventory Losses'.tr,
-                            icon: Icons.warning_amber_rounded,
-                            route: 'inventory-losses',
-                          ),
-                        if (_businessController.business['purchases']=='true')
-                          DrawerMenuItem(
-                            title: 'Purchases'.tr,
-                            icon: Icons.import_export,
-                            route: 'bought',
-                          ),
-                      ].where((item) => item != null).cast<DrawerMenuItem>().toList(),
+                    
+                    DrawerTile(
+                      title: 'Debt Records'.tr,
+                      icon: Icons.money,
+                      route: 'debt',
                     ),
-
-                    // FINANCE & ACCOUNTING SECTION
-                    ExpandableDrawerSection(
-                      title: 'Finance & Accounting',
-                      icon: Icons.account_balance,
-                      initiallyExpanded: false,
-                      items: [
-                        DrawerMenuItem(
-                          title: 'Ledger'.tr,
-                          icon: Icons.receipt_long,
-                          route: 'ledger',
-                        ),
-                        if (canEditBusiness)
-                          DrawerMenuItem(
-                            title: 'Assets'.tr,
-                            icon: Icons.business_center,
-                            route: 'assets',
-                          ),
-                        DrawerMenuItem(
-                          title: 'expenses'.tr,
-                          icon: Icons.account_balance_wallet,
-                          route: 'expenses',
-                        ),
-                        DrawerMenuItem(
-                          title: 'Debt Records'.tr,
-                          icon: Icons.money,
-                          route: 'debt',
-                        ),
-                        DrawerMenuItem(
-                          title: 'Supplier Debts'.tr,
-                          icon: Icons.account_balance_wallet,
-                          route: 'supplier-debt',
-                        ),
-                        DrawerMenuItem(
-                          title: 'Suppliers'.tr,
-                          icon: Icons.local_shipping,
-                          route: 'suppliers',
-                        ),
-                      ],
-                    ),
+                    
+                    if(canEditBusiness)
+                      DrawerTile(
+                        title: 'Employees'.tr,
+                        icon: Icons.person_add,
+                        route: 'addemployee',
+                      ),
 
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 20.0),
@@ -1061,6 +990,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         route: 'statistics',
                       ),
 
+                    // MORE SECTION - Contains advanced features
+                    _buildMoreSection(context, canEditBusiness),
+
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20.0),
+                      child: Divider(),
+                    ),
+
                     // SETTINGS & SUPPORT (Direct items)
                     DrawerTile(
                       title: 'Settings'.tr,
@@ -1072,6 +1009,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.help_outline,
                       route: 'support',
                     ),
+                    
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20.0),
+                      child: Divider(),
+                    ),
+                    
+                    // ACCOUNT STATUS
+                    DrawerTile(
+                      title: 'Account Status'.tr,
+                      icon: Icons.card_membership,
+                      route: 'subscription',
+                    ),
                   ],
                 ),
               ),
@@ -1081,6 +1030,7 @@ class _HomeScreenState extends State<HomeScreen> {
           body: SingleChildScrollView(
             child: Column(
               children: [
+                SubscriptionExpiryBanner(),
                 Container(
                   padding: const EdgeInsets.all(20),
                   color: primaryColor,
@@ -1096,10 +1046,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
                             // Display the appropriate snackbar
                             Get.snackbar(
-                              'Switched',
+                              'Switched'.tr,
                               isBuyingStock
-                                  ? 'Displaying STOCK by BUYING PRICE'
-                                  : 'Displaying STOCK by SELLING PRICE',
+                                  ? 'Displaying STOCK by BUYING PRICE'.tr
+                                  : 'Displaying STOCK by SELLING PRICE'.tr,
                               snackPosition: SnackPosition.TOP,
                               backgroundColor: Colors.green,
                               colorText: Colors.white,
@@ -1305,6 +1255,197 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMoreSection(BuildContext context, bool canEditBusiness) {
+    return _MoreExpandableSection(
+      canEditBusiness: canEditBusiness,
+      profileController: _profileController,
+      businessController: _businessController,
+    );
+  }
+}
+
+class _MoreExpandableSection extends StatefulWidget {
+  final bool canEditBusiness;
+  final ProfileController profileController;
+  final BusinessController businessController;
+
+  const _MoreExpandableSection({
+    Key? key,
+    required this.canEditBusiness,
+    required this.profileController,
+    required this.businessController,
+  }) : super(key: key);
+
+  @override
+  State<_MoreExpandableSection> createState() => _MoreExpandableSectionState();
+}
+
+class _MoreExpandableSectionState extends State<_MoreExpandableSection>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _expandAnimation;
+  bool _isExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _expandAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _toggleExpanded() {
+    setState(() {
+      _isExpanded = !_isExpanded;
+      if (_isExpanded) {
+        _animationController.forward();
+      } else {
+        _animationController.reverse();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _toggleExpanded,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.more_horiz,
+                    color: Theme.of(context).primaryColor,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      'More'.tr,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).textTheme.bodyLarge?.color,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _isExpanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      color: Theme.of(context).primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizeTransition(
+          sizeFactor: _expandAnimation,
+          child: Container(
+            padding: const EdgeInsets.only(left: 8),
+            child: Column(
+              children: [
+                // HR & PAYROLL SUBSECTION
+                if (widget.canEditBusiness && widget.profileController.hasPermission('manage_payroll'))
+                  ExpandableDrawerSection(
+                    title: 'HR & Payroll'.tr,
+                    icon: Icons.people,
+                    initiallyExpanded: false,
+                    items: [
+                      DrawerMenuItem(
+                        title: 'Pay Roles'.tr,
+                        icon: Icons.payment,
+                        route: 'pay-roles',
+                      ),
+                      DrawerMenuItem(
+                        title: 'Payment Management'.tr,
+                        icon: Icons.account_balance,
+                        route: 'payment-management',
+                      ),
+                    ],
+                  ),
+
+                // INVENTORY & PRODUCTS SUBSECTION
+                ExpandableDrawerSection(
+                  title: 'Inventory & Products'.tr,
+                  icon: Icons.inventory,
+                  initiallyExpanded: false,
+                  items: [
+                    if (widget.canEditBusiness)
+                      DrawerMenuItem(
+                        title: 'Products in Store'.tr,
+                        icon: Icons.production_quantity_limits_rounded,
+                        route: 'store/add',
+                      ),
+                    DrawerMenuItem(
+                      title: 'Transfer Requests'.tr,
+                      icon: Icons.swap_horiz,
+                      route: 'transfer_requests',
+                    ),
+                    if (widget.canEditBusiness)
+                      DrawerMenuItem(
+                        title: 'Inventory Losses'.tr,
+                        icon: Icons.warning_amber_rounded,
+                        route: 'inventory-losses',
+                      ),
+                  ].where((item) => item != null).cast<DrawerMenuItem>().toList(),
+                ),
+
+                // FINANCE & ACCOUNTING SUBSECTION
+                ExpandableDrawerSection(
+                  title: 'Finance & Accounting'.tr,
+                  icon: Icons.account_balance,
+                  initiallyExpanded: false,
+                  items: [
+                    DrawerMenuItem(
+                      title: 'Ledger'.tr,
+                      icon: Icons.receipt_long,
+                      route: 'ledger',
+                    ),
+                    if (widget.canEditBusiness)
+                      DrawerMenuItem(
+                        title: 'Assets'.tr,
+                        icon: Icons.business_center,
+                        route: 'assets',
+                      ),
+                    DrawerMenuItem(
+                      title: 'Supplier Debts'.tr,
+                      icon: Icons.account_balance_wallet,
+                      route: 'supplier-debt',
+                    ),
+                    DrawerMenuItem(
+                      title: 'Suppliers'.tr,
+                      icon: Icons.local_shipping,
+                      route: 'suppliers',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

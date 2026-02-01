@@ -230,7 +230,7 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
               SizedBox(
                 width: double.infinity,
                 child: PrimaryButton(
-                  text: 'Make Payment',
+                  text: 'Make Payment'.tr,
                   color: primaryColor,
                   onPressed: () => _showPaymentDialog(debt),
                 ),
@@ -294,8 +294,8 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Payment Amount',
+              decoration: InputDecoration(
+                labelText: 'Payment Amount'.tr,
                 border: OutlineInputBorder(),
               ),
             ),
@@ -303,11 +303,11 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
             if (((_businessController.business['multiFundEnabled'] ?? false) == true))
               DropdownButtonFormField<String>(
                 value: selectedMethod,
-                decoration: const InputDecoration(
-                  labelText: 'Payment Method',
+                decoration: InputDecoration(
+                  labelText: 'Payment Method'.tr,
                   border: OutlineInputBorder(),
                 ),
-                items: ['Cash', 'Bank Transfer', 'Mobile Money', 'Check']
+                items: ['Cash'.tr, 'Bank Transfer'.tr, 'Mobile Money'.tr, 'Check'.tr]
                     .map((method) => DropdownMenuItem(
                           value: method,
                           child: Text(method),
@@ -343,7 +343,7 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
                 );
                 Navigator.pop(context);
               } else {
-                errorSnackbar('Please enter a valid payment amount');
+                errorSnackbar('Please enter a valid payment amount'.tr);
               }
             },
             child: const Text('Pay'),
@@ -360,8 +360,8 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
       appBar: AppBar(
-        title: const Text(
-          'Supplier Debts',
+        title: Text(
+          'Supplier Debts'.tr,
           style: TextStyle(color: Colors.black),
         ),
         backgroundColor: Colors.white,
@@ -435,9 +435,9 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
                   : debts;
               
               if (displayDebts.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
-                    'No supplier debts found',
+                    'No supplier debts found'.tr,
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.grey,

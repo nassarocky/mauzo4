@@ -210,7 +210,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
 
     // For custom date ranges, fetch data directly from Firestore
     // For default reports, use already loaded data from controllers
-    double totalSales, totalSalesBuying, totalPayment, debt, expenses, purchasesPaid, purchasesCashPaid;
+    double totalSales, totalSalesBuying, totalPayment, debt, debtCollected, expenses, purchasesPaid, purchasesCashPaid;
     
     if (customStart != null) {
       // Custom date range: Query Firestore directly
@@ -221,6 +221,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalSalesBuying = results['totalSalesBuying']!;
       totalPayment = results['totalPayment']!;
       debt = results['debt']!;
+      debtCollected = results['debtCollected']!;
       expenses = results['expenses']!;
       purchasesPaid = results['purchasesPaid']!;
       purchasesCashPaid = results['purchasesCashPaid']!;
@@ -231,7 +232,14 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalSales = _saleController.getTotalSalesFromTimestamp(startTimestamp, endTimestamp);
       totalSalesBuying = _saleController.getTotalSalesBuyingFromTimestamp(startTimestamp, endTimestamp);
       totalPayment = _saleController.getTotalPaymentFromTimestamp(startTimestamp, endTimestamp);
-      debt = _debtHistoryController.getTotalDebtFromTimestamp(startTimestamp, endTimestamp);
+      
+      // ALWAYS fetch debt from Firestore to avoid race condition with controller loading
+      // Controller data may not be loaded yet when report is generated quickly
+      print('🔄 Fetching debt directly from Firestore to avoid race condition...');
+      final debtResults = await _fetchDebtFromFirestore(startTimestamp, endTimestamp);
+      debt = debtResults['debt']!;
+      
+      debtCollected = _saleController.getDebtCollectedFromTimestamp(startTimestamp, endTimestamp);
       expenses = _expenseController.getTotalExpensesFromTimestamp(startTimestamp, endTimestamp);
       purchasesPaid = _boughtController.getTotalPurchasePaidFromTimestamp(startTimestamp, endTimestamp);
       purchasesCashPaid = _boughtController.getTotalPurchaseCashPaidFromTimestamp(startTimestamp, endTimestamp);
@@ -263,6 +271,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalPayment: totalPayment,
       totalDebt: totalDebt,
       debt: debt,
+      debtCollected: debtCollected,
       reserveDouble1: purchasesPaid,
       reserveDouble2: totalSalesBuying,
       expenses: expenses,
@@ -338,6 +347,10 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
               SizedBox(height: 16),
               Text('Final Stock & Total Debt', style: TextStyle(fontWeight: FontWeight.bold)),
               _buildStockAndDebtTable(book),
+              SizedBox(height: 16),
+              Text('Net Profit Calculation Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              SizedBox(height: 8),
+              _buildProfitCalculationBreakdown(book),
             ],
           ),
         ),
@@ -364,14 +377,15 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       border: TableBorder.all(color: Colors.grey),
       children: [
         _buildTableRow('${'TOTAL SALES (Accrual):'.tr}', book.totalSales, _businessController.business['mainCurrency']),
-        _buildTableRow('${'TOTAL PAYMENTS (Cash In):'.tr}', book.totalPayment, _businessController.business['mainCurrency']),
+        _buildTableRow('${'TOTAL PAYMENTS (Cash In) + DEBT COLLECTED:'.tr}', book.totalPayment + book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'COGS (Buying Price):'.tr}', book.reserveDouble2 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'PURCHASES PAID'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT (Created in Period):'.tr}', book.debt, _businessController.business['mainCurrency']),
+        _buildTableRow('${'DEBT COLLECTED (Old Debt Paid):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
-          '${'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr}',
-          (book.totalPayment - book.expenses - (book.totalPurchase)),
+          '${'TOTAL CASH IN HAND (payments + debt collected - expenses - purchases paid)'.tr}',
+          (book.totalPayment + book.debtCollected - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
         _buildTableRow('${'NET PROFIT (payments + debt - COGS - expenses)'.tr}', book.netProfit, _businessController.business['mainCurrency']),
@@ -404,6 +418,103 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildTableRow('FINAL STOCK'.tr, book.finalStock, book.currency),
         _buildTableRow('TOTAL DEBT'.tr, book.totalDebt, book.currency),
       ],
+    );
+  }
+
+  Widget _buildProfitCalculationBreakdown(CloseBook book) {
+    final totalPayment = book.totalPayment;
+    final debt = book.debt;
+    final cogs = book.reserveDouble2 ?? 0.0;
+    final expenses = book.expenses;
+    final netProfit = book.netProfit;
+    
+    return Container(
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        border: Border.all(color: Colors.blue.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Formula: Net Profit = (Total Payment + Debt) - COGS - Expenses',
+            style: TextStyle(fontStyle: FontStyle.italic, fontSize: 12),
+          ),
+          Divider(thickness: 1),
+          _buildCalculationRow('Total Payment (Cash In)', totalPayment, book.currency),
+          _buildCalculationRow('+ Debt (Credit Sales)', debt, book.currency, isAddition: true),
+          Divider(thickness: 1),
+          _buildCalculationRow('= Revenue', totalPayment + debt, book.currency, isBold: true),
+          Divider(thickness: 1),
+          _buildCalculationRow('- COGS (Cost of Goods Sold)', cogs, book.currency, isSubtraction: true),
+          _buildCalculationRow('- Expenses', expenses, book.currency, isSubtraction: true),
+          Divider(thickness: 2),
+          _buildCalculationRow(
+            '= NET PROFIT',
+            netProfit,
+            book.currency,
+            isBold: true,
+            isResult: true,
+            isNegative: netProfit < 0,
+          ),
+          if (netProfit < 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.red, size: 16),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Negative profit: Your costs (COGS + Expenses) exceed your revenue',
+                      style: TextStyle(color: Colors.red, fontSize: 11, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalculationRow(
+    String label,
+    double value,
+    String currency, {
+    bool isAddition = false,
+    bool isSubtraction = false,
+    bool isBold = false,
+    bool isResult = false,
+    bool isNegative = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                fontSize: isResult ? 14 : 12,
+                color: isNegative ? Colors.red : (isResult ? Colors.green.shade700 : Colors.black87),
+              ),
+            ),
+          ),
+          Text(
+            '$currency ${value.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isResult ? 14 : 12,
+              color: isNegative ? Colors.red : (isResult ? Colors.green.shade700 : Colors.black87),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -476,7 +587,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       border: pw.TableBorder.all(color: PdfColors.grey),
       children: [
         _buildPDFTableRow('TOTAL SALES (Accrual):'.tr, book.totalSales, book.currency),
-        _buildPDFTableRow('TOTAL PAYMENTS (Cash In):'.tr, book.totalPayment, book.currency),
+        _buildPDFTableRow('TOTAL PAYMENTS (Cash In) + DEBT COLLECTED:'.tr, book.totalPayment + book.debtCollected, book.currency),
         _buildPDFTableRow('COGS (Buying Price):'.tr, book.reserveDouble2 ?? 0.0, book.currency),
         _buildPDFTableRow(
             'PURCHASES PAID:'.tr,
@@ -485,10 +596,11 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         ),
 
         _buildPDFTableRow('DEBT (Created in Period):'.tr, book.debt, book.currency),
+        _buildPDFTableRow('DEBT COLLECTED (Old Debt Paid):'.tr, book.debtCollected, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
-          'TOTAL CASH IN HAND (payments - expenses - purchases paid)'.tr,
-          (book.totalPayment  - book.expenses - (book.totalPurchase)),
+          'TOTAL CASH IN HAND (payments + debt collected - expenses - purchases paid)'.tr,
+          (book.totalPayment + book.debtCollected - book.expenses - (book.totalPurchase)),
           book.currency,
         ),
 
@@ -530,6 +642,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         'totalSalesBuying': 0.0,
         'totalPayment': 0.0,
         'debt': 0.0,
+        'debtCollected': 0.0,
         'expenses': 0.0,
         'purchasesPaid': 0.0,
         'purchasesCashPaid': 0.0,
@@ -549,9 +662,18 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       double totalSales = 0.0;
       double totalSalesBuying = 0.0;
       double totalPayment = 0.0;
+      double debtCollected = 0.0;
 
       for (var doc in salesSnapshot.docs) {
         final data = doc.data();
+        final saleType = data['saleType'] ?? 'original';
+        
+        // Track debt repayment separately - these are collections on old debts
+        if (saleType == 'debt_repayment') {
+          debtCollected += (data['payment'] ?? 0.0).toDouble();
+          continue;
+        }
+        
         totalSales += (data['price'] ?? 0.0).toDouble();
         totalSalesBuying += (data['buyingPrice'] ?? 0.0).toDouble();
         totalPayment += (data['payment'] ?? 0.0).toDouble();
@@ -572,20 +694,45 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       double debt = 0.0;
       int debtCount = 0;
       
+      print('🔍 === FIRESTORE DEBT CALCULATION DEBUG ===');
+      print('📅 Report Period: ${startTimestamp.toDate()} to ${endTimestamp.toDate()}');
+      print('📊 Total PENDING debts fetched: ${debtSnapshot.docs.length}');
+      
       for (var doc in debtSnapshot.docs) {
         final data = doc.data();
         final Timestamp? dateIncurred = data['dateIncurred'];
-        final double remainingDebt = (data['remainingDebtAmount'] ?? 0.0).toDouble();
+        // Use INITIAL debt amount (when sale was made), not remaining debt
+        // This ensures we count the full credit extended in the period, not what's still owed
+        final double initialDebt = (data['initialDebtAmount'] ?? 0.0).toDouble();
+        final String client = data['client'] ?? 'Unknown';
+        
+        if (dateIncurred != null) {
+          print('  💳 Debt: Client=$client, Amount=$initialDebt');
+          print('     Date Incurred: ${dateIncurred.toDate()}');
+          print('     Start Compare: ${dateIncurred.compareTo(startTimestamp)} (>=0 means after start)');
+          print('     End Compare: ${dateIncurred.compareTo(endTimestamp)} (<=0 means before end)');
+        } else {
+          print('  ⚠️ Debt with NULL dateIncurred: Client=$client, Amount=$initialDebt');
+        }
         
         // Filter by date range in code
         if (dateIncurred != null &&
             dateIncurred.compareTo(startTimestamp) >= 0 &&
             dateIncurred.compareTo(endTimestamp) <= 0) {
-          debt += remainingDebt;
+          debt += initialDebt;
           debtCount++;
+          print('     ✅ INCLUDED in period - Added $initialDebt');
+        } else {
+          print('     ❌ EXCLUDED from period');
         }
       }
 
+      print('📊 === FIRESTORE DEBT SUMMARY ===');
+      print('Total PENDING debts: ${debtSnapshot.docs.length}');
+      print('Debts in Date Range: $debtCount');
+      print('Total Debt Amount: $debt');
+      print('===================================');
+      
       print('✅ Fetched ${debtSnapshot.docs.length} PENDING debts, $debtCount in date range');
 
       // Query expenses - fetch all and filter by date in code
@@ -681,6 +828,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         'totalSalesBuying': totalSalesBuying,
         'totalPayment': totalPayment,
         'debt': debt,
+        'debtCollected': debtCollected,
         'expenses': expenses,
         'purchasesPaid': purchasesPaid,
         'purchasesCashPaid': purchasesCashPaid,
@@ -693,12 +841,161 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         'totalSalesBuying': 0.0,
         'totalPayment': 0.0,
         'debt': 0.0,
+        'debtCollected': 0.0,
         'expenses': 0.0,
         'purchasesPaid': 0.0,
         'purchasesCashPaid': 0.0,
       };
     }
   }
+
+  /// Fetch only debt data from Firestore for reliable calculation
+  /// Avoids race condition with controller data loading
+  Future<Map<String, double>> _fetchDebtFromFirestore(Timestamp startTimestamp, Timestamp endTimestamp) async {
+    final String? businessId = _businessController.businessId.value;
+    
+    if (businessId == null || businessId.isEmpty) {
+      print('❌ Business ID is null, cannot fetch debt');
+      return {'debt': 0.0};
+    }
+
+    try {
+      // Query debt history - fetch PENDING debts only and filter by date in code
+      final debtSnapshot = await _firestore
+          .collection('debtHistory')
+          .doc(businessId)
+          .collection('clientDebtHistory')
+          .where('status', isEqualTo: 'PENDING')
+          .get();
+
+      double debt = 0.0;
+      int debtCount = 0;
+      
+      print('🔍 === DIRECT DEBT FETCH (AVOIDING RACE CONDITION) ===');
+      print('📅 Report Period: ${startTimestamp.toDate()} to ${endTimestamp.toDate()}');
+      print('📊 Total PENDING debts fetched: ${debtSnapshot.docs.length}');
+      
+      for (var doc in debtSnapshot.docs) {
+        final data = doc.data();
+        final Timestamp? dateIncurred = data['dateIncurred'];
+        final double initialDebt = (data['initialDebtAmount'] ?? 0.0).toDouble();
+        final String client = data['client'] ?? 'Unknown';
+        
+        if (dateIncurred != null) {
+          print('  💳 Debt: Client=$client, Amount=$initialDebt');
+          print('     Date Incurred: ${dateIncurred.toDate()}');
+          print('     Start Compare: ${dateIncurred.compareTo(startTimestamp)} (>=0 means after start)');
+          print('     End Compare: ${dateIncurred.compareTo(endTimestamp)} (<=0 means before end)');
+        } else {
+          print('  ⚠️ Debt with NULL dateIncurred: Client=$client, Amount=$initialDebt');
+        }
+        
+        // Filter by date range in code
+        if (dateIncurred != null &&
+            dateIncurred.compareTo(startTimestamp) >= 0 &&
+            dateIncurred.compareTo(endTimestamp) <= 0) {
+          debt += initialDebt;
+          debtCount++;
+          print('     ✅ INCLUDED in period - Added $initialDebt');
+        } else {
+          print('     ❌ EXCLUDED from period');
+        }
+      }
+
+      print('📊 === DIRECT DEBT FETCH SUMMARY ===');
+      print('Total PENDING debts: ${debtSnapshot.docs.length}');
+      print('Debts in Date Range: $debtCount');
+      print('Total Debt Amount: $debt');
+      print('===================================');
+
+      return {'debt': debt};
+    } catch (e) {
+      print('❌ Error fetching debt from Firestore: $e');
+      return {'debt': 0.0};
+    }
+  }
+}
+
+void _showDeleteConfirmation(
+  BuildContext context,
+  CloseBook book,
+  BusinessController businessController,
+  ClosedBooksController closedBooksController,
+) {
+  final DateFormat formatter = DateFormat('dd MMM yyyy, hh:mm a');
+  
+  showDialog(
+    context: context,
+    builder: (BuildContext dialogContext) {
+      return AlertDialog(
+        title: Text('Delete Report'.tr),
+        content: Text(
+          '${'Are you sure you want to delete this report?'.tr}\n\n'
+          '${'Report Period:'.tr}\n'
+          '${formatter.format(book.startDate)} - ${formatter.format(book.endDate)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+            },
+            child: Text('cancel'.tr),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              // Close confirmation dialog first
+              Navigator.of(dialogContext).pop();
+              
+              // Show loading indicator
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (BuildContext loadingContext) {
+                  return WillPopScope(
+                    onWillPop: () async => false,
+                    child: Center(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 16),
+                              Text('Deleting report...'.tr),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+              
+              try {
+                final String businessId = businessController.business['id'];
+                await closedBooksController.deleteClosedBook(businessId, book.id);
+                
+                // Close loading dialog using root navigator
+                Navigator.of(context, rootNavigator: true).pop();
+                
+                // Show success message
+                successSnackbar('Report deleted successfully!'.tr);
+              } catch (e) {
+                // Close loading dialog using root navigator
+                Navigator.of(context, rootNavigator: true).pop();
+                
+                // Show error message
+                errorSnackbar('Error deleting report: $e'.tr);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text('delete'.tr),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 class ReportCard extends StatelessWidget {
@@ -710,6 +1007,13 @@ class ReportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DateFormat formatter = DateFormat('dd MMM yyyy, hh:mm a');
+    final ProfileController profileController = Get.find();
+    final BusinessController businessController = Get.find();
+    final ClosedBooksController closedBooksController = Get.find();
+    
+    // Check if user is owner or manager
+    final bool canDelete = profileController.isManagerOrOwner();
+    
     return Card(
       margin: EdgeInsets.all(8),
       elevation: 4,
@@ -724,7 +1028,39 @@ class ReportCard extends StatelessWidget {
           '${'Total Payments:'.tr}${book.currency} ${book.totalPayment.toStringAsFixed(2)}',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        trailing: Icon(Icons.arrow_forward_ios, color: Colors.grey),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (canDelete)
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: Colors.grey),
+                onSelected: (String value) {
+                  if (value == 'delete') {
+                    _showDeleteConfirmation(
+                      context,
+                      book,
+                      businessController,
+                      closedBooksController,
+                    );
+                  }
+                },
+                itemBuilder: (BuildContext context) => [
+                  PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('delete'.tr, style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            if (!canDelete)
+              Icon(Icons.arrow_forward_ios, color: Colors.grey),
+          ],
+        ),
         onTap: onTap,
       ),
     );

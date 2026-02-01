@@ -123,26 +123,52 @@ class DebtHistoryController extends GetxController {
   }
   // Calculate total debt created within a date range
   // Uses PENDING debts only (loaded via loadDebtsByStatus('PENDING'))
-  // Returns sum of remainingDebtAmount for debts incurred in the date range
-  // Note: Only PENDING debts count as actual debt - PAID debts are already converted to sales
+  // Returns sum of INITIAL debt amount for debts incurred in the date range
+  // Note: Uses initialDebtAmount (original credit extended) not remainingDebtAmount
+  // This ensures accurate revenue recognition regardless of partial payments
   double getTotalDebtFromTimestamp(Timestamp startTimestamp,Timestamp endDate) {
     double totalDebt = 0;
+    int totalDebtsChecked = 0;
+    int debtsInRange = 0;
+
+    print('🔍 === DEBT CALCULATION DEBUG ===');
+    print('📅 Report Period: ${startTimestamp.toDate()} to ${endDate.toDate()}');
+    print('📊 Total debts loaded: ${debtHistories.length}');
 
     for (var debt in debtHistories) {
+      totalDebtsChecked++;
+      
       // Ensure debt.dateIncurred is of type Timestamp
       if (debt.dateIncurred is Timestamp) {
         Timestamp debtTimestamp = debt.dateIncurred;
 
+        print('  💳 Debt #$totalDebtsChecked: Client=${debt.client}, Amount=${debt.initialDebtAmount}');
+        print('     Date Incurred: ${debtTimestamp.toDate()}');
+        print('     Status: PENDING (loaded from controller)');
+        print('     Start Compare: ${debtTimestamp.compareTo(startTimestamp)} (>=0 means after start)');
+        print('     End Compare: ${debtTimestamp.compareTo(endDate)} (<=0 means before end)');
+
         // Check if the debt was incurred within the specified date range (INCLUSIVE boundaries)
         if (debtTimestamp.compareTo(startTimestamp) >= 0 && debtTimestamp.compareTo(endDate) <= 0) {
-          totalDebt += debt.remainingDebtAmount;
+          // Use INITIAL debt amount (when sale was made), not remaining debt
+          totalDebt += debt.initialDebtAmount;
+          debtsInRange++;
+          print('     ✅ INCLUDED in period - Added ${debt.initialDebtAmount}');
+        } else {
+          print('     ❌ EXCLUDED from period');
         }
       } else {
         // If the date is not in a recognized format, log an error and skip
-        print("Unrecognized date format for debt: ${debt.dateIncurred}");
+        print("  ⚠️ Unrecognized date format for debt: ${debt.dateIncurred}");
         continue;
       }
     }
+
+    print('📊 === DEBT CALCULATION SUMMARY ===');
+    print('Total Debts Checked: $totalDebtsChecked');
+    print('Debts in Date Range: $debtsInRange');
+    print('Total Debt Amount: $totalDebt');
+    print('===================================');
 
     return totalDebt;
   }

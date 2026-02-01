@@ -42,7 +42,7 @@ class _InventoryLossScreenState extends State<InventoryLossScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Inventory Losses'),
+        title: Text('Inventory Losses'.tr),
         actions: [
           // Time Period Toggle
           Obx(() => TextButton.icon(
@@ -101,7 +101,7 @@ class _InventoryLossScreenState extends State<InventoryLossScreen> {
                       Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
                       SizedBox(height: 16),
                       Text(
-                        'No inventory losses recorded',
+                        'No inventory losses recorded'.tr,
                         style: TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                     ],

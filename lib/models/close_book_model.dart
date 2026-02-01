@@ -14,6 +14,7 @@ class CloseBook {
   final double netProfit;
   final double totalPurchase;
   final double totalDiscounts;
+  final double debtCollected;
   final String currency;
   final String createdBy;
   final DateTime createdAt;
@@ -40,6 +41,7 @@ class CloseBook {
     required this.netProfit,
     required this.totalPurchase,
     required this.totalDiscounts,
+    this.debtCollected = 0.0,
     required this.currency,
     required this.createdBy,
     required this.createdAt,
@@ -73,6 +75,7 @@ class CloseBook {
       netProfit: (data['netProfit'] ?? 0.0) is int ? (data['netProfit'] as int).toDouble() : (data['netProfit'] ?? 0.0) as double,
       totalPurchase: (data['totalPurchase'] ?? 0.0) is int ? (data['totalPurchase'] as int).toDouble() : (data['totalPurchase'] ?? 0.0) as double,
       totalDiscounts: (data['totalDiscounts'] ?? 0.0) is int ? (data['totalDiscounts'] as int).toDouble() : (data['totalDiscounts'] ?? 0.0) as double,
+      debtCollected: (data['debtCollected'] ?? 0.0) is int ? (data['debtCollected'] as int).toDouble() : (data['debtCollected'] ?? 0.0) as double,
       currency: data['currency'] ?? '',
       createdBy: data['createdBy'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
@@ -100,6 +103,7 @@ class CloseBook {
       'netProfit': netProfit,
       'totalPurchase': totalPurchase,
       'totalDiscounts': totalDiscounts,
+      'debtCollected': debtCollected,
       'currency': currency,
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),

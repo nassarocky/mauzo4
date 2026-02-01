@@ -19,6 +19,8 @@ class Sale {
   final double debt;
   final double discount;
   final String comment;
+  // Sale type: 'original' for regular sales, 'debt_repayment' for debt payments
+  final String? saleType;
   // Optional detailed payments breakdown (each item: {amount,currency,method})
   final List<Map<String, dynamic>> payments;
   // Optional purchase fund source (e.g., cash, bank, mobile, other)
@@ -44,6 +46,7 @@ class Sale {
     required this.debt,
     required this.discount,
     required this.comment,
+    this.saleType,
     this.payments = const [],
     this.fundSource,
     this.fundSourceNote,
@@ -69,6 +72,7 @@ class Sale {
       debt: (data?['debt'] ?? 0.0).toDouble(),            // Converts to double
       discount: (data?['discount'] ?? 0.0).toDouble(),    // Converts to double
       comment: data?['comment'] ?? '',
+      saleType: data?['saleType'],
       payments: List<Map<String, dynamic>>.from(data?['payments'] ?? const []),
       fundSource: data?['fundSource'],
       fundSourceNote: data?['fundSourceNote'],

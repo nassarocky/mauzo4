@@ -236,7 +236,7 @@ class _PayRoleManagementScreenState extends State<PayRoleManagementScreen> with 
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'No pay roles found',
+                        'No pay roles found'.tr,
                         style: TextStyle(
                           fontSize: 18,
                           color: Colors.grey[600],
@@ -245,7 +245,7 @@ class _PayRoleManagementScreenState extends State<PayRoleManagementScreen> with 
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Create pay roles for your employees to get started',
+                        'Create pay roles for your employees to get started'.tr,
                         style: TextStyle(
                           color: Colors.grey[500],
                           fontSize: 14,

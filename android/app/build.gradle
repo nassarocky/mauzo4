@@ -13,8 +13,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode =  "17"
-def flutterVersionName =  "2.4"
+def flutterVersionCode =  "18"
+def flutterVersionName =  "2.5"
 
 android {
     namespace = "com.hesabu.mauzo"
@@ -32,7 +32,7 @@ android {
 
     defaultConfig {
         applicationId = "com.hesabu.mauzo"
-        minSdk = 23
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName

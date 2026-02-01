@@ -673,7 +673,7 @@ class DebtCard extends StatelessWidget {
                           DropdownButtonFormField<String>(
                             value: paymentMethod,
                             decoration: InputDecoration(
-                              labelText: 'Payment Method',
+                              labelText: 'Payment Method'.tr,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             ),
@@ -701,8 +701,8 @@ class DebtCard extends StatelessWidget {
                           paymentAmount <= debt.remainingDebtAmount) {
                         _processDebtPayment(context, debt, paymentAmount, paymentMethod);
                       } else {
-                        Get.snackbar('Invalid Payment',
-                            'Please enter a valid payment amount.');
+                        Get.snackbar('Invalid Payment'.tr,
+                            'Please enter a valid payment amount'.tr);
                       }
                     },
                     child: Text('Save'.tr),
@@ -760,12 +760,13 @@ class DebtCard extends StatelessWidget {
       final double newRemainingDebt = oldDebt - paymentAmount;
 
       if (newRemainingDebt < 0) {
-        throw Exception("Payment amount exceeds the remaining debt.");
+        throw Exception('Payment amount exceeds the remaining debt.'.tr);
       }
 
       final newSaleData = {
         ...oldSaleData,
         'id': salesCollection.doc().id,
+        'saleType': 'debt_repayment',
         'payment': paymentAmount,
         'date': DateTime.now(),
         'debt': 0.00,

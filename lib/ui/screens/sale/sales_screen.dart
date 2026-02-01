@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -943,14 +944,14 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
   Future<void> _thermalPrint(Sale sale, Client client) async {
-    // Check if a printer is selected
-    if (_thermalPrinter.selectedPrinter.value == null) {
-      // Show printer selection dialog
+    // On Windows desktop, skip Bluetooth selection and use system print dialog
+    final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
+      // Show printer selection dialog (Android only)
       final result = await showDialog(
         context: context,
         builder: (context) => const PrinterSelectionDialog(),
       );
-      
       // If still no printer selected after dialog, return
       if (_thermalPrinter.selectedPrinter.value == null) {
         return;

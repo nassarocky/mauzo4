@@ -71,14 +71,13 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyD2Vzy4pUOcbdPclMXvaWJOCD-rdZt4oWM',
-    appId: '1:107297716546:web:2aba54dc53e78c58a670db',
-    messagingSenderId: '107297716546',
-    projectId: 'shopping-manager-a938a',
-    authDomain: 'shopping-manager-a938a.firebaseapp.com',
-    databaseURL: 'https://shopping-manager-a938a-default-rtdb.firebaseio.com',
-    storageBucket: 'shopping-manager-a938a.appspot.com',
-    measurementId: 'G-YMKB4LVTVC',
+    apiKey: 'AIzaSyCXM8CaFYxyI6TG-W0NYTD18dGeJRWXKMY',
+    appId: '1:366012871773:web:ed89faf46606996e0889b4',
+    messagingSenderId: '366012871773',
+    projectId: 'hesabumauzo',
+    authDomain: 'hesabumauzo.firebaseapp.com',
+    storageBucket: 'hesabumauzo.firebasestorage.app',
+    measurementId: 'G-RKYJNTF6W8',
   );
 
 }

@@ -1,12 +1,20 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../controllers/business_controller.dart';
 import '../models/expences.dart';
 import '../services/firestore_db.dart';
 import '../services/ledger_service.dart';
+import '../utils/constants.dart';
+import '../utils/download_helper.dart';
 
 class ExpenseController extends GetxController {
   final BusinessController _businessController = Get.find();
@@ -409,6 +417,110 @@ class ExpenseController extends GetxController {
     }
     
     return uniqueCategories;
+  }
+
+  // Generate Excel report from expenses
+  Future<void> generateExcelFromExpenses() async {
+    // Create a new Excel document
+    var excel = Excel.createExcel();
+
+    // Get the default sheet
+    String defaultSheet = excel.getDefaultSheet()!;
+    Sheet sheetObject = excel[defaultSheet];
+
+    // Add the business name and date range as the first row (heading)
+    String businessName = _businessController.business['name'] ?? 'Business Name';
+    String dateRange = selectedDateRange != null
+        ? '${DateFormat('dd MMM yyyy').format(selectedDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(selectedDateRange!.end)}'
+        : 'All Time';
+
+    // Add the business name and date range
+    sheetObject.appendRow([businessName]);
+    sheetObject.appendRow(['Date Range: $dateRange']);
+
+    // Add multiple empty rows for better spacing
+    sheetObject.appendRow([]);
+    sheetObject.appendRow([]);
+    sheetObject.appendRow([]);
+
+    // Define header row with background color
+    final headerRow = ['Category', 'Amount', 'Fund Source', 'Date', 'Added By', 'Title'];
+
+    // Apply a background color to the header row
+    CellStyle headerStyle = CellStyle(
+      backgroundColorHex: '#FFC107', // Amber color
+      bold: true,
+    );
+
+    // Add header row with styling
+    var headerRowIndex = sheetObject.maxRows;
+    sheetObject.appendRow(headerRow);
+    sheetObject.row(headerRowIndex).forEach((cell) {
+      cell?.cellStyle = headerStyle;
+    });
+
+    // Initialize variable to accumulate the total
+    double totalAmount = 0.0;
+
+    // Iterate through the list of expenses and add each expense as a row in the Excel sheet
+    for (Expense expense in filteredExpenses) {
+      // Accumulate the total amount
+      totalAmount += expense.amount;
+
+      // Add a row to the sheet
+      sheetObject.appendRow([
+        expense.category,
+        expense.amount,
+        expense.fundSource,
+        DateFormat('dd MMM yyyy').format(expense.date.toDate()), // Convert Timestamp to readable date
+        expense.addedByName ?? 'Unknown',
+        expense.title,
+      ]);
+    }
+
+    // Add an empty row for spacing before the Total row
+    sheetObject.appendRow([]);
+
+    // Add Total row for Amount at the bottom
+    var totalsRowIndex = sheetObject.maxRows; // Store the row index for the totals row
+    sheetObject.appendRow(['Total:', totalAmount, '', '', '', '']);
+
+    // Apply a bold style and background color to the Totals row
+    var totalsStyle = CellStyle(
+      bold: true,
+      backgroundColorHex: '#ADD8E6', // Light blue color for the totals row
+    );
+
+    sheetObject.row(totalsRowIndex).forEach((cell) {
+      cell?.cellStyle = totalsStyle;
+    });
+
+    // Encode the Excel file
+    final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      errorSnackbar('Failed to generate Excel file'.tr);
+      return;
+    }
+
+    final fileName = 'Expense_Report.xlsx';
+
+    if (DownloadHelper.isWeb) {
+      // Web: Direct download using blob
+      DownloadHelper.downloadFileWeb(Uint8List.fromList(fileBytes), fileName);
+      successSnackbar('Excel file downloaded successfully!'.tr);
+    } else {
+      // Mobile: Save and share the file
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = "${directory.path}/$fileName";
+      final file = File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(fileBytes);
+
+      await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Expense Report',
+      );
+    }
   }
 
   void clearExpense(){

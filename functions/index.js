@@ -422,7 +422,7 @@ exports.deleteUser = onRequest(async (req, res) => {
 
 
 
-exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => {
+exports.registerUrser = onRequest({ region: 'us-central1' }, async (req, res) => {
   // CORS: allow production domains (and common localhost ports for dev) and handle preflight
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -678,19 +678,43 @@ exports.paymentCallbackEmail2 = onRequest(
       }
 
       const paymentStart = admin.firestore.Timestamp.now();
-      const paymentLast = admin.firestore.Timestamp.fromDate(
-        new Date(paymentStart.toDate().getTime() + numberOfDays * 24 * 60 * 60 * 1000)
-      );
 
-      // Update businesses
-      const updatePromises = businessesSnapshot.docs.map((businessDoc) =>
-        businessDoc.ref.update({
+      // Update businesses with fair renewal logic
+      const updatePromises = businessesSnapshot.docs.map((businessDoc) => {
+        const business = businessDoc.data();
+        const now = paymentStart.toDate();
+        
+        // Check paid subscription end date
+        const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
+        
+        // Check trial end date (trialStart + 30 days)
+        const trialStart = business.trialStart ? business.trialStart.toDate() : null;
+        const trialExpiry = trialStart ? new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000) : null;
+        
+        // Determine start date: use the latest of now, paid expiry, or trial expiry
+        let startDate = now;
+        
+        // Check if paid subscription extends beyond current startDate
+        if (existingPaymentLast && existingPaymentLast > startDate) {
+          startDate = existingPaymentLast;
+        }
+        
+        // Check if trial extends beyond current startDate (could be later than paid)
+        if (trialExpiry && trialExpiry > startDate) {
+          startDate = trialExpiry;
+        }
+        
+        const paymentLast = admin.firestore.Timestamp.fromDate(
+          new Date(startDate.getTime() + numberOfDays * 24 * 60 * 60 * 1000)
+        );
+
+        return businessDoc.ref.update({
           paid: true,
           subscriptionStatus: "subscription_ok",
           paymentStart,
           paymentLast,
-        })
-      );
+        });
+      });
 
       await Promise.all(updatePromises);
       console.log(`Updated businesses with email ${email}`);
@@ -739,11 +763,36 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
       }
 
       const paymentStart = admin.firestore.Timestamp.now();
-      const paymentLast = admin.firestore.Timestamp.fromDate(
-        new Date(paymentStart.toDate().getTime() + (numberOfDays * 24 * 60 * 60 * 1000))
-      );
 
+      // Update businesses with fair renewal logic
       const updatePromises = snapshot.docs.map((businessDoc) => {
+        const business = businessDoc.data();
+        const now = paymentStart.toDate();
+        
+        // Check paid subscription end date
+        const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
+        
+        // Check trial end date (trialStart + 30 days)
+        const trialStart = business.trialStart ? business.trialStart.toDate() : null;
+        const trialExpiry = trialStart ? new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000) : null;
+        
+        // Determine start date: use the latest of now, paid expiry, or trial expiry
+        let startDate = now;
+        
+        // Check if paid subscription extends beyond current startDate
+        if (existingPaymentLast && existingPaymentLast > startDate) {
+          startDate = existingPaymentLast;
+        }
+        
+        // Check if trial extends beyond current startDate (could be later than paid)
+        if (trialExpiry && trialExpiry > startDate) {
+          startDate = trialExpiry;
+        }
+        
+        const paymentLast = admin.firestore.Timestamp.fromDate(
+          new Date(startDate.getTime() + (numberOfDays * 24 * 60 * 60 * 1000))
+        );
+
         return businessDoc.ref.update({
           paid: true,
           subscriptionStatus: 'subscription_ok',
@@ -852,6 +901,98 @@ exports.resetBusinessResetTime = onRequest(async (req, res) => {
         res.status(500).send('Error updating reset time');
     }
 });
+
+// One-time migration function to fix paid users stuck in trial status
+exports.fixPaidTrialUsers = onRequest(
+  {
+    cors: ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"],
+    region: "us-central1",
+  },
+  async (req, res) => {
+    // Handle preflight (OPTIONS) request
+    if (req.method === "OPTIONS") {
+      res.set("Access-Control-Allow-Methods", "GET, POST");
+      res.set("Access-Control-Allow-Headers", "Content-Type");
+      return res.status(204).send("");
+    }
+
+    try {
+      console.log('=== Starting Paid Trial Users Migration ===');
+      
+      const businessesRef = firestore.collection('businesses');
+      const snapshot = await businessesRef.get();
+      
+      if (snapshot.empty) {
+        console.log('No businesses found in database');
+        return res.status(200).json({
+          success: true,
+          message: 'No businesses found',
+          fixed: 0,
+          details: []
+        });
+      }
+
+      const fixedBusinesses = [];
+      const updates = [];
+      
+      for (const doc of snapshot.docs) {
+        const business = doc.data();
+        const businessId = doc.id;
+        
+        // Find businesses with payment data but still on trial status
+        if (business.paymentStart && 
+            business.paymentLast && 
+            business.subscriptionStatus === 'subscription_ontrial') {
+          
+          console.log(`Found business stuck in trial: ${businessId}`);
+          console.log(`- Email: ${business.email || 'N/A'}`);
+          console.log(`- Business Name: ${business.name || 'N/A'}`);
+          console.log(`- Payment Start: ${business.paymentStart.toDate()}`);
+          console.log(`- Payment Last: ${business.paymentLast.toDate()}`);
+          
+          // Update to subscription_ok and set paid flag
+          updates.push(
+            doc.ref.update({
+              subscriptionStatus: 'subscription_ok',
+              paid: true
+            })
+          );
+          
+          fixedBusinesses.push({
+            businessId: businessId,
+            businessName: business.name || 'N/A',
+            email: business.email || 'N/A',
+            paymentStart: business.paymentStart.toDate().toISOString(),
+            paymentLast: business.paymentLast.toDate().toISOString()
+          });
+        }
+      }
+      
+      // Execute all updates
+      if (updates.length > 0) {
+        await Promise.all(updates);
+        console.log(`Successfully fixed ${updates.length} businesses`);
+      } else {
+        console.log('No businesses needed fixing');
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: `Migration completed. Fixed ${fixedBusinesses.length} businesses.`,
+        fixed: fixedBusinesses.length,
+        details: fixedBusinesses
+      });
+      
+    } catch (error) {
+      console.error('Error in fixPaidTrialUsers:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'Migration failed'
+      });
+    }
+  }
+);
 
 async function executeLargeBatchWrite(productUpdates) {
   const batchSize = 500;
@@ -2436,5 +2577,117 @@ exports.updateUserDetailsV2 = onCall(async (request) => {
     }
     
     throw new HttpsError("internal", `Failed to update user details: ${error.message}`);
+  }
+});
+
+// Get subscription pricing configuration
+exports.getSubscriptionPricing = onRequest(async (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
+
+  try {
+    const pricingDoc = await admin.firestore()
+      .collection('subscriptionPricing')
+      .doc('config')
+      .get();
+
+    if (pricingDoc.exists) {
+      return res.status(200).json(pricingDoc.data());
+    } else {
+      // Return default pricing if not set
+      const defaultPricing = {
+        tier1: { week: 5000, month: 15000, sixMonths: 75000, year: 130000 },
+        tier2: { week: 10000, month: 30000, sixMonths: 150000, year: 260000 },
+        tier3: { week: 15000, month: 45000, sixMonths: 225000, year: 390000 },
+        tier4: { week: 20000, month: 60000, sixMonths: 300000, year: 520000 },
+        tier5Plus: { week: 25000, month: 75000, sixMonths: 375000, year: 650000 },
+        durationSeconds: {
+          week: '604800',
+          month: '2592000',
+          sixMonths: '15552000',
+          year: '31622400'
+        }
+      };
+      return res.status(200).json(defaultPricing);
+    }
+  } catch (error) {
+    console.error("Error fetching subscription pricing:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Update subscription pricing configuration
+exports.updateSubscriptionPricing = onRequest(async (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://hesabumauzo.co.tz",
+    "https://biashara.hesabumauzo.co.tz",
+    "http://localhost:5000",
+    "http://localhost:8080",
+    "http://localhost:5173"
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type");
+  
+  if (req.method === "OPTIONS") {
+    return res.status(204).send("");
+  }
+
+  try {
+    const pricingData = req.body;
+
+    // Validate required fields
+    const requiredTiers = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5Plus'];
+    const requiredPackages = ['week', 'month', 'sixMonths', 'year'];
+
+    for (const tier of requiredTiers) {
+      if (!pricingData[tier]) {
+        return res.status(400).json({ error: `Missing ${tier} pricing data` });
+      }
+      for (const pkg of requiredPackages) {
+        if (typeof pricingData[tier][pkg] !== 'number') {
+          return res.status(400).json({ error: `Invalid price for ${tier}.${pkg}` });
+        }
+      }
+    }
+
+    // Add metadata
+    const dataToSave = {
+      ...pricingData,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: 'admin'
+    };
+
+    await admin.firestore()
+      .collection('subscriptionPricing')
+      .doc('config')
+      .set(dataToSave);
+
+    console.log("Subscription pricing updated successfully");
+    return res.status(200).json({ 
+      success: true, 
+      message: "Subscription pricing updated successfully" 
+    });
+  } catch (error) {
+    console.error("Error updating subscription pricing:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });

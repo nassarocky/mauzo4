@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -46,6 +47,9 @@ class _CartScreenState extends State<CartScreen> {
   // Payment method selection
   String _paymentMethod = 'cash'; // Payment method state variable
   late final ThermalPrinterService _thermalPrinter;
+  // Track manual edits and total changes
+  bool _userEditedPaid = false;
+  double _lastProductsTotal = 0.0;
 
   @override
   void initState() {
@@ -180,11 +184,19 @@ class _CartScreenState extends State<CartScreen> {
                         _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
                       }
                     }
+                    // Calculate current total
+                    final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
+                    final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
+                    
+                    // Check if total changed (product added/removed or discount changed)
+                    if ((_lastProductsTotal - currentTotal).abs() > 0.0001) {
+                      _lastProductsTotal = currentTotal;
+                      _userEditedPaid = false; // Reset user edit flag when total changes
+                    }
+                    
                     if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
-                      final double base = _cartController.productsPrice - _cartController.discount.value;
-                      final double amount = base < 0 ? 0 : base;
-                      _cartController.addPayment(amount, chosenCurrency, method: _paymentMethod);
-                      _paidController.text = formatCurrencyWithoutSymbol(amount);
+                      _cartController.addPayment(calcAmount, chosenCurrency, method: _paymentMethod);
+                      _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
                     } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != _paymentMethod) {
                       // Update existing payment method while preserving amount and currency
                       final existing = _cartController.payments[0];
@@ -192,24 +204,13 @@ class _CartScreenState extends State<CartScreen> {
                       _cartController.addPayment(existing.amount, existing.currency, method: _paymentMethod);
                     }
 
-                    if (_cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
-                      final double calcBase = _cartController.productsPrice - _cartController.discount.value;
-                      final double calcAmount = calcBase < 0 ? 0 : calcBase;
+                    // Only auto-fill if user hasn't manually edited AND field is not focused
+                    if (!_userEditedPaid && _cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
                       final existing = _cartController.payments[0];
                       if ((existing.amount - calcAmount).abs() > 0.0001) {
                         _cartController.clearPayments();
                         _cartController.addPayment(calcAmount, existing.currency, method: existing.method);
                         _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
-                      }
-                    }
-
-                    // Keep the text field synced with the current payment when not focused
-                    if (!_paidFocusNode.hasFocus) {
-                      final double currentAmt =
-                          _cartController.payments.length > 0 ? _cartController.payments[0].amount : 0.0;
-                      final String currentText = formatCurrencyWithoutSymbol(currentAmt);
-                      if (_paidController.text != currentText) {
-                        _paidController.text = currentText;
                       }
                     }
                   }
@@ -612,6 +613,8 @@ class _CartScreenState extends State<CartScreen> {
                             focusNode: _paidFocusNode,
                             keyboardType: TextInputType.number,
                             onChanged: (value) {
+                              // Mark that user has manually edited the paid field
+                              _userEditedPaid = true;
                               final String v = value.trim();
                               double amt = 0.0;
                               if (v.isNotEmpty) {
@@ -1272,14 +1275,14 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    // Check if printer is selected
-    if (_thermalPrinter.selectedPrinter.value == null) {
-      // Show printer selection dialog
+    // On Windows desktop, skip Bluetooth selection and use system print dialog
+    final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
+      // Show printer selection dialog (Android only)
       await showDialog(
         context: context,
         builder: (context) => const PrinterSelectionDialog(),
       );
-      
       // If still no printer selected, return
       if (_thermalPrinter.selectedPrinter.value == null) {
         return;

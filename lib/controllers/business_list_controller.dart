@@ -126,6 +126,20 @@ class BusinessListController extends GetxController {
         'additionalList2': [],
       };
 
+      // Copy subscription-related fields from existing business
+      if (currentBusiness['trialStart'] != null) {
+        newBusinessData['trialStart'] = currentBusiness['trialStart'];
+      }
+      if (currentBusiness['paymentStart'] != null) {
+        newBusinessData['paymentStart'] = currentBusiness['paymentStart'];
+      }
+      if (currentBusiness['paymentLast'] != null) {
+        newBusinessData['paymentLast'] = currentBusiness['paymentLast'];
+      }
+      if (currentBusiness['paid'] != null) {
+        newBusinessData['paid'] = currentBusiness['paid'];
+      }
+
       print("[DEBUG] Business data prepared: $newBusinessData");
 
       // ✅ Step 4: Save the business document

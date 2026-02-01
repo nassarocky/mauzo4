@@ -21,6 +21,7 @@ import 'package:mauzo/ui/screens/statistics_screen.dart';
 import 'package:mauzo/ui/screens/sale/add_sale_screen.dart';
 import 'package:mauzo/ui/screens/product/products_screen.dart';
 import 'package:mauzo/ui/screens/settings_screen.dart';
+import 'package:mauzo/ui/screens/subscription_screen.dart';
 import 'package:mauzo/ui/screens/loading_screen.dart';
 import 'package:mauzo/ui/screens/support_screen.dart';
 import '../ui/screens/Buy_Product_cart_screen.dart';
@@ -133,6 +134,8 @@ class AppRouter {
         return CupertinoPageRoute(builder: (_) => const CategoriesScreen());
       case '/settings':
         return CupertinoPageRoute(builder: (_) => const SettingsScreen());
+      case '/subscription':
+        return CupertinoPageRoute(builder: (_) => SubscriptionScreen());
       case '/support':
         return CupertinoPageRoute(builder: (_) => const SupportScreen());
       case '/account':
