@@ -768,11 +768,19 @@ class DebtCard extends StatelessWidget {
         'id': salesCollection.doc().id,
         'saleType': 'debt_repayment',
         'payment': paymentAmount,
-        'date': DateTime.now(),
+        'date': Timestamp.now(),
         'debt': 0.00,
         'products': [],
         'price': 0.00,
         'buyingPrice': 0.00,
+        'payments': [
+          {
+            'amount': paymentAmount,
+            'currency': _businessController.business['mainCurrency'] ?? 'TZS',
+            'method': paymentMethod,
+          }
+        ],
+        'fundSource': paymentMethod,
       };
 
       final newSaleRef = salesCollection.doc(newSaleData['id']);

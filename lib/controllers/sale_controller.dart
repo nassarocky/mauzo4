@@ -77,15 +77,46 @@ class SaleController extends GetxController {
           itemType = product.itemType;
         }
         if (itemType == 'service') continue;
-        String productId = product['id'];
-        double quantityToAdd = product['quantity'];
+        String productId;
+        double quantityToAdd = 0.0;
+
+        if (product is Map<String, dynamic>) {
+          productId = (product['id'] ?? '').toString();
+          final dynamic q = product['quantity'];
+          if (q is int) {
+            quantityToAdd = q.toDouble();
+          } else if (q is double) {
+            quantityToAdd = q;
+          } else if (q is num) {
+            quantityToAdd = q.toDouble();
+          } else {
+            quantityToAdd = double.tryParse(q?.toString() ?? '') ?? 0.0;
+          }
+        } else if (product is Product) {
+          productId = product.id ?? '';
+          final dynamic q = product.quantity;
+          if (q is int) {
+            quantityToAdd = q.toDouble();
+          } else if (q is double) {
+            quantityToAdd = q;
+          } else if (q is num) {
+            quantityToAdd = q.toDouble();
+          } else {
+            quantityToAdd = 0.0;
+          }
+        } else {
+          continue;
+        }
 
         // Fetch the product from the product controller
         var productInInventory = productController.getProduct(productId);
 
         // Add update to batch
         if (productInInventory != null) {
-          double newQuantity = productInInventory.quantity! + quantityToAdd;
+          final double baseQty = (productInInventory.quantity is num)
+              ? (productInInventory.quantity as num).toDouble()
+              : double.tryParse(productInInventory.quantity.toString()) ?? 0.0;
+          double newQuantity = baseQty + quantityToAdd;
           updates.add(productController.updateProductCount(productInInventory, newQuantity,'Sale'));
         }
       }
@@ -506,8 +537,32 @@ class SaleController extends GetxController {
       setSalesByDate();
     }
   }
-  void filterSalesById(String saleId) {
+  void filterSalesById(String saleId) async {
     filteredSales.value = sales.where((sale) => sale.id == saleId).toList();
+    if (filteredSales.isNotEmpty) {
+      setSalesByDate();
+      return;
+    }
+
+    try {
+      final String? businessId = _businessController.business['id'];
+      if (businessId == null || businessId.isEmpty) {
+        return;
+      }
+      final doc = await firestore
+          .collection('sales')
+          .doc(businessId)
+          .collection('userSales')
+          .doc(saleId)
+          .get();
+      if (doc.exists) {
+        final sale = Sale.fromSnapshot(doc);
+        filteredSales.value = [sale];
+        setSalesByDate();
+      }
+    } catch (e) {
+      print('filterSalesById fetch error: $e');
+    }
   }
 
   void setSaleType(String type) {

@@ -1,7 +1,7 @@
 const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { HttpsError } = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentWritten} = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 admin.initializeApp();
 const firestore = admin.firestore();
@@ -13,6 +13,10 @@ const functions = require('firebase-functions');
 const accountSid = 'ACdffb6ab3d81793f9677651222e218000'; // your actual SID
 const authToken = '86bf7077fe67b4cd6ce83b01fb0399b6'; // your actual Auth Token
 const client = new twilio(accountSid, authToken);
+
+// Load v2 aggregate functions (write to new 'aggregates' collection only)
+const aggregates = require('./aggregates_v2');
+Object.assign(exports, aggregates);
 
 
 

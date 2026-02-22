@@ -384,7 +384,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildTableRow('${'DEBT COLLECTED (Old Debt Paid):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
-          '${'TOTAL CASH IN HAND (payments + debt collected - expenses - purchases paid)'.tr}',
+          '${'Available balance (payments + debt collected - expenses - purchases paid)'.tr}',
           (book.totalPayment + book.debtCollected - book.expenses - (book.totalPurchase)),
           _businessController.business['mainCurrency'],
         ),
@@ -599,7 +599,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildPDFTableRow('DEBT COLLECTED (Old Debt Paid):'.tr, book.debtCollected, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
-          'TOTAL CASH IN HAND (payments + debt collected - expenses - purchases paid)'.tr,
+          'Available balance (payments + debt collected - expenses - purchases paid)'.tr,
           (book.totalPayment + book.debtCollected - book.expenses - (book.totalPurchase)),
           book.currency,
         ),

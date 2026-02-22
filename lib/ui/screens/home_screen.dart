@@ -208,23 +208,68 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showTotalSalesDialog(BuildContext context, SaleController _saleController,DebtHistoryController _debtHistoryController,BoughtController _boughtController, ExpenseController expenseController, Timestamp resetTime) {
     // double totalSales = _saleController.getTotalSalesFromTimestamp(resetTime);
     double totalPayments = _saleController.getTotalPaymentFromTimestamp(resetTime,Timestamp.now());
-    double debt = _debtHistoryController.getTotalDebtFromTimestamp(resetTime,Timestamp.now());
     double purchases = _boughtController.getTotalPurchasePaidFromTimestamp(resetTime,Timestamp.now());
     //  double debtCollected = _debtHistoryController.getTotalDebtPaymentsBackTimestamp(resetTime);
     double totalExpenses = expenseController.getTotalExpensesFromTimestamp(resetTime,Timestamp.now());
-    // Deduct purchases paid via CASH method (treats missing method as cash for backward compatibility)
     final String mainCurrency = _businessController.business['mainCurrency'];
-    double purchasesCashDeduction = _boughtController.getTotalPurchaseCashPaidFromTimestamp(resetTime, Timestamp.now());
+    
+    final Timestamp _endTs = Timestamp.now();
+    double totalExpensesExclusive = 0.0;
+    for (final exp in expenseController.expenses) {
+      final Timestamp expTs = exp.date;
+      if (expTs.compareTo(resetTime) > 0 && expTs.compareTo(_endTs) < 0) {
+        final dynamic rawAmt = exp.amount;
+        final double amt = rawAmt is int
+            ? rawAmt.toDouble()
+            : (rawAmt is num ? rawAmt.toDouble() : 0.0);
+        totalExpensesExclusive += amt;
+      }
+    }
+    double purchasesExclusive = 0.0;
+    for (final purchase in _boughtController.sales) {
+      final dynamic rawDate = purchase.date;
+      Timestamp? pTs;
+      if (rawDate is Timestamp) {
+        pTs = rawDate;
+      } else if (rawDate is DateTime) {
+        pTs = Timestamp.fromDate(rawDate);
+      }
+      if (pTs != null && pTs.compareTo(resetTime) > 0 && pTs.compareTo(_endTs) < 0) {
+        if (purchase.payments.isNotEmpty) {
+          for (final p in purchase.payments) {
+            final dynamic rawAmount = p['amount'];
+            final double amt = rawAmount is int
+                ? rawAmount.toDouble()
+                : (rawAmount is num ? rawAmount.toDouble() : 0.0);
+            final String currency = (p['currency'] ?? mainCurrency).toString();
+            final double amtMain = currency == mainCurrency
+                ? amt
+                : amt * Preferences.getExchangeRateResult();
+            purchasesExclusive += amtMain;
+          }
+        } else {
+          purchasesExclusive += purchase.payment;
+        }
+      }
+    }
     // Compute payment totals by method within the same time window
     double cashTotal = 0.0;
     double bankTotal = 0.0;
     double mobileTotal = 0.0;
     double aggregatedTotal = 0.0; // Old sales without payment breakdown
+    double debtCollectedExclusive = 0.0;
     // mainCurrency already defined above
 
     for (final sale in _saleController.sales) {
-      if (sale.date is Timestamp) {
-        final Timestamp saleTs = sale.date;
+      final dynamic rawDate = sale.date;
+      Timestamp? saleTs;
+      if (rawDate is Timestamp) {
+        saleTs = rawDate;
+      } else if (rawDate is DateTime) {
+        saleTs = Timestamp.fromDate(rawDate);
+      }
+
+      if (saleTs != null) {
         if (saleTs.compareTo(resetTime) > 0 && saleTs.compareTo(Timestamp.now()) < 0) {
           if (sale.payments.isNotEmpty) {
             for (final p in sale.payments) {
@@ -247,11 +292,18 @@ class _HomeScreenState extends State<HomeScreen> {
               } else {
                 cashTotal += amtMain;
               }
+
+              if (sale.saleType == 'debt_repayment') {
+                debtCollectedExclusive += amtMain;
+              }
             }
           } else {
             // Old sales without payment breakdown (backward compatibility)
             if (sale.payment > 0) {
               aggregatedTotal += sale.payment;
+            }
+            if (sale.saleType == 'debt_repayment') {
+              debtCollectedExclusive += sale.payment;
             }
           }
         }
@@ -264,7 +316,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return StatefulBuilder(builder: (context, setState) {
           bool treatMissingAsCash = true; // toggle to include/exclude old sales without breakdown
           final double cashAmountForRow = cashTotal + (treatMissingAsCash ? aggregatedTotal : 0.0);
-          final double netTotalLocal = cashAmountForRow - totalExpenses - purchasesCashDeduction;
+          final double totalInflowsAll = cashAmountForRow + bankTotal + mobileTotal;
+          final double netTotalLocal = totalInflowsAll - totalExpensesExclusive - purchasesExclusive;
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -365,8 +418,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildAnalyticsCard(
                             icon: Icons.trending_up,
                             iconColor: Colors.green,
-                            title: 'TOTAL SALES'.tr,
-                            amount: formatCurrency(totalPayments, _businessController.business['mainCurrency']),
+                            title: 'TOTAL PAYMENTS (Cash In + Debt Collected)'.tr,
+                            amount: formatCurrency(totalInflowsAll, _businessController.business['mainCurrency']),
                             gradient: [Colors.green.shade50, Colors.green.shade100],
                           ),
 
@@ -418,6 +471,13 @@ class _HomeScreenState extends State<HomeScreen> {
                                   method: 'Mobile (Lipa Namba)',
                                   amount: formatCurrency(mobileTotal, _businessController.business['mainCurrency']),
                                 ),
+                                const SizedBox(height: 8),
+                                _buildPaymentMethodRow(
+                                  icon: Icons.assignment_turned_in,
+                                  iconColor: Colors.teal.shade600,
+                                  method: 'Debt Collected',
+                                  amount: formatCurrency(debtCollectedExclusive, _businessController.business['mainCurrency']),
+                                ),
                               ],
                             ),
                           ),
@@ -425,13 +485,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(height: 16),
 
                           // Other Metrics
-                          _buildAnalyticsCard(
-                            icon: Icons.account_balance_wallet,
-                            iconColor: Colors.orange,
-                            title: 'DEBT'.tr,
-                            amount: formatCurrency(debt, _businessController.business['mainCurrency']),
-                            gradient: [Colors.orange.shade50, Colors.orange.shade100],
-                          ),
+                          Obx(() {
+                            final double debtOutstanding = _debtHistoryController.getTotalDebt();
+                            return _buildAnalyticsCard(
+                              icon: Icons.account_balance_wallet,
+                              iconColor: Colors.orange,
+                              title: 'DEBT'.tr,
+                              amount: formatCurrency(debtOutstanding, _businessController.business['mainCurrency']),
+                              gradient: [Colors.orange.shade50, Colors.orange.shade100],
+                            );
+                          }),
 
                           const SizedBox(height: 12),
 
@@ -439,7 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             icon: Icons.shopping_cart,
                             iconColor: Colors.purple,
                             title: 'PURCHASES PAID'.tr,
-                            amount: formatCurrency(purchases, _businessController.business['mainCurrency']),
+                            amount: formatCurrency(purchasesExclusive, _businessController.business['mainCurrency']),
                             gradient: [Colors.purple.shade50, Colors.purple.shade100],
                           ),
 
@@ -449,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             icon: Icons.receipt_long,
                             iconColor: Colors.red,
                             title: 'EXPENSES'.tr,
-                            amount: formatCurrency(totalExpenses, _businessController.business['mainCurrency']),
+                            amount: formatCurrency(totalExpensesExclusive, _businessController.business['mainCurrency']),
                             gradient: [Colors.red.shade50, Colors.red.shade100],
                           ),
 
@@ -494,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'TOTAL CASH IN HAND'.tr,
+                                        'Available balance'.tr,
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 14,
