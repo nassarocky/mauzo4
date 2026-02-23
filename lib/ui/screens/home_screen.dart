@@ -26,6 +26,7 @@ import 'package:mauzo/ui/widgets/drawer/expandable_drawer_section.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/product_transfer_controller.dart';
 import '../../controllers/store_controller.dart';
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isAccountActive = true;
   bool isInitialized = false;
   bool isBuyingStock = Preferences.getStockDisplayPreference();
+  String _appVersion = '';
   StreamSubscription<DocumentSnapshot>? _userSubscription;
   User? user = FirebaseAuth.instance.currentUser;
 
@@ -73,6 +75,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await _profileController.updateUserEmail(Preferences.getEmail());
     await _businessController.updateBusinessId(Preferences.getBusiness());
+    final info = await PackageInfo.fromPlatform();
+    _appVersion = 'v${info.version}+${info.buildNumber}';
 
     // Ensure a default Cash fund source exists (idempotent)
     try {
@@ -966,6 +970,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               );
             }),
+            actions: _appVersion.isEmpty
+                ? null
+                : [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(
+                        _appVersion,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
           ),
 
 

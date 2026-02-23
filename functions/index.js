@@ -18,6 +18,14 @@ const client = new twilio(accountSid, authToken);
 const aggregates = require('./aggregates_v2');
 Object.assign(exports, aggregates);
 
+// Explicitly export to satisfy Firebase CLI analyzer
+exports.aggregateSalesV2 = aggregates.aggregateSalesV2;
+exports.aggregateRecoveredV2 = aggregates.aggregateRecoveredV2;
+exports.aggregateExpensesV2 = aggregates.aggregateExpensesV2;
+exports.aggregateDebtOutstandingV2 = aggregates.aggregateDebtOutstandingV2;
+exports.snapshotCurrentPeriodV2 = aggregates.snapshotCurrentPeriodV2;
+exports.onBusinessResetTimeChangedV2 = aggregates.onBusinessResetTimeChangedV2;
+
 
 
 exports.deleteBusiness = onRequest(

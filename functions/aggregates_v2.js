@@ -1,7 +1,9 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
-const firestore = admin.firestore();
+let _firestore = null;
+try { _firestore = admin.firestore(); } catch (e) { _firestore = null; }
+function getDb() { return _firestore || admin.firestore(); }
 
 function _num(x) {
   if (x === null || x === undefined) return 0;
@@ -11,7 +13,7 @@ function _num(x) {
 }
 
 async function _getBusiness(businessId) {
-  const snap = await firestore.collection('businesses').doc(businessId).get();
+  const snap = await getDb().collection('businesses').doc(businessId).get();
   return snap.exists ? snap.data() : {};
 }
 
@@ -23,7 +25,7 @@ function _toMain(amount, currency, mainCurrency, rateUsed) {
 }
 
 async function _ensureCurrentPeriodRef(businessId, business) {
-  const ref = firestore
+  const ref = getDb()
     .collection('aggregates')
     .doc(businessId)
     .collection('periods')
@@ -98,7 +100,7 @@ function _includeByReset(doc, resetTs) {
 async function _updatePeriodWithDeltas(businessId, deltas) {
   const business = await _getBusiness(businessId);
   const periodRef = await _ensureCurrentPeriodRef(businessId, business);
-  await firestore.runTransaction(async (tx) => {
+  await getDb().runTransaction(async (tx) => {
     const snap = await tx.get(periodRef);
     const data = snap.exists ? snap.data() : {};
     const paymentsCash = _num(data.paymentsCash) + _num(deltas.paymentsCash);
@@ -206,8 +208,8 @@ exports.aggregateDebtOutstandingV2 = onDocumentWritten({ document: 'debtHistory/
   const aAmt = after && statusIsPending(after.status) ? _num(after.remainingDebtAmount) : 0;
   const delta = _num(aAmt) - _num(bAmt);
   if (delta === 0) return;
-  const totalsRef = firestore.collection('aggregates').doc(businessId).collection('meta').doc('totals');
-  await firestore.runTransaction(async (tx) => {
+  const totalsRef = getDb().collection('aggregates').doc(businessId).collection('meta').doc('totals');
+  await getDb().runTransaction(async (tx) => {
     const snap = await tx.get(totalsRef);
     const cur = snap.exists ? snap.data() : {};
     const debtOutstandingTotal = _num(cur.debtOutstandingTotal) + delta;
@@ -226,7 +228,7 @@ exports.snapshotCurrentPeriodV2 = onCall({ region: 'us-central1' }, async (reque
   const data = snap.data() || {};
   const now = admin.firestore.Timestamp.now();
   const totalPayment = _num(data.paymentsCash) + _num(data.paymentsBank) + _num(data.paymentsMobile);
-  const closedRef = firestore.collection('closedbooks').doc(businessId).collection('userClosedBooks').doc();
+  const closedRef = getDb().collection('closedbooks').doc(businessId).collection('userClosedBooks').doc();
   const payload = {
     id: closedRef.id,
     owner: businessId,
@@ -254,4 +256,79 @@ exports.snapshotCurrentPeriodV2 = onCall({ region: 'us-central1' }, async (reque
   };
   await closedRef.set(payload);
   return { success: true, closedBookId: closedRef.id };
+});
+
+async function _rebuildCurrentPeriod(businessId, business) {
+  const mainCurrency = business?.mainCurrency || 'TZS';
+  const resetTs = business?.reset_time;
+  if (!resetTs) return;
+  const db = getDb();
+  let cash = 0, bank = 0, mobile = 0, debtCollected = 0;
+  const salesSnap = await db.collection('sales').doc(businessId).collection('userSales').where('date', '>', resetTs).get();
+  for (const d of salesSnap.docs) {
+    const t = _salePaymentTotals(d.data(), mainCurrency);
+    cash += _num(t.cash);
+    bank += _num(t.bank);
+    mobile += _num(t.mobile);
+    debtCollected += _num(t.debtCollected);
+  }
+  let purchasesPaidTotal = 0;
+  const recSnap = await db.collection('recovered').doc(businessId).collection('userRecovered').where('date', '>', resetTs).get();
+  for (const d of recSnap.docs) purchasesPaidTotal += _num(_purchasePaidTotal(d.data(), mainCurrency));
+  let expensesTotal = 0;
+  const expSnap = await db.collection('expenses').doc(businessId).collection('userExpenses').where('date', '>', resetTs).get();
+  for (const d of expSnap.docs) expensesTotal += _num(_toMain(d.data()?.amount, d.data()?.currency, mainCurrency, d.data()?.rateUsed));
+  const availableBalance = cash + bank + mobile - expensesTotal - purchasesPaidTotal;
+  const periodRef = db.collection('aggregates').doc(businessId).collection('periods').doc('current');
+  await periodRef.set({
+    paymentsCash: cash,
+    paymentsBank: bank,
+    paymentsMobile: mobile,
+    debtCollected,
+    expensesTotal,
+    purchasesPaidTotal,
+    availableBalance,
+    startTime: resetTs,
+    currency: mainCurrency,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
+exports.onBusinessResetTimeChangedV2 = onDocumentWritten({ document: 'businesses/{businessId}', region: 'us-central1' }, async (event) => {
+  const businessId = event.params.businessId;
+  const before = event.data?.before?.data() || null;
+  const after = event.data?.after?.data() || null;
+  const beforeTs = _asTimestamp(before?.reset_time);
+  const afterTs = _asTimestamp(after?.reset_time);
+  if (!afterTs) return;
+  const changed = !beforeTs || beforeTs.toMillis() !== afterTs.toMillis();
+  if (!changed) return;
+  const db = getDb();
+  const periodRef = db.collection('aggregates').doc(businessId).collection('periods').doc('current');
+  const periodSnap = await periodRef.get();
+  if (periodSnap.exists) {
+    const cur = periodSnap.data() || {};
+    const historyId = `${_asTimestamp(cur.startTime)?.toMillis() || admin.firestore.Timestamp.now().toMillis()}_${afterTs.toMillis()}`;
+    const histRef = db.collection('aggregates').doc(businessId).collection('periods').doc(historyId);
+    await histRef.set({
+      ...cur,
+      status: 'archived',
+      endTime: afterTs,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+  await periodRef.set({
+    status: 'current',
+    startTime: afterTs,
+    currency: after?.mainCurrency || 'TZS',
+    paymentsCash: 0,
+    paymentsBank: 0,
+    paymentsMobile: 0,
+    debtCollected: 0,
+    expensesTotal: 0,
+    purchasesPaidTotal: 0,
+    availableBalance: 0,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await _rebuildCurrentPeriod(businessId, after || await _getBusiness(businessId));
 });
