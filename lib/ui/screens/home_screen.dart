@@ -27,6 +27,8 @@ import 'package:mauzo/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:intl/intl.dart';
+import 'package:mauzo/controllers/aggregates_controller.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/product_transfer_controller.dart';
 import '../../controllers/store_controller.dart';
@@ -747,6 +749,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final ExpenseController expenceController = Get.put(ExpenseController());
         final StoreController storeController = Get.put(StoreController());
         final ClientController clientController = Get.put(ClientController());
+        final AggregatesController aggregatesController = Get.put(AggregatesController());
 
         final SaleController _saleController = Get.put(SaleController());
         final ProductTransferController _transferController = Get.put(ProductTransferController());
@@ -1165,6 +1168,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           _businessController.business['mainCurrency'],
                         ),
                       ),
+                      Obx(() {
+                        final currency = _businessController.business['mainCurrency'];
+                        return InfoTile(
+                          onTap: () {
+                            _showAggregatesBottomSheet(context, aggregatesController, currency);
+                          },
+                          title: 'Available balance (Backend)'.tr,
+                          trailing: formatCurrency(aggregatesController.availableBalance, currency),
+                        );
+                      }),
                       // Only show service sales InfoTile if value > 0
                       Builder(
                         builder: (context) {
@@ -1344,6 +1357,146 @@ class _HomeScreenState extends State<HomeScreen> {
       canEditBusiness: canEditBusiness,
       profileController: _profileController,
       businessController: _businessController,
+    );
+  }
+
+  void _showAggregatesBottomSheet(BuildContext context, AggregatesController c, String currency) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Obx(() {
+          final cash = c.paymentsCash;
+          final bank = c.paymentsBank;
+          final mobile = c.paymentsMobile;
+          final debtCol = c.debtCollected;
+          final expenses = c.expensesTotal;
+          final purchases = c.purchasesPaidTotal;
+          final available = c.availableBalance;
+          final updated = c.updatedAt;
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.analytics, size: 18, color: Colors.black54),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Aggregates (Backend)'.tr,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    if (updated != null)
+                      Text(
+                        DateFormat('dd MMM, HH:mm').format(updated),
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _aggMetricTile(Icons.money, 'Cash'.tr, formatCurrency(cash, currency), Colors.green.shade600)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _aggMetricTile(Icons.account_balance, 'Bank'.tr, formatCurrency(bank, currency), Colors.blue.shade600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: _aggMetricTile(Icons.phone_android, 'Mobile'.tr, formatCurrency(mobile, currency), Colors.orange.shade600)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _aggMetricTile(Icons.assignment_turned_in, 'Debt Collected'.tr, formatCurrency(debtCol, currency), Colors.teal.shade600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: _aggMetricTile(Icons.receipt_long, 'Expenses'.tr, formatCurrency(expenses, currency), Colors.red.shade600)),
+                    const SizedBox(width: 8),
+                    Expanded(child: _aggMetricTile(Icons.shopping_cart, 'Purchases Paid'.tr, formatCurrency(purchases, currency), Colors.purple.shade600)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: available >= 0 ? Colors.green.shade50 : Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: (available >= 0 ? Colors.green : Colors.red).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(available >= 0 ? Icons.account_balance : Icons.warning, color: available >= 0 ? Colors.green : Colors.red, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Available balance (Backend)'.tr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black87)),
+                            const SizedBox(height: 4),
+                            Text(
+                              formatCurrency(available, currency),
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Widget _aggMetricTile(IconData icon, String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+            child: Icon(icon, color: color, size: 16),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

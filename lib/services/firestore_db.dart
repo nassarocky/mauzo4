@@ -8,6 +8,7 @@ import 'package:mauzo/models/profile_model.dart';
 import 'package:mauzo/models/sale_model.dart';
 import '../controllers/business_controller.dart';
 import '../models/close_book_model.dart';
+import '../models/aggregates.dart';
 import '../models/debtHistory_model.dart';
 import '../models/expences.dart';
 import '../models/product_model.dart';
@@ -771,5 +772,33 @@ class FirestoreDb {
     }).handleError((error) {
       print('Error fetching all transfer requests: $error');
     });
+  }
+
+  Stream<PeriodAggregate?> getCurrentPeriodAggregate() {
+    final String? business = _businessController.businessId.value;
+    if (business == null || business.isEmpty) {
+      return Stream.value(null);
+    }
+    return firestore
+        .collection('aggregates')
+        .doc(business)
+        .collection('periods')
+        .doc('current')
+        .snapshots()
+        .map((doc) => doc.exists ? PeriodAggregate.fromMap(doc.data() as Map<String, dynamic>) : null);
+  }
+
+  Stream<AggregatesMetaTotals?> getAggregatesMetaTotals() {
+    final String? business = _businessController.businessId.value;
+    if (business == null || business.isEmpty) {
+      return Stream.value(null);
+    }
+    return firestore
+        .collection('aggregates')
+        .doc(business)
+        .collection('meta')
+        .doc('totals')
+        .snapshots()
+        .map((doc) => doc.exists ? AggregatesMetaTotals.fromMap(doc.data() as Map<String, dynamic>) : null);
   }
 }

@@ -42,6 +42,20 @@ service cloud.firestore {
       }
     }
 
+    match /aggregates/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /periods/{docId} {
+        allow read: if isBusinessAllowed(businessId);
+        allow write: if false;
+      }
+
+      match /meta/{docId} {
+        allow read: if isBusinessAllowed(businessId);
+        allow write: if false;
+      }
+    }
+
     // ✅ Sales collection
     match /sales/{businessId} {
       allow get, list: if isBusinessAllowed(businessId);
