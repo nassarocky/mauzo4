@@ -26,7 +26,7 @@ import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/buttons/secondary_button.dart';
 import 'dart:io';
 import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/widgets.dart' show Document;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/printer_selection_dialog.dart';
@@ -805,207 +805,26 @@ class _SalesScreenState extends State<SalesScreen> {
     );
   }
 
-  Future<pw.Document> _generateReceipt(Sale invoice, Client client) async {
-    final pdf = pw.Document();
-    final currency = _businessController.business['mainCurrency'];
-    final dateTime = invoice.date.toDate();
-
-    // Log the logo URL to verify it exists
-    print('Logo URL: ${_businessController.business['logo']}');
-
-    // Load the logo if available, ensuring a non-null widget is always returned
-    pw.Widget logoWidget;
-    if (_businessController.business['logo'] != null && _businessController.business['logo'] != '') {
-      try {
-        final netImage = await networkImage(_businessController.business['logo']);
-        print('Logo loaded successfully');
-        logoWidget = pw.Image(netImage, width: 50, height: 50);
-      } catch (e) {
-        print('Error loading logo: $e');
-        logoWidget = pw.Container(
-          width: 50,
-          height: 50,
-          child: pw.Center(
-            child: pw.Text('No Logo', style: pw.TextStyle(fontSize: 10)),
-          ),
-        );
-      }
-    } else {
-      print('No logo URL provided');
-      logoWidget = pw.Container(
-        width: 50,
-        height: 50,
-        child: pw.Center(
-          child: pw.Text('No Logo', style: pw.TextStyle(fontSize: 10)),
-        ),
-      );
-    }
-
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.roll80,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              // Header with Business Info on the Left and Logo on the Right
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        _businessController.business['name'],
-                        style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.Text('Phone: ${_businessController.business['phone']}', style: pw.TextStyle(fontSize: 14)),
-                      if (_businessController.business['tin'] != null && _businessController.business['tin'] != '')
-                        pw.Text('TIN: ${_businessController.business['tin']}', style: pw.TextStyle(fontSize: 14)),
-                    ],
-                  ),
-                  logoWidget, // Now safe to use since logoWidget is non-nullable
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(),
-
-              // Transaction Info
-              pw.Text(
-                'Receipt',
-                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}', style: pw.TextStyle(fontSize: 12)),
-                  pw.Text(
-                    '${DateFormat('yyyy-MM-dd').format(dateTime)} ${DateFormat('HH:mm').format(dateTime)}',
-                    style: pw.TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Client: ${client.name}', style: pw.TextStyle(fontSize: 12)),
-                  if (invoice.employeeId != null && invoice.employeeName != null)
-                    pw.Text('Served by: ${invoice.employeeName}', style: pw.TextStyle(fontSize: 12)),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(),
-
-              // Itemized List
-              pw.Table(
-                border: pw.TableBorder.all(),
-                columnWidths: {
-                  0: pw.FractionColumnWidth(0.4), // Product Name
-                  1: pw.FractionColumnWidth(0.2), // Quantity
-                  2: pw.FractionColumnWidth(0.2), // Price
-                  3: pw.FractionColumnWidth(0.2), // Total
-                },
-                children: [
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
-                    children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Product', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Qty', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Price', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Total ($currency)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                    ],
-                  ),
-                  ...invoice.products.map<pw.TableRow>((product) {
-                    final quantity = (product['quantity'] ?? 0).toDouble();
-                    final price = (product['price'] ?? 0.0).toDouble();
-                    return pw.TableRow(
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(product['name'], style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.left),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(quantity.toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(quantity * price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                ],
-              ),
-
-              // Summary
-              pw.SizedBox(height: 10),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
-                  children: [
-                    pw.Text('Subtotal: ${formatCurrency(invoice.price + invoice.discount, currency)}', style: pw.TextStyle(fontSize: 12)),
-                    if (invoice.discount > 0)
-                      pw.Text('Discount: ${formatCurrency(invoice.discount, currency)}', style: pw.TextStyle(fontSize: 12)),
-                    pw.Divider(),
-                    pw.Text('Total: ${formatCurrency(invoice.price, currency)}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                    if (invoice.debt > 0)
-                      pw.Text('Debt: ${formatCurrency(invoice.debt, currency)}', style: pw.TextStyle(fontSize: 12)),
-                    if (invoice.payment > 0)
-                      pw.Text('Paid: ${formatCurrency(invoice.payment, currency)}', style: pw.TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
-
-              // Footer
-              pw.SizedBox(height: 20),
-              pw.Divider(),
-              pw.Center(
-                child: pw.Text(
-                  receiptFooterMessage(
-                    Map<String, dynamic>.from(_businessController.business),
-                  ),
-                  style: pw.TextStyle(fontSize: 12, fontStyle: pw.FontStyle.italic),
-                  textAlign: pw.TextAlign.center,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+  Document _saleReceiptPdf(Sale invoice, Client client) {
+    return _thermalPrinter.buildSaleReceiptPdfDocument(
+      sale: invoice,
+      client: client,
+      business: _businessController.business,
+      employeeName: invoice.employeeName,
     );
-
-    return pdf;
   }
+
   Future<void> printInvoice(Sale invoice, Client client) async {
-    final pdf = await _generateReceipt(invoice, client);
+    final pdf = _saleReceiptPdf(invoice, client);
     await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Receipt',
+      format: ThermalPrinterService.receiptPdfPageFormat,
+      onLayout: (PdfPageFormat _) async => pdf.save(),
     );
   }
 
   Future<void> shareInvoice(Sale invoice, Client client) async {
-    final pdf = await _generateReceipt(invoice, client);
+    final pdf = _saleReceiptPdf(invoice, client);
 
     try {
       final pdfBytes = await pdf.save();

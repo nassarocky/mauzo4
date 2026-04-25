@@ -162,22 +162,28 @@ class ThermalPrinterService extends GetxController {
     }
   }
 
-  /// Desktop (Windows) implementation using PDF + OS print dialog (58mm paper width)
-  Future<void> _printReceiptDesktop({
+  /// PDF page format matching 58mm thermal paper (desktop print / share).
+  /// Height is unbounded so the PDF is a single roll page (no trailing blank sheet).
+  static PdfPageFormat get receiptPdfPageFormat => PdfPageFormat(
+        58 * PdfPageFormat.mm,
+        double.infinity,
+        marginLeft: 4,
+        marginRight: 4,
+        marginTop: 6,
+        marginBottom: 6,
+      );
+
+  /// Same receipt layout as Bluetooth thermal and Windows desktop print — narrow strip,
+  /// simple rows (no bordered table). Use for PDF share so previews match printed receipts.
+  pw.Document buildSaleReceiptPdfDocument({
     required Sale sale,
     required Client client,
     required Map<String, dynamic> business,
     String? employeeName,
-  }) async {
+  }) {
     final doc = pw.Document();
 
-    // 58mm roll-like format (approx. long page). Use generous height to avoid truncation.
-    // If your pdf version supports roll57, you can replace with PdfPageFormat.roll57
-    final pageFormat = PdfPageFormat(58 * PdfPageFormat.mm, 300 * PdfPageFormat.mm);
-    final pageTheme = pw.PageTheme(
-      pageFormat: pageFormat,
-      margin: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-    );
+    final pageTheme = pw.PageTheme(pageFormat: receiptPdfPageFormat);
 
     // Prepare receipt content
     final currency = (business['mainCurrency'] ?? '').toString();
@@ -186,28 +192,49 @@ class ThermalPrinterService extends GetxController {
     final businessTin = business['tin']?.toString();
     final dateTime = sale.date.toDate();
 
-    // Build items and totals
+    // Build items and totals (use Rows, not pw.Table — Table is a SpanningWidget and
+    // can produce an extra blank page in single-page roll PDFs.)
     double subtotal = 0;
-    final List<pw.TableRow> itemRows = [];
+    final List<pw.Widget> itemLines = [];
+    final headerStyle = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold);
+    const bodyStyle = pw.TextStyle(fontSize: 8);
 
-    itemRows.add(
-      pw.TableRow(
-        children: [
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Text('Item', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-          ),
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Text('Qty', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-          ),
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Text('Total', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
+    pw.Widget receiptLine(String left, String mid, String right,
+        {pw.TextStyle? style}) {
+      final s = style ?? bodyStyle;
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(
+              flex: 3,
+              child: pw.Text(
+                left,
+                style: s,
+                maxLines: 2,
+                overflow: pw.TextOverflow.clip,
+              ),
+            ),
+            pw.SizedBox(
+              width: 38,
+              child: pw.Text(mid, textAlign: pw.TextAlign.right, style: s),
+            ),
+            pw.SizedBox(
+              width: 52,
+              child: pw.Text(right, textAlign: pw.TextAlign.right, style: s),
+            ),
+          ],
+        ),
+      );
+    }
+
+    itemLines.add(receiptLine(
+      'Item',
+      'Qty',
+      currency.isEmpty ? 'Price' : 'Price($currency)',
+      style: headerStyle,
+    ));
 
     for (var product in sale.products) {
       String productName = '';
@@ -234,167 +261,156 @@ class ThermalPrinterService extends GetxController {
       final itemTotal = quantity * price;
       subtotal += itemTotal;
 
-      itemRows.add(
-        pw.TableRow(
-          children: [
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 2),
-              child: pw.Text(productName, style: const pw.TextStyle(fontSize: 8), maxLines: 1, overflow: pw.TextOverflow.clip),
-            ),
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 2),
-              child: pw.Text(
-              () {
-                if (product is Map<String, dynamic>) {
-                  final pm = Map<String, dynamic>.from(product);
-                  final q = saleLineDisplayQuantity(pm);
-                  final lab = saleLineUomLabel(pm);
-                  final qs = q == q.roundToDouble()
-                      ? (q == q.truncateToDouble()
-                          ? q.toInt().toString()
-                          : q.toStringAsFixed(2))
-                      : q.toStringAsFixed(2);
-                  if (lab != null && lab.isNotEmpty) return '$qs $lab';
-                  return qs;
-                }
-                return quantity.toStringAsFixed(0);
-              }(),
-              textAlign: pw.TextAlign.right,
-              style: const pw.TextStyle(fontSize: 8),
-            ),
-            ),
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 2),
-              child: pw.Text(itemTotal.toStringAsFixed(0), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8)),
-            ),
-          ],
-        ),
-      );
+      final qtyStr = product is Map<String, dynamic>
+          ? () {
+              final pm = Map<String, dynamic>.from(product);
+              final q = saleLineDisplayQuantity(pm);
+              final lab = saleLineUomLabel(pm);
+              final qs = q == q.roundToDouble()
+                  ? (q == q.truncateToDouble()
+                      ? q.toInt().toString()
+                      : q.toStringAsFixed(2))
+                  : q.toStringAsFixed(2);
+              if (lab != null && lab.isNotEmpty) return '$qs $lab';
+              return qs;
+            }()
+          : quantity.toStringAsFixed(0);
+
+      itemLines.add(receiptLine(productName, qtyStr, itemTotal.toStringAsFixed(0)));
     }
 
     final payment = sale.payment;
     final debt = sale.price - sale.payment;
 
     doc.addPage(
-      pw.MultiPage(
+      pw.Page(
         pageTheme: pageTheme,
-        build: (context) => [
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.SizedBox(height: 4),
+        build: (context) => pw.Column(
+          mainAxisSize: pw.MainAxisSize.min,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.SizedBox(height: 4),
+            pw.Center(
+              child: pw.Text(
+                businessName,
+                style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+                textAlign: pw.TextAlign.center,
+              ),
+            ),
+            if (businessPhone.isNotEmpty)
               pw.Center(
-                child: pw.Text(
-                  businessName,
-                  style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
-                  textAlign: pw.TextAlign.center,
-                ),
+                child: pw.Text('Phone: $businessPhone', style: const pw.TextStyle(fontSize: 8)),
               ),
-              if (businessPhone.isNotEmpty)
-                pw.Center(
-                  child: pw.Text('Phone: $businessPhone', style: const pw.TextStyle(fontSize: 8)),
-                ),
-              if (businessTin != null && businessTin.isNotEmpty)
-                pw.Center(
-                  child: pw.Text('TIN: $businessTin', style: const pw.TextStyle(fontSize: 8)),
-                ),
-              pw.SizedBox(height: 6),
-              pw.Divider(thickness: 1),
-              pw.Center(child: pw.Text('RECEIPT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-              pw.SizedBox(height: 4),
-
-              // Meta
-              pw.Text('Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
-              pw.Text('Date: ${DateFormat('yyyy-MM-dd HH:mm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
-              pw.Text('Client: ${client.name}', style: const pw.TextStyle(fontSize: 8)),
-              if (employeeName != null)
-                pw.Text('Served by: $employeeName', style: const pw.TextStyle(fontSize: 8)),
-
-              pw.SizedBox(height: 6),
-              pw.Divider(thickness: 1),
-
-              // Items
-              pw.Table(
-                border: null,
-                columnWidths: const {
-                  0: pw.FlexColumnWidth(3),
-                  1: pw.FlexColumnWidth(1),
-                  2: pw.FlexColumnWidth(1),
-                },
-                children: itemRows,
+            if (businessTin != null && businessTin.isNotEmpty)
+              pw.Center(
+                child: pw.Text('TIN: $businessTin', style: const pw.TextStyle(fontSize: 8)),
               ),
+            pw.SizedBox(height: 6),
+            pw.Divider(thickness: 1),
+            pw.Center(child: pw.Text('RECEIPT', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
+            pw.SizedBox(height: 4),
 
-              pw.Divider(thickness: 1),
+            // Meta
+            pw.Text('Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
+            pw.Text('Date: ${DateFormat('yyyy-MM-dd HH:mm').format(dateTime)}', style: const pw.TextStyle(fontSize: 8)),
+            pw.Text('Client: ${client.name}', style: const pw.TextStyle(fontSize: 8)),
+            if (employeeName != null)
+              pw.Text('Served by: $employeeName', style: const pw.TextStyle(fontSize: 8)),
 
-              // Totals
+            pw.SizedBox(height: 6),
+            pw.Divider(thickness: 1),
+
+            // Items
+            ...itemLines,
+
+            pw.Divider(thickness: 1),
+
+            // Totals
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Subtotal:', style: const pw.TextStyle(fontSize: 9)),
+                pw.Text('$currency ${subtotal.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Payment:', style: const pw.TextStyle(fontSize: 9)),
+                pw.Text('$currency ${payment.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+            if (debt > 0)
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Subtotal:', style: const pw.TextStyle(fontSize: 9)),
-                  pw.Text('$currency ${subtotal.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('Balance Due:', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('$currency ${debt.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
                 ],
-              ),
+              )
+            else if (debt < 0)
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Payment:', style: const pw.TextStyle(fontSize: 9)),
-                  pw.Text('$currency ${payment.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('Change:', style: const pw.TextStyle(fontSize: 9)),
+                  pw.Text('$currency ${(-debt).toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
                 ],
               ),
-              if (debt > 0)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Balance Due:', style: const pw.TextStyle(fontSize: 9)),
-                    pw.Text('$currency ${debt.toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
-                  ],
-                )
-              else if (debt < 0)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('Change:', style: const pw.TextStyle(fontSize: 9)),
-                    pw.Text('$currency ${(-debt).toStringAsFixed(0)}', style: const pw.TextStyle(fontSize: 9)),
-                  ],
-                ),
 
-              pw.SizedBox(height: 8),
-              pw.Center(
-                child: pw.Text(
-                  receiptFooterMessage(business),
-                  style: const pw.TextStyle(fontSize: 9),
-                  textAlign: pw.TextAlign.center,
-                ),
+            pw.SizedBox(height: 8),
+            pw.Center(
+              child: pw.Text(
+                receiptFooterMessage(business),
+                style: const pw.TextStyle(fontSize: 9),
+                textAlign: pw.TextAlign.center,
               ),
+            ),
 
-              // Payment details
-              ...() {
-                final List paymentDetails = (business['invoicePaymentDetails'] as List? ?? [])
-                    .where((e) => (e as Map)['showOnInvoice'] == true)
-                    .toList();
-                if (paymentDetails.isEmpty) return <pw.Widget>[];
-                return <pw.Widget>[
-                  pw.SizedBox(height: 6),
-                  pw.Divider(thickness: 0.5),
-                  pw.Center(child: pw.Text('Payment Details', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(height: 4),
-                  ...paymentDetails.map<pw.Widget>((pd) {
-                    final m = pd as Map;
-                    final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
-                    return pw.Text('$label | ${m['provider']}: ${m['number']}', style: const pw.TextStyle(fontSize: 7));
-                  }),
-                ];
-              }(),
-            ],
-          )
-        ],
+            // Payment details
+            ...() {
+              final List paymentDetails = (business['invoicePaymentDetails'] as List? ?? [])
+                  .where((e) => (e as Map)['showOnInvoice'] == true)
+                  .toList();
+              if (paymentDetails.isEmpty) return <pw.Widget>[];
+              return <pw.Widget>[
+                pw.SizedBox(height: 6),
+                pw.Divider(thickness: 0.5),
+                pw.Center(child: pw.Text('Payment Details', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                pw.SizedBox(height: 4),
+                ...paymentDetails.expand<pw.Widget>((pd) {
+                  final m = pd as Map;
+                  final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+                  return [
+                    pw.Text('$label: ${m['provider']}', style: const pw.TextStyle(fontSize: 7)),
+                    pw.Text('${m['number']}', style: const pw.TextStyle(fontSize: 7)),
+                  ];
+                }),
+              ];
+            }(),
+          ],
+        ),
       ),
     );
 
-    // Show OS print dialog and print
+    return doc;
+  }
+
+  /// Desktop (Windows) implementation using PDF + OS print dialog (58mm paper width).
+  Future<void> _printReceiptDesktop({
+    required Sale sale,
+    required Client client,
+    required Map<String, dynamic> business,
+    String? employeeName,
+  }) async {
+    final doc = buildSaleReceiptPdfDocument(
+      sale: sale,
+      client: client,
+      business: business,
+      employeeName: employeeName,
+    );
     await Printing.layoutPdf(
       name: 'Receipt',
-      format: pageFormat,
+      format: receiptPdfPageFormat,
       onLayout: (PdfPageFormat _) async => doc.save(),
     );
   }
