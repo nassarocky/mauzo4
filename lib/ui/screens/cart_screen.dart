@@ -21,6 +21,7 @@ import '../widgets/dialogs/add_to_cart_dialog.dart';
 import '../widgets/dialogs/double_action_dialog.dart';
 import '../../controllers/product_transfer_controller.dart'; // Added import for ProductTransferController
 import 'package:mauzo/services/ledger_service.dart';
+import 'package:mauzo/services/fund_source_service.dart';
 import '../../services/thermal_printer_service.dart';
 import '../widgets/printer_selection_dialog.dart';
 import '../../models/sale_model.dart';
@@ -107,6 +108,16 @@ class _CartScreenState extends State<CartScreen> {
       });
       return;
     }
+
+    // Refresh fund sources so new custom accounts (e.g. "Salary") resolve before checkout.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final bid = _businessController.businessId.value;
+        if (bid.isEmpty) return;
+        final list = await FundSourceService().loadFundSources(bid);
+        _businessController.reloadFundSources(list);
+      } catch (_) {}
+    });
   }
 
   @override
@@ -122,6 +133,23 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   String chosenCurrency = _businessController.business['mainCurrency'];
+
+  String _cartScreenFrom() {
+    if (widget.userData != null) return widget.userData!.name;
+    return 'new_sale';
+  }
+
+  /// Sync selected fund source into [CartController.payments] before Firestore / ledger.
+  void _flushFundSourceIntoPaymentsBeforePersist() {
+    if (_cartScreenFrom() == 'transfer') return;
+    _cartController.applyFundSourceToAllPayments(_paymentMethod);
+    final double currentTotal =
+        _cartController.productsPrice - _cartController.discount.value;
+    final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
+    if (_cartController.payments.isEmpty && calcAmount >= 0.01) {
+      _cartController.addPayment(calcAmount, chosenCurrency, method: _paymentMethod);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -173,17 +201,6 @@ class _CartScreenState extends State<CartScreen> {
                 // Ensure a default payment is present so "Paid" appears automatically
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (from != 'invoice' && from != 'transfer') {
-                    final bool multiEnabled = (_businessController.business['multiFundEnabled'] ?? false) == true;
-                    if (!multiEnabled && _paymentMethod != 'cash') {
-                      setState(() {
-                        _paymentMethod = 'cash';
-                      });
-                      if (_cartController.payments.length > 0) {
-                        final existing = _cartController.payments[0];
-                        _cartController.clearPayments();
-                        _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
-                      }
-                    }
                     // Calculate current total
                     final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
                     final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
@@ -191,10 +208,18 @@ class _CartScreenState extends State<CartScreen> {
                     // Check if total changed (product added/removed or discount changed)
                     if ((_lastProductsTotal - currentTotal).abs() > 0.0001) {
                       _lastProductsTotal = currentTotal;
-                      _userEditedPaid = false; // Reset user edit flag when total changes
+                      // Do not clear "user chose partial pay / debt" when the net total changes — otherwise
+                      // the next branch forces payment back to full and debt logic breaks.
+                      final double paidMain = _cartController.payment;
+                      final bool partialPay =
+                          calcAmount >= 0.01 && paidMain + 1e-6 < calcAmount;
+                      if (!partialPay) {
+                        _userEditedPaid = false;
+                      }
                     }
                     
-                    if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
+                    // Prefill paid from net due (after discount), not gross productsPrice — services/discounts stay consistent.
+                    if (_cartController.payments.length == 0 && calcAmount >= 0.01) {
                       _cartController.addPayment(calcAmount, chosenCurrency, method: _paymentMethod);
                       _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
                     } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != _paymentMethod) {
@@ -204,13 +229,23 @@ class _CartScreenState extends State<CartScreen> {
                       _cartController.addPayment(existing.amount, existing.currency, method: _paymentMethod);
                     }
 
-                    // Only auto-fill if user hasn't manually edited AND field is not focused
+                    // Keep "Paid" text in sync with the payment model; only auto-change payment amount when
+                    // paid exceeds net due (clamp). Never force payment up to full when underpaying (debt).
                     if (!_userEditedPaid && _cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
                       final existing = _cartController.payments[0];
-                      if ((existing.amount - calcAmount).abs() > 0.0001) {
+                      final double diff = existing.amount - calcAmount;
+                      if (diff.abs() <= 0.0001) {
+                        if (_paidController.text.trim().isEmpty) {
+                          _paidController.text =
+                              formatCurrencyWithoutSymbol(existing.amount);
+                        }
+                      } else if (diff > 0.0001) {
                         _cartController.clearPayments();
-                        _cartController.addPayment(calcAmount, existing.currency, method: existing.method);
+                        _cartController.addPayment(calcAmount, existing.currency, method: _paymentMethod);
                         _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
+                      } else {
+                        _paidController.text =
+                            formatCurrencyWithoutSymbol(existing.amount);
                       }
                     }
                   }
@@ -221,76 +256,170 @@ class _CartScreenState extends State<CartScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 if (from != 'transfer')
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      // TextField for entering the client name
-                      Expanded(
-                        child: SizedBox(
-                          height: 44,
-                          child: TextField(
-                            controller: TextEditingController(
-                              text: _cartController.client?.name ?? '',
-                            ),
-                            onChanged: (value) {
-
-                              Client updatedClient = Client(
-                                id: _cartController.client?.id ?? '', // Retain existing ID
-                                owner: _cartController.client?.owner ?? '', // Retain owner
-                                name: value, // Update the name
-                                phone: _cartController.client?.phone ?? '', // Retain phone
-                                date: _cartController.client?.date ?? Timestamp.now(), // Retain date
-                                debt: _cartController.client?.debt ?? 0.0, // Retain debt
-                                note: _cartController.client?.note, // Retain note
-                                image: _cartController.client?.image, // Retain image
-                              );
-
-                              // Update the client in the CartController
-                              _cartController.setClient(updatedClient);
-                            },
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                              hintText: 'Enter client name'.tr, // Hint text
-                              hintStyle: bodyText(
-                                Theme.of(context).textTheme.bodyLarge!.color,
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(4),
-                                borderSide: BorderSide(
-                                  color: Preferences.getTheme()
-                                      ? mediumGrayColor
-                                      : borderColor,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 44,
+                                child: TextField(
+                                  controller: TextEditingController(
+                                    text: _cartController.client?.name ?? '',
+                                  ),
+                                  onChanged: (value) {
+                                    Client updatedClient = Client(
+                                      id: _cartController.client?.id ?? '',
+                                      owner: _cartController.client?.owner ?? '',
+                                      name: value,
+                                      phone: _cartController.client?.phone ?? '',
+                                      date: _cartController.client?.date ??
+                                          Timestamp.now(),
+                                      debt: _cartController.client?.debt ?? 0.0,
+                                      note: _cartController.client?.note,
+                                      image: _cartController.client?.image,
+                                    );
+                                    _cartController.setClient(updatedClient);
+                                  },
+                                  decoration: InputDecoration(
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(horizontal: 10),
+                                    hintText: 'Enter client name'.tr,
+                                    hintStyle: bodyText(
+                                      Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge!
+                                          .color,
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                      borderSide: BorderSide(
+                                        color: Preferences.getTheme()
+                                            ? mediumGrayColor
+                                            : borderColor,
+                                      ),
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
                                 ),
                               ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(4),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              height: 44,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  Navigator.pushNamed(context, '/client/select')
+                                      .then((value) => setState(() {}));
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                ),
+                                child: const Icon(Icons.keyboard_arrow_right),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Obx(
+                          () => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'price_mode_label'.tr,
+                                style: bodyText(
+                                  Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium!
+                                      .color,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              SegmentedButton<int>(
+                                segments: [
+                                  ButtonSegment<int>(
+                                    value: 0,
+                                    label: Text('retail_price_short'.tr),
+                                  ),
+                                  ButtonSegment<int>(
+                                    value: 1,
+                                    label: Text('wholesale_price_short'.tr),
+                                    enabled: _cartController
+                                        .canEnableWholesalePricing,
+                                  ),
+                                ],
+                                emptySelectionAllowed: false,
+                                showSelectedIcon: false,
+                                selected: {
+                                  _cartController.useWholesalePricing.value
+                                      ? 1
+                                      : 0,
+                                },
+                                onSelectionChanged: (Set<int> next) {
+                                  final v = next.first;
+                                  if (v == 1 &&
+                                      !_cartController
+                                          .canEnableWholesalePricing) {
+                                    return;
+                                  }
+                                  _cartController.setUseWholesalePricing(v == 1);
+                                  setState(() {});
+                                },
+                              ),
+                              if (!_cartController.canEnableWholesalePricing &&
+                                  _cartController
+                                      .getUniqueProducts()
+                                      .isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'wholesale_threshold_hint'.tr,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.color,
+                                        ),
+                                      ),
+                                      if (_cartController
+                                          .wholesalePricingShortfallDescription()
+                                          .isNotEmpty)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            _cartController
+                                                .wholesalePricingShortfallDescription(),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              height: 1.35,
+                                              color: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.color,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10), // Space between the TextField and button
-                      // Button to select a client
-                      SizedBox(
-                        height: 44,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pushNamed(context, '/client/select')
-                                .then(
-                                  (value) => setState(() {}),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                          ),
-                          child: const Icon(Icons.keyboard_arrow_right),
-                        ),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                      ],
+                    ),
                   ),
-                )
-                ,
 
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -387,7 +516,13 @@ class _CartScreenState extends State<CartScreen> {
                                       BorderRadius.circular(4),
                                     ),
                                     child: Text(
-                                      '${_cartController.singleProductQuantity(product.id)}x',
+                                      () {
+                                        final q = _cartController.singleProductQuantity(product.id);
+                                        final qs = q == q.roundToDouble()
+                                            ? q.toStringAsFixed(q == q.truncateToDouble() ? 0 : 2)
+                                            : q.toStringAsFixed(2);
+                                        return '${qs}x';
+                                      }(),
                                       style: h6(
                                         Preferences.getTheme()
                                             ? primaryLightColor
@@ -436,33 +571,74 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                         ),
                       const SizedBox(height: 12),
-                      // Payment Method Selector (for sales)
-                      if (from != 'transfer' && ((_businessController.business['multiFundEnabled'] ?? false) == true))
+                      // Fund source / payment method (single row; multi-fund only adds split-payment UI elsewhere)
+                      if (from != 'transfer')
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8.0),
-                          child: DropdownButtonFormField<String>(
-                            value: _paymentMethod,
-                            decoration: InputDecoration(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                              labelText: 'Payment Method',
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(4),
-                                borderSide: BorderSide(
-                                  color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                          child: Obx(() {
+                            final methods = _businessController
+                                .paymentMethodsForDropdown(
+                                    currentValue: _paymentMethod);
+                            if (methods.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final values = methods
+                                .map((m) => m['value']?.toString() ?? '')
+                                .where((v) => v.isNotEmpty)
+                                .toList();
+                            if (values.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final safeValue = values.contains(_paymentMethod)
+                                ? _paymentMethod
+                                : values.first;
+                            if (safeValue != _paymentMethod) {
+                              WidgetsBinding.instance
+                                  .addPostFrameCallback((_) {
+                                if (mounted) {
+                                  setState(() => _paymentMethod = safeValue);
+                                }
+                              });
+                            }
+                            return DropdownButtonFormField<String>(
+                              value: safeValue,
+                              decoration: InputDecoration(
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                labelText: 'Payment Method',
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(4)),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4),
+                                  borderSide: BorderSide(
+                                    color: Preferences.getTheme()
+                                        ? mediumGrayColor
+                                        : borderColor,
+                                  ),
                                 ),
                               ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                              DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                              DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                            ],
-                            onChanged: (val) {
-                              if (val == null) return;
-                              setState(() => _paymentMethod = val);
-                            },
-                          ),
+                              items: methods
+                                  .map((m) {
+                                    final v = m['value']?.toString() ?? '';
+                                    if (v.isEmpty) return null;
+                                    return DropdownMenuItem<String>(
+                                      value: v,
+                                      child: Text(
+                                        m['label']?.toString() ?? v,
+                                      ),
+                                    );
+                                  })
+                                  .whereType<DropdownMenuItem<String>>()
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val == null) return;
+                                setState(() => _paymentMethod = val);
+                                if (_cartScreenFrom() != 'transfer') {
+                                  _cartController.applyFundSourceToAllPayments(val);
+                                }
+                              },
+                            );
+                          }),
                         ),
                       const DashedSeperator(width: 2),
                       const SizedBox(height: 12),
@@ -629,7 +805,7 @@ class _CartScreenState extends State<CartScreen> {
                               } else {
                                 final existing = _cartController.payments[0];
                                 _cartController.clearPayments();
-                                _cartController.addPayment(amt, existing.currency, method: existing.method);
+                                _cartController.addPayment(amt, existing.currency, method: _paymentMethod);
                               }
                             },
                             decoration: InputDecoration(
@@ -745,10 +921,12 @@ class _CartScreenState extends State<CartScreen> {
                               print('🛒 Building products array for sale');
                               for (var item in _cartController.getUniqueProducts()) {
                                 final buyingPrice = _cartController.getBuyingPrice(item.id).toDouble();
+                                final lineQty = _cartController.singleProductQuantity(item.id);
                                 print('  📦 ${item.name}: buyingPrice=$buyingPrice, price=${_cartController.getPrice(item.id)}');
                                 products.add({
                                   'id': item.id,
-                                  'quantity': _cartController.singleProductQuantity(item.id),
+                                  'quantity': lineQty,
+                                  'baseQuantity': lineQty,
                                   'price': (_cartController.getPrice(item.id).toDouble()),
                                   'buyingPrice': buyingPrice,
                                   'name': item.name,
@@ -992,7 +1170,9 @@ class _CartScreenState extends State<CartScreen> {
                           // 2. Gather products and services from cart
                           List<Map<String, dynamic>> itemsToTransfer = [];
                           for (var item in _cartController.getUniqueProducts()) {
-                            final quantity = _cartController.singleProductQuantity(item.id);
+                            final quantity = item.itemType == 'service'
+                                ? _cartController.singleProductQuantity(item.id)
+                                : _cartController.singleProductBaseQuantity(item.id);
                             final name = (item.name != null && item.name.isNotEmpty) ? item.name : 'Unknown Item';
                             final itemType = (item.itemType != null && item.itemType.isNotEmpty) ? item.itemType : 'product';
                             if (quantity > 0) {
@@ -1039,6 +1219,8 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
+    _flushFundSourceIntoPaymentsBeforePersist();
+
     final newSaleRef = firestore
         .collection('sales')
         .doc(businessId)
@@ -1061,6 +1243,8 @@ class _CartScreenState extends State<CartScreen> {
       'discount': _cartController.discount.value,
       'comment': _detailsController.text.trim(),
       'date': DateTime.now(),
+      'wholesalePricingAudit':
+          _cartController.buildWholesalePricingAuditMap(),
     };
 
     print('💾 Saving sale with buyingPrice: ${saleData['buyingPrice']}');
@@ -1146,6 +1330,9 @@ class _CartScreenState extends State<CartScreen> {
     _detailsController.clear();
     _cartController.clearDiscount();
     _cartController.clearPayments();
+    _paidController.clear();
+    _userEditedPaid = false;
+    _lastProductsTotal = 0.0;
     _cartController.passedArgument=='NOT';
     _cartController.editInvoice='NOT';
   }
@@ -1153,6 +1340,8 @@ class _CartScreenState extends State<CartScreen> {
 
 
   void addInvoice(List<dynamic> products) {
+    _flushFundSourceIntoPaymentsBeforePersist();
+
     final newInvoiceRef = firestore
         .collection('invoices')
         .doc(_businessController.business['id'])
@@ -1171,6 +1360,8 @@ class _CartScreenState extends State<CartScreen> {
       'discount': _cartController.discount.value,
       'comment': _cartController.comment,
       'date': DateTime.now(),
+      'wholesalePricingAudit':
+          _cartController.buildWholesalePricingAuditMap(),
     }).then((_) {
       // After successfully adding the document, update it with its ID
       newInvoiceRef.update({'id': newInvoiceRef.id});
@@ -1203,6 +1394,8 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   void updateInvoice(String invoiceId, List<dynamic> products) {
+    _flushFundSourceIntoPaymentsBeforePersist();
+
     firestore
         .collection('invoices')
         .doc(_businessController.business['id'])
@@ -1219,6 +1412,8 @@ class _CartScreenState extends State<CartScreen> {
       'discount': _cartController.discount.value,
       'comment':_detailsController.text.trim(),
       'date': DateTime.now(),
+      'wholesalePricingAudit':
+          _cartController.buildWholesalePricingAuditMap(),
     }).then((_) {
       successSnackbar('Invoice updated successfully');
       clearCartData();
@@ -1241,7 +1436,7 @@ class _CartScreenState extends State<CartScreen> {
       if (product.itemType == 'service') continue;
 
       double currentQuantity = product.quantity;
-      double soldQuantity = _cartController.singleProductQuantity(product.id);
+      double soldQuantity = _cartController.singleProductBaseQuantity(product.id);
       double newQuantity = currentQuantity - soldQuantity;
       newQuantity = newQuantity < 0 ? 0 : newQuantity;
 
@@ -1275,6 +1470,8 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
+    _flushFundSourceIntoPaymentsBeforePersist();
+
     // On Windows desktop, skip Bluetooth selection and use system print dialog
     final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
@@ -1299,10 +1496,12 @@ class _CartScreenState extends State<CartScreen> {
       print('🖨️ [printAndSave] Building products array');
       for (var item in _cartController.getUniqueProducts()) {
         final buyingPrice = _cartController.getBuyingPrice(item.id).toDouble();
+        final lineQty = _cartController.singleProductQuantity(item.id);
         print('  📦 ${item.name}: buyingPrice=$buyingPrice');
         products.add({
           'id': item.id,
-          'quantity': _cartController.singleProductQuantity(item.id),
+          'quantity': lineQty,
+          'baseQuantity': lineQty,
           'price': (_cartController.getPrice(item.id).toDouble()),
           'buyingPrice': buyingPrice,
           'name': item.name,
@@ -1331,6 +1530,7 @@ class _CartScreenState extends State<CartScreen> {
         payments: List<Map<String, dynamic>>.from(
           _cartController.payments.map((p) => p.toMap())
         ),
+        wholesalePricingAudit: _cartController.buildWholesalePricingAuditMap(),
       );
 
       // Print receipt FIRST (while we have all the data)

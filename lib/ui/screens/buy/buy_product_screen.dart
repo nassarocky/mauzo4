@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 import '../mobile_code.dart';
 import '../../../models/product_model.dart';
 import '../../../utils/constants.dart';
@@ -76,7 +77,24 @@ class _BuyProductScreenState extends State<BuyProductScreen>
       });
       return;
     }
-    
+
+    final businessController = Get.find<BusinessController>();
+    if (!businessController.isPurchasesAllowedForRole(
+        (_profileController.user['role'] ?? '').toString())) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Purchases are disabled for this business. Contact the owner to enable.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+
     _animationController.forward();
   }
 

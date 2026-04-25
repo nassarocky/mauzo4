@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../../../controllers/auth_controller.dart';
 import '../../widgets/buttons/primary_button.dart';
 import '../../../utils/constants.dart';
+import 'register_screen.dart' show normalizePhoneToE164;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -74,14 +75,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const Spacer(),
-                      SizedBox(
+                          SizedBox(
                         height: 44,
                         child: TextField(
                           keyboardType: TextInputType.emailAddress,
                           controller: emailController,
                           decoration: InputDecoration(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                            labelText: '${'Enter Email'.tr}*',
+                            labelText: '${'Email or Phone'.tr}*',
+                            hintText: 'e.g. user@email.com or +255712345678',
                             counterText: '',
                             hintStyle: bodyText(
                               textPlaceholderColor,
@@ -138,17 +140,27 @@ class _LoginScreenState extends State<LoginScreen> {
                               _authController.isLoading.value = true;
                             });
 
-                            String email = emailController.text.trim();
+                            String credential = emailController.text.trim();
                             String password = passwordController.text.trim();
 
-                            if (email.isEmpty) {
-                              errorSnackbar('Email cannot be empty'.tr);
+                            if (credential.isEmpty) {
+                              errorSnackbar('Email or phone cannot be empty'.tr);
                               _authController.isLoading.value = false;
                             } else if (password.isEmpty) {
                               errorSnackbar('Password cannot be empty'.tr);
                               _authController.isLoading.value = false;
                             } else {
-                              _authController.login(email, password);
+                              // If the user typed a phone number (with or
+                              // without leading 0), derive the hidden email
+                              // used during registration.
+                              final digitsOnly = credential.replaceAll(RegExp(r'[^0-9]'), '');
+                              final looksLikePhone = RegExp(r'^\+?[0-9]{9,15}$').hasMatch(credential.replaceAll(' ', ''));
+                              if (looksLikePhone && digitsOnly.isNotEmpty) {
+                                final e164 = normalizePhoneToE164(credential);
+                                final normalized = e164.replaceAll(RegExp(r'[^0-9]'), '');
+                                credential = '$normalized@hesabumauzo.app';
+                              }
+                              _authController.login(credential, password);
                             }
                           },
                           text: 'continue'.tr,

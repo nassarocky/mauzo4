@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
@@ -83,15 +84,23 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           title: Text('Transaction History'.tr, style: const TextStyle(fontWeight: FontWeight.bold)),
+          actions: [
+            IconButton(
+              tooltip: 'Summary'.tr,
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              onPressed: () => _showFundsSummarySheet(context),
+            ),
+          ],
         ),
-        body: Column(
-          children: [
-          // Funds summary moved from Home to Ledger
-          FundsSummary(),
-          const SizedBox(height: 8),
-          // Filter Section with Modern Design
-          Container(
-            margin: const EdgeInsets.all(16),
+        body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: ledgerQuery.snapshots(),
+          builder: (context, snap) {
+            return CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Preferences.getTheme() ? mediumGrayColor : Colors.white,
@@ -129,28 +138,67 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
                           color: Preferences.getTheme() ? darkGrayColor : const Color(0xFFF5F6FA),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedSource,
-                          decoration: InputDecoration(
-                            labelText: 'Account',
-                            prefixIcon: const Icon(Icons.account_balance_wallet_outlined, size: 20),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
+                        child: Obx(() {
+                          final sources =
+                              _businessController.effectiveFundSources;
+                          final fundItems = sources
+                              .map((e) {
+                                final v = e['value']?.toString() ?? '';
+                                if (v.isEmpty) return null;
+                                return DropdownMenuItem<String>(
+                                  value: v,
+                                  child: Text(
+                                      e['label']?.toString() ?? v),
+                                );
+                              })
+                              .whereType<DropdownMenuItem<String>>()
+                              .toList();
+                          final validValues = {
+                            'all',
+                            ...sources
+                                .map((e) => e['value']?.toString() ?? '')
+                                .where((v) => v.isNotEmpty),
+                          };
+                          final safeSource = validValues.contains(_selectedSource)
+                              ? _selectedSource
+                              : 'all';
+                          if (safeSource != _selectedSource) {
+                            WidgetsBinding.instance
+                                .addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() => _selectedSource = safeSource);
+                              }
+                            });
+                          }
+                          return DropdownButtonFormField<String>(
+                            value: safeSource,
+                            decoration: InputDecoration(
+                              labelText: 'Account',
+                              prefixIcon: const Icon(
+                                  Icons.account_balance_wallet_outlined,
+                                  size: 20),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide.none,
+                              ),
+                              filled: true,
+                              fillColor: Colors.transparent,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
                             ),
-                            filled: true,
-                            fillColor: Colors.transparent,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          ),
-                          dropdownColor: Preferences.getTheme() ? mediumGrayColor : Colors.white,
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('All Accounts')),
-                            DropdownMenuItem(value: 'cash', child: Text('💵 Cash')),
-                            DropdownMenuItem(value: 'bank', child: Text('🏦 Bank')),
-                            DropdownMenuItem(value: 'mobile', child: Text('📱 Mobile')),
-                          ],
-                          onChanged: (v) => setState(() => _selectedSource = v ?? 'all'),
-                        ),
+                            dropdownColor: Preferences.getTheme()
+                                ? mediumGrayColor
+                                : Colors.white,
+                            items: [
+                              const DropdownMenuItem(
+                                  value: 'all',
+                                  child: Text('All Accounts')),
+                              ...fundItems,
+                            ],
+                            onChanged: (v) => setState(
+                                () => _selectedSource = v ?? 'all'),
+                          );
+                        }),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -248,202 +296,380 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
                 ),
               ],
             ),
+                  ),
+                ),
+                ..._buildLedgerTailSlivers(context, snap, baseCurrency, resetTimeTs),
+                SliverToBoxAdapter(
+                  child: SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    });
+  }
+
+  void _showFundsSummarySheet(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final double sheetHeight = media.size.height * 0.64;
+    final bool dark = Preferences.getTheme();
+    final Color sheetBase = dark ? const Color(0xFF2C2E33) : const Color(0xFFF7F8FC);
+    final Color onSurface = dark ? Colors.white : const Color(0xFF1A1C1E);
+    final Color onMuted = dark ? Colors.white70 : const Color(0xFF5F6368);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(top: media.padding.top + 12),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            child: Container(
+              height: sheetHeight,
+              decoration: BoxDecoration(
+                color: sheetBase,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 32,
+                    offset: const Offset(0, -12),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: dark ? Colors.white24 : Colors.black.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                      physics: const BouncingScrollPhysics(),
+                      child: FundsSummary(
+                        sheetLayout: true,
+                        sheetBetweenTotalAndAccounts: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            gradient: LinearGradient(
+                              colors: [
+                                primaryColor.withOpacity(dark ? 0.28 : 0.14),
+                                primaryUltraLightColor.withOpacity(dark ? 0.12 : 0.55),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            border: Border.all(color: primaryColor.withOpacity(0.2)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(dark ? 0.12 : 0.85),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: primaryColor.withOpacity(0.15),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(Icons.insights_rounded, color: primaryColor, size: 28),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Summary'.tr,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 22,
+                                        letterSpacing: -0.5,
+                                        color: onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Summary balance hint'.tr,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        height: 1.35,
+                                        fontWeight: FontWeight.w500,
+                                        color: onMuted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Material(
+                                color: Colors.transparent,
+                                child: IconButton(
+                                  style: IconButton.styleFrom(
+                                    foregroundColor: onSurface,
+                                    backgroundColor: dark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.7),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                  icon: const Icon(Icons.close_rounded, size: 22),
+                                  onPressed: () => Navigator.pop(ctx),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          // Transaction List
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: ledgerQuery.snapshots(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snap.hasData) {
-                  return const Center(child: Text('No data'));
-                }
-                // Map to list
-                List<Map<String, dynamic>> rows = snap.data!.docs
-                    .map((d) => (d.data() as Map<String, dynamic>)..['__id'] = d.id)
-                    .toList();
+        ),
+      ),
+    );
+  }
 
-                // Apply filters client-side (also fallback to reset_time when _dateRange is null)
-                rows = rows.where((m) {
-                  final String fs = (m['fundSourceId'] ?? '').toString();
-                  final String type = (m['transactionType'] ?? '').toString();
-                  final Timestamp ts = m['postedAt'] is Timestamp
-                      ? m['postedAt'] as Timestamp
-                      : Timestamp.fromDate(DateTime.tryParse(m['postedAt'].toString()) ?? DateTime.now());
+  /// Sliver list / empty / loading below filters.
+  List<Widget> _buildLedgerTailSlivers(
+    BuildContext context,
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap,
+    String baseCurrency,
+    Timestamp? resetTimeTs,
+  ) {
+    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+      return [
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (!snap.hasData) {
+      return [
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: Text('No data')),
+        ),
+      ];
+    }
 
-                  bool ok = true;
-                  if (_selectedSource != 'all') ok &= fs == _selectedSource;
-                  if (_selectedType != 'all') ok &= type == _selectedType;
-                  final DateTime? clientStart = _dateRange?.start ?? resetTimeTs?.toDate();
-                  final DateTime? clientEnd = _dateRange?.end;
-                  if (clientStart != null) {
-                    final dt = ts.toDate();
-                    final DateTime startBound = _dateRange != null
-                        ? DateUtils.dateOnly(clientStart).subtract(const Duration(seconds: 1))
-                        : clientStart; // exact reset time when no explicit range
-                    final DateTime endBound = _dateRange != null
-                        ? DateUtils.dateOnly(clientEnd ?? DateTime.now()).add(const Duration(days: 1))
-                        : DateTime.now();
-                    ok &= dt.isAfter(startBound) && dt.isBefore(endBound);
-                  }
-                  return ok;
-                }).toList();
+    List<Map<String, dynamic>> rows = snap.data!.docs
+        .map((d) {
+          final data = d.data();
+          final m = Map<String, dynamic>.from(data);
+          m['__id'] = d.id;
+          return m;
+        })
+        .toList();
 
-                if (rows.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.receipt_long_outlined,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No transactions found',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Try adjusting your filters',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
+    rows = rows.where((m) {
+      final String fs = (m['fundSourceId'] ?? '').toString();
+      final String type = (m['transactionType'] ?? '').toString();
+      final Timestamp ts = m['postedAt'] is Timestamp
+          ? m['postedAt'] as Timestamp
+          : Timestamp.fromDate(DateTime.tryParse(m['postedAt'].toString()) ?? DateTime.now());
 
-                // Calculate total for visible transactions
-                double totalIn = 0;
-                double totalOut = 0;
-                for (final row in rows) {
-                  final dir = (row['direction'] ?? 'in').toString();
-                  final amt = (row['baseAmount'] is int)
-                      ? (row['baseAmount'] as int).toDouble()
-                      : ((row['baseAmount'] ?? 0.0) as num).toDouble();
-                  if (dir == 'in') totalIn += amt;
-                  else totalOut += amt;
-                }
+      bool ok = true;
+      if (_selectedSource != 'all') ok &= fs == _selectedSource;
+      if (_selectedType != 'all') ok &= type == _selectedType;
+      final DateTime? clientStart = _dateRange?.start ?? resetTimeTs?.toDate();
+      final DateTime? clientEnd = _dateRange?.end;
+      if (clientStart != null) {
+        final dt = ts.toDate();
+        final DateTime startBound = _dateRange != null
+            ? DateUtils.dateOnly(clientStart).subtract(const Duration(seconds: 1))
+            : clientStart;
+        final DateTime endBound = _dateRange != null
+            ? DateUtils.dateOnly(clientEnd ?? DateTime.now()).add(const Duration(days: 1))
+            : DateTime.now();
+        ok &= dt.isAfter(startBound) && dt.isBefore(endBound);
+      }
+      return ok;
+    }).toList();
 
-                return Column(
+    if (rows.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                size: 64,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No transactions found',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Try adjusting your filters',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+
+    double totalIn = 0;
+    double totalOut = 0;
+    for (final row in rows) {
+      final dir = (row['direction'] ?? 'in').toString();
+      final amt = (row['baseAmount'] is int)
+          ? (row['baseAmount'] as int).toDouble()
+          : ((row['baseAmount'] ?? 0.0) as num).toDouble();
+      if (dir == 'in') {
+        totalIn += amt;
+      } else {
+        totalOut += amt;
+      }
+    }
+
+    return [
+      SliverToBoxAdapter(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Preferences.getTheme() ? mediumGrayColor : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
                   children: [
-                    // Summary Card
-                    Container(
-                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Preferences.getTheme() ? mediumGrayColor : Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Money In',
-                                  style: TextStyle(
-                                    color: Colors.green.shade700,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  formatCurrency(totalIn, baseCurrency),
-                                  style: TextStyle(
-                                    color: Colors.green.shade700,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            height: 40,
-                            width: 1,
-                            color: Colors.grey.shade300,
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Money Out',
-                                  style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  formatCurrency(totalOut, baseCurrency),
-                                  style: TextStyle(
-                                    color: Colors.red.shade700,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            height: 40,
-                            width: 1,
-                            color: Colors.grey.shade300,
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Net',
-                                  style: TextStyle(
-                                    color: (totalIn - totalOut) >= 0 ? Colors.blue.shade700 : Colors.orange.shade700,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  formatCurrency(totalIn - totalOut, baseCurrency),
-                                  style: TextStyle(
-                                    color: (totalIn - totalOut) >= 0 ? Colors.blue.shade700 : Colors.orange.shade700,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Money In',
+                      style: TextStyle(
+                        color: Colors.green.shade700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    // Transaction List
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: rows.length,
-                        itemBuilder: (context, i) {
-                          final m = rows[i];
+                    const SizedBox(height: 4),
+                    Text(
+                      formatCurrency(totalIn, baseCurrency),
+                      style: TextStyle(
+                        color: Colors.green.shade700,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                height: 40,
+                width: 1,
+                color: Colors.grey.shade300,
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      'Money Out',
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatCurrency(totalOut, baseCurrency),
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                height: 40,
+                width: 1,
+                color: Colors.grey.shade300,
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      'Net',
+                      style: TextStyle(
+                        color: (totalIn - totalOut) >= 0 ? Colors.blue.shade700 : Colors.orange.shade700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatCurrency(totalIn - totalOut, baseCurrency),
+                      style: TextStyle(
+                        color: (totalIn - totalOut) >= 0 ? Colors.blue.shade700 : Colors.orange.shade700,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, i) {
+              final m = rows[i];
                           final String direction = (m['direction'] ?? 'in').toString();
                           final String fs = (m['fundSourceId'] ?? '').toString();
+                          final String paymentDisplayLabel = (() {
+                            final pl = m['paymentMethodLabel']?.toString();
+                            if (pl != null && pl.isNotEmpty) return pl;
+                            final pv = m['paymentMethodValue']?.toString();
+                            if (pv != null && pv.isNotEmpty) {
+                              return _businessController
+                                  .paymentMethodLabelForValue(pv);
+                            }
+                            return _titleCase(fs);
+                          })();
                           final String type = (m['transactionType'] ?? '').toString();
                           final String counterpartyName = (m['counterpartyName'] ?? '').toString();
                           final double baseAmount = (m['baseAmount'] is int)
@@ -563,7 +789,7 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
                                                 ),
                                                 const SizedBox(width: 4),
                                                 Text(
-                                                  _titleCase(fs),
+                                                  paymentDisplayLabel,
                                                   style: TextStyle(
                                                     fontSize: 13,
                                                     color: Colors.grey.shade600,
@@ -642,18 +868,12 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
                               ),
                             ),
                           );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+            },
+            childCount: rows.length,
           ),
-        ],
+        ),
       ),
-    );
-    });
+    ];
   }
 
   String _fmtDate(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -686,7 +906,19 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
         }
         break;
       case 'supplier_payment':
-        // Go to supplier debt screen with filter target; screen will handle showing 'All'
+        final role = (Get.find<ProfileController>().user['role'] ?? '').toString();
+        if (!_businessController.isPurchasesAllowedForRole(role)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Open supplier debts from the owner account, or enable Allow Purchases for staff.',
+                ),
+              ),
+            );
+          }
+          break;
+        }
         if (mounted) {
           Navigator.pushNamed(context, '/supplier-debt', arguments: {
             'filterDebtId': refId,

@@ -6,6 +6,8 @@ class TransactionOrigins {
   
   // Sales related
   static const String sale = 'Sale';
+  /// Stock restored when a sale document is deleted (distinct from [sale]).
+  static const String saleDeleted = 'Sale deleted';
   static const String saleReturn = 'Sale Return';
   static const String saleEdit = 'Sale Edit';
   

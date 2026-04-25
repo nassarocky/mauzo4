@@ -28,6 +28,22 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
   @override
   void initState() {
     super.initState();
+    final role = (_profileController.user['role'] ?? '').toString();
+    if (!_businessController.isPurchasesAllowedForRole(role)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Supplier debts are available to the owner, or to staff when Allow Purchases is enabled in settings.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
     // Set default filter to Pending
     _supplierDebtController.setFilterStatus(["PENDING"]);
     // Check for navigation argument to filter a specific debt id
@@ -280,11 +296,15 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
   void _showPaymentDialog(SupplierDebt debt) {
     final TextEditingController amountController = TextEditingController();
     final TextEditingController noteController = TextEditingController();
-    String selectedMethod = 'Cash';
-    
+    final pmList = _businessController.effectivePaymentMethods;
+    String selectedMethod = pmList.isNotEmpty
+        ? (pmList.first['value']?.toString() ?? 'cash')
+        : 'cash';
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
         title: Text('Pay ${debt.supplierName}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -300,20 +320,25 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (((_businessController.business['multiFundEnabled'] ?? false) == true))
+            if (((_businessController.business['multiFundEnabled'] ?? false) == true) &&
+                pmList.isNotEmpty)
               DropdownButtonFormField<String>(
-                value: selectedMethod,
+                value: pmList.any((m) => m['value']?.toString() == selectedMethod)
+                    ? selectedMethod
+                    : (pmList.first['value']?.toString() ?? 'cash'),
                 decoration: InputDecoration(
                   labelText: 'Payment Method'.tr,
                   border: OutlineInputBorder(),
                 ),
-                items: ['Cash'.tr, 'Bank Transfer'.tr, 'Mobile Money'.tr, 'Check'.tr]
-                    .map((method) => DropdownMenuItem(
-                          value: method,
-                          child: Text(method),
+                items: pmList
+                    .map((m) => DropdownMenuItem<String>(
+                          value: m['value']?.toString() ?? '',
+                          child: Text(m['label']?.toString() ?? m['value']?.toString() ?? ''),
                         ))
+                    .where((item) => item.value!.isNotEmpty)
                     .toList(),
-                onChanged: (value) => selectedMethod = value ?? 'Cash',
+                onChanged: (value) => setDialogState(
+                    () => selectedMethod = value ?? 'cash'),
               ),
             const SizedBox(height: 16),
             TextField(
@@ -349,6 +374,7 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
             child: const Text('Pay'),
           ),
         ],
+      ),
       ),
     );
   }

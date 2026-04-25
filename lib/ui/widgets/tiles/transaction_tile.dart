@@ -9,6 +9,7 @@ import 'package:mauzo/models/stock_transaction.dart';
 import 'package:mauzo/models/product_model.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import '../../../constants/transaction_constants.dart';
 import '../../../utils/constants.dart';
 import '../../dialogs/transaction_detail_dialog.dart';
 
@@ -37,6 +38,9 @@ class TransactionTile extends StatelessWidget {
   }
   
   Color getTransactionColor(String type, String origin) {
+    if (origin == TransactionOrigins.saleDeleted) {
+      return Colors.deepOrange;
+    }
     // Sales should be blue (not red) since they're revenue-generating
     if (origin == 'Sale' || origin.contains('Sale')) {
       return Colors.blue;
@@ -49,7 +53,10 @@ class TransactionTile extends StatelessWidget {
     return Colors.red;
   }
   
-  IconData getTransactionIcon(String type) {
+  IconData getTransactionIcon(String type, String origin) {
+    if (origin == TransactionOrigins.saleDeleted) {
+      return Icons.delete_sweep_outlined;
+    }
     return type == 'addition' ? Icons.add_circle : Icons.remove_circle;
   }
 
@@ -60,10 +67,26 @@ class TransactionTile extends StatelessWidget {
     
     // Calculate values
     final isAddition = transaction.transactionType == 'addition';
-    final quantityChange = transaction.quantity;
-    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
     final beforeQty = transaction.previousQuantity;
-    final afterQty = transaction.newQuantity ?? (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+
+    // Cloud Function transactions store the new stock level in 'quantity' instead of the
+    // change amount. Detect and recalculate for those origins.
+    final bool isCFTransferTransaction =
+        transaction.transactionOrigin == 'Product Transfer Out' ||
+        transaction.transactionOrigin == 'Product Transfer In';
+
+    final double quantityChange;
+    final double afterQty;
+    if (isCFTransferTransaction) {
+      afterQty = transaction.newQuantity ?? transaction.quantity;
+      quantityChange = (beforeQty - afterQty).abs();
+    } else {
+      quantityChange = transaction.quantity;
+      afterQty = transaction.newQuantity ??
+          (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+    }
+
+    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
     final transactionColor = getTransactionColor(transaction.transactionType, transaction.transactionOrigin);
     
     return GestureDetector(
@@ -253,7 +276,7 @@ class TransactionTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Icon(
-                    getTransactionIcon(transaction.transactionType),
+                    getTransactionIcon(transaction.transactionType, transaction.transactionOrigin),
                     color: transactionColor,
                     size: 20,
                   ),

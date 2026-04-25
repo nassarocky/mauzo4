@@ -670,20 +670,53 @@ class DebtCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 10),
                         if (((_businessController.business['multiFundEnabled'] ?? false) == true))
-                          DropdownButtonFormField<String>(
-                            value: paymentMethod,
-                            decoration: InputDecoration(
-                              labelText: 'Payment Method'.tr,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                              DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                              DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                            ],
-                            onChanged: (v) => setStateLocal(() => paymentMethod = v ?? 'cash'),
-                          ),
+                          Obx(() {
+                            final methods = _businessController
+                                .paymentMethodsForDropdown(
+                                    currentValue: paymentMethod);
+                            if (methods.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final values = methods
+                                .map((m) => m['value']?.toString() ?? '')
+                                .where((v) => v.isNotEmpty)
+                                .toList();
+                            if (values.isEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            final safe = values.contains(paymentMethod)
+                                ? paymentMethod
+                                : values.first;
+                            if (safe != paymentMethod) {
+                              WidgetsBinding.instance
+                                  .addPostFrameCallback((_) {
+                                setStateLocal(() => paymentMethod = safe);
+                              });
+                            }
+                            return DropdownButtonFormField<String>(
+                              value: safe,
+                              decoration: InputDecoration(
+                                labelText: 'Payment Method'.tr,
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(4)),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                              ),
+                              items: methods
+                                  .map((m) {
+                                    final v = m['value']?.toString() ?? '';
+                                    if (v.isEmpty) return null;
+                                    return DropdownMenuItem<String>(
+                                      value: v,
+                                      child: Text(m['label']?.toString() ?? v),
+                                    );
+                                  })
+                                  .whereType<DropdownMenuItem<String>>()
+                                  .toList(),
+                              onChanged: (v) => setStateLocal(
+                                  () => paymentMethod = v ?? values.first),
+                            );
+                          }),
                       ],
                     ),
               actions: [

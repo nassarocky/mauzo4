@@ -12,6 +12,8 @@ class ProfileModel {
   List<dynamic> business;
   final String email;
   List<dynamic>? permissions;
+  /// Set at account creation from install / agent link (read-only in app).
+  final String? installReferrerCode;
 
   ProfileModel({
     required this.phone,
@@ -25,6 +27,7 @@ class ProfileModel {
     this.business = const [],
     required this.email,
     this.permissions,
+    this.installReferrerCode,
   });
 
   // Factory method to create a ProfileModel from Firestore snapshot
@@ -47,6 +50,7 @@ class ProfileModel {
       image: data['image'] ?? '',
       email: data['email'] ?? '',
       permissions: data['permissions'],
+      installReferrerCode: data['installReferrerCode']?.toString(),
     );
   }
 
@@ -64,6 +68,7 @@ class ProfileModel {
       'business': business,
       'email': email,
       'permissions': permissions,
+      if (installReferrerCode != null) 'installReferrerCode': installReferrerCode,
     };
   }
 }

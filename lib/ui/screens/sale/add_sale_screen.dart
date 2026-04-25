@@ -103,12 +103,13 @@ class _AddSaleScreenState extends State<AddSaleScreen>
         
         if (product.id != "") {
           // Product found - check if enough stock
-          if (product.quantity! > _cartController.singleProductQuantity(product.id)) {
+          final currentQty = _cartController.singleProductQuantity(product.id);
+          if (product.quantity! > currentQty + 1e-9) {
             _cartController.updateCart(
               product,
-              _cartController.singleProductQuantity(product.id) + 1,
+              currentQty + 1,
               _cartController.getPrice(product.id) == 0
-                  ? product.price
+                  ? _cartController.defaultUnitSellingPrice(product)
                   : _cartController.getPrice(product.id),
             );
           } else {

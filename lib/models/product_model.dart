@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class Product {
+  /// Default minimum line quantity for wholesale when creating products or when Firestore has no valid value.
+  static const int defaultWholesaleMinQuantity = 200;
+
   final String owner, id, name, code, storeId;
   final String? category;
   String? image;
@@ -10,6 +13,10 @@ class Product {
   double quantity;      // Shop stock quantity
   double total;         // Converted from int
   double price;
+  /// Bulk / wholesale unit selling price. When 0 or missing in Firestore, [effectiveWholesalePrice] falls back to [price] (retail).
+  double wholesalePrice;
+  /// Minimum units on this line before wholesale mode is allowed (per product). Stored in Firestore; 0/missing → [effectiveWholesaleMinQuantity] uses [defaultWholesaleMinQuantity].
+  int wholesaleMinQuantity;
   double count;
   double buyingPrice;
   double discount;
@@ -45,6 +52,8 @@ class Product {
     this.count = 0.0,
     this.total = 0.0,
     required this.price,
+    this.wholesalePrice = 0.0,
+    this.wholesaleMinQuantity = defaultWholesaleMinQuantity,
     this.buyingPrice = 0.0,
     this.discount = 0.0,
     this.manufacturer = '',
@@ -75,6 +84,13 @@ class Product {
       return double.tryParse(value.toString()) ?? 0.0;
     }
 
+    int convertToInt(dynamic value) {
+      if (value == null) return 0;
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value.toString()) ?? 0;
+    }
+
     return Product(
       owner: data['owner'] as String? ?? '',
       id: data['id'] as String? ?? snapshot.id,
@@ -93,6 +109,8 @@ class Product {
       reserveString1: data['reserveString1'] as String? ?? '',
       reserveString2: data['reserveString2'] as String? ?? '',
       price: convertToDouble(data['price']),
+      wholesalePrice: convertToDouble(data['wholesalePrice']),
+      wholesaleMinQuantity: convertToInt(data['wholesaleMinQuantity']),
       buyingPrice: convertToDouble(data['buyingPrice']),
       discount: convertToDouble(data['discount']),
       reserveDouble1: convertToDouble(data['reserveDouble1']),
@@ -118,6 +136,8 @@ class Product {
       'count': count,
       'total': total,
       'price': price,
+      'wholesalePrice': wholesalePrice,
+      'wholesaleMinQuantity': wholesaleMinQuantity,
       'buyingPrice': buyingPrice,
       'discount': discount,
       'manufacturer': manufacturer,
@@ -160,4 +180,13 @@ class Product {
   }
 
   Map<String, dynamic> toMap() => toFirestore();
+
+  double get effectiveRetailPrice => price;
+
+  double get effectiveWholesalePrice =>
+      wholesalePrice > 0 ? wholesalePrice : price;
+
+  /// Valid stored value, or [defaultWholesaleMinQuantity] when Firestore has 0 or missing field (legacy).
+  int get effectiveWholesaleMinQuantity =>
+      wholesaleMinQuantity >= 1 ? wholesaleMinQuantity : defaultWholesaleMinQuantity;
 }

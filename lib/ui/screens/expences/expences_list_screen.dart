@@ -250,13 +250,11 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              expense.fundSource == 'mobile'
-                                                  ? 'Lipa Namba (Mobile)'.tr
-                                                  : (expense.fundSource == 'bank'
-                                                      ? 'Bank'.tr
-                                                      : (expense.fundSource == 'other'
-                                                          ? 'Other Source'.tr
-                                                          : 'Cash'.tr)),
+                                              expense.fundSource == 'other'
+                                                  ? 'Other Source'.tr
+                                                  : _businessController
+                                                      .paymentMethodLabelForValue(
+                                                          expense.fundSource),
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.w500,

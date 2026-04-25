@@ -19,14 +19,34 @@ class LedgerService {
     return _businessController.business['mainCurrency'] ?? 'TZS';
   }
 
+  /// Stored on each ledger row as [fundSourceId]. Must match fund source [value] so
+  /// [FundsSummary] per-source totals align with transactions (custom sources use doc id as value).
+  /// Bucket totals (cash/bank/mobile) elsewhere use [BusinessController.getLedgerTypeForMethod] on the raw method.
   String _mapMethodToFundSource(String? method) {
-    final m = (method ?? 'cash').toString().toLowerCase().trim();
-    // Normalize common synonyms
+    final original = (method ?? 'cash').toString().trim();
+    if (original.isEmpty) return 'cash';
+    // Custom / configured fund sources: keep stable id (matches fund source catalog).
+    if (_businessController.isKnownFundSourceKey(original)) {
+      return original;
+    }
+    final m = original.toLowerCase();
+    // Legacy payment-method ids from older clients
+    if (m == 'bank_transfer' || m == 'check') return 'bank';
+    if (m == 'mobile_money') return 'mobile';
+    // Built-in synonyms (substring heuristics for free-text methods)
     if (m == 'cash' || m.contains('cash')) return 'cash';
-    if (m == 'bank' || m.contains('bank') || m.contains('cheque') || m.contains('check') || m.contains('pos') || m.contains('card')) return 'bank';
-    if (m == 'mobile' || m.contains('mobile') || m.contains('lipa') || m.contains('mpesa') || m.contains('m-pesa') || m.contains('tigo') || m.contains('airtel')) return 'mobile';
-    // Fallback
-    return 'cash';
+    if (m == 'bank' || m.contains('bank') || m.contains('cheque') ||
+        m.contains('check') || m.contains('pos') || m.contains('card')) {
+      return 'bank';
+    }
+    if (m == 'mobile' || m.contains('mobile') || m.contains('lipa') ||
+        m.contains('mpesa') || m.contains('m-pesa') || m.contains('tigo') ||
+        m.contains('airtel')) {
+      return 'mobile';
+    }
+    if (m == 'other') return 'other';
+    // Custom fund source: keep stable id (usually Firestore doc id), not ledgerType bucket
+    return original;
   }
 
   Future<void> postExpenseOut(Expense expense) async {
@@ -41,6 +61,8 @@ class LedgerService {
     final String fundSourceId = expense.fundSource; // transitional: using enum value as source id
     final String idempotencyKey = 'expense:${expense.id}:$lineIndex:$fundSourceId';
     final String docId = idempotencyKey.replaceAll(':', '__');
+    final String paymentLabel =
+        _businessController.paymentMethodLabelForValue(expense.fundSource);
 
     final String currency = _baseCurrency();
     final double amount = expense.amount;
@@ -50,6 +72,8 @@ class LedgerService {
     final Map<String, dynamic> payload = {
       'businessId': businessId,
       'fundSourceId': fundSourceId,
+      'paymentMethodValue': expense.fundSource,
+      'paymentMethodLabel': paymentLabel,
       'direction': 'out',
       'amount': amount,
       'currency': currency,
@@ -114,10 +138,14 @@ class LedgerService {
       final String fundSourceId = _mapMethodToFundSource(method);
       final String idempotencyKey = 'purchase:$purchaseId:$i:$fundSourceId';
       final String docId = idempotencyKey.replaceAll(':', '__');
+      final String purchasePayLabel =
+          _businessController.paymentMethodLabelForValue(method);
 
       final payload = {
         'businessId': businessId,
         'fundSourceId': fundSourceId,
+        'paymentMethodValue': method,
+        'paymentMethodLabel': purchasePayLabel,
         'direction': 'out',
         'amount': amount,
         'currency': currency,
@@ -182,10 +210,14 @@ class LedgerService {
       final String fundSourceId = _mapMethodToFundSource(method);
       final String idempotencyKey = 'sale:$saleId:$i:$fundSourceId:${postedAt.seconds}';
       final String docId = idempotencyKey.replaceAll(':', '__');
+      final String paymentLabel =
+          _businessController.paymentMethodLabelForValue(method);
 
       final payload = {
         'businessId': businessId,
         'fundSourceId': fundSourceId,
+        'paymentMethodValue': method,
+        'paymentMethodLabel': paymentLabel,
         'direction': 'in',
         'amount': amount,
         'currency': currency,
@@ -226,6 +258,56 @@ class LedgerService {
     }
   }
 
+  Future<void> deleteSaleLedgerEntries({
+    required String saleId,
+    required List<dynamic> payments,
+    required Timestamp postedAt,
+  }) async {
+    final String businessId = _businessId();
+    if (businessId.isEmpty) {
+      print('❌ LedgerService.deleteSaleLedgerEntries: businessId empty');
+      return;
+    }
+
+    if (payments.isEmpty) {
+      final String idempotencyKey = 'sale:$saleId:0:cash:${postedAt.seconds}';
+      final String docId = idempotencyKey.replaceAll(':', '__');
+      final docRef = firestore
+          .collection('ledger')
+          .doc(businessId)
+          .collection('entries')
+          .doc(docId);
+      final existing = await docRef.get();
+      if (existing.exists) {
+        await docRef.delete();
+        print('✅ LedgerService.deleteSaleLedgerEntries: deleted $docId');
+      }
+      return;
+    }
+
+    for (int i = 0; i < payments.length; i++) {
+      final p = payments[i] as Map<String, dynamic>;
+      final String method = (p['method'] ?? 'cash').toString();
+      final String fundSourceId = _mapMethodToFundSource(method);
+      final String idempotencyKey = 'sale:$saleId:$i:$fundSourceId:${postedAt.seconds}';
+      final String docId = idempotencyKey.replaceAll(':', '__');
+
+      final docRef = firestore
+          .collection('ledger')
+          .doc(businessId)
+          .collection('entries')
+          .doc(docId);
+
+      final existing = await docRef.get();
+      if (existing.exists) {
+        await docRef.delete();
+        print('✅ LedgerService.deleteSaleLedgerEntries: deleted $docId');
+      } else {
+        print('ℹ️ LedgerService.deleteSaleLedgerEntries: $docId not found, skipping');
+      }
+    }
+  }
+
   Future<void> postSupplierDebtPaymentOut({
     required String debtId,
     required double amount,
@@ -243,10 +325,14 @@ class LedgerService {
     final String fundSourceId = _mapMethodToFundSource(method);
     final String idempotencyKey = 'supplier_payment:$debtId:0:$fundSourceId:${postedAt.seconds}';
     final String docId = idempotencyKey.replaceAll(':', '__');
+    final String supplierPayLabel =
+        _businessController.paymentMethodLabelForValue(method);
 
     final payload = {
       'businessId': businessId,
       'fundSourceId': fundSourceId,
+      'paymentMethodValue': method,
+      'paymentMethodLabel': supplierPayLabel,
       'direction': 'out',
       'amount': amount,
       'currency': currency,

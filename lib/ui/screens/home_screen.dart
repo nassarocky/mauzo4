@@ -27,8 +27,6 @@ import 'package:mauzo/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:intl/intl.dart';
-import 'package:mauzo/controllers/aggregates_controller.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/product_transfer_controller.dart';
 import '../../controllers/store_controller.dart';
@@ -80,12 +78,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final info = await PackageInfo.fromPlatform();
     _appVersion = 'v${info.version}+${info.buildNumber}';
 
-    // Ensure a default Cash fund source exists (idempotent)
+    // Ensure default fund sources exist (idempotent); checkout "payment methods" use this list.
     try {
-      await FundSourceService().ensureDefaultCashFundSource();
-      await FundSourceService().ensureDefaultBankAndMobile();
+      final bid = _businessController.businessId.value;
+      if (bid.isNotEmpty) {
+        await FundSourceService().seedDefaults(bid);
+      }
     } catch (e) {
-      print('FundSource seeding failed: $e');
+      print('Fund source seeding failed: $e');
     }
 
     // Initialize controllers
@@ -156,47 +156,101 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
+  /// Only these statuses mean "must pay / renew" — show the blocking modal.
+  /// Empty, unknown, or other inactive values are treated as non-payment issues (do not block).
+  static bool _statusRequiresPaymentBlock(String statusStr) {
+    final s = statusStr.trim();
+    return s == 'subscription_ended' || s == 'trial_expired';
+  }
+
   Future<void> checkAccountStatus() async {
-    isAccountActive = await _businessController.isAccountActive();
-    if (!isAccountActive ||
-        _businessController.business['subscriptionStatus'] == null) {
-      showAccountStatusDialog(_businessController.business['subscriptionStatus']);
+    final active = await _businessController.isAccountActive();
+    final rawStatus = _businessController.business['subscriptionStatus'];
+    final statusStr = rawStatus?.toString().trim() ?? '';
+
+    if (active) {
+      if (mounted) {
+        setState(() => isAccountActive = true);
+        Navigator.of(context, rootNavigator: true)
+            .popUntil((route) => route.isFirst);
+      }
+      return;
+    }
+
+    // Inactive: block only when backend explicitly says payment is required.
+    if (_statusRequiresPaymentBlock(statusStr)) {
+      if (mounted) setState(() => isAccountActive = false);
+      showAccountStatusDialog(statusStr);
     } else {
-      Navigator.of(context, rootNavigator: true)
-          .popUntil((route) => route.isFirst);
+      // Sync/data/unknown issue — do not lock the app behind payment UI.
+      if (mounted) {
+        setState(() => isAccountActive = true);
+        Navigator.of(context, rootNavigator: true)
+            .popUntil((route) => route.isFirst);
+      }
     }
   }
 
-  void showAccountStatusDialog(String? status) {
-    String message = '';
-    if (status == null) {
-      message = 'Subscription status is not set.'.tr;
-    } else if (status == 'subscription_ended') {
-      message = 'Your subscription has ended.'.tr;
-    } else if (status == 'trial_expired') {
-      message = 'Your trial has expired.'.tr;
+  bool _isBusinessOwner() {
+    return (_profileController.user['role'] ?? '').toString() == 'owner';
+  }
+
+  /// Message for subscription / access dialog (only for payment-required statuses).
+  String _accountStatusMessage(String? status, {required bool isOwner}) {
+    final s = status?.toString().trim() ?? '';
+    if (!isOwner) {
+      return 'subscription_employee_access_body'.tr;
     }
+    if (s == 'subscription_ended') {
+      return 'Your subscription has ended.'.tr;
+    }
+    if (s == 'trial_expired') {
+      return 'Your trial has expired.'.tr;
+    }
+    return 'Your subscription has ended.'.tr;
+  }
+
+  void showAccountStatusDialog(String? status) {
+    final isOwner = _isBusinessOwner();
+    final message = _accountStatusMessage(status, isOwner: isOwner);
+    final showPayment = isOwner;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (BuildContext context) {
+        builder: (BuildContext dialogContext) {
           return WillPopScope(
             onWillPop: () async => false,
             child: AlertDialog(
-              // title: Text('${'Account Status:'.tr} ${_businessController.business['email']}'),
-              title: Text('payment'.tr),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(message),
-                  const SizedBox(height: 16),
-                  const PaymentDialogContent(), // ← integrated payment UI here
-                ],
+              title: Text(
+                showPayment
+                    ? 'subscription_dialog_payment_title'.tr
+                    : 'subscription_dialog_access_title'.tr,
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!showPayment) ...[
+                      Icon(
+                        Icons.info_outline,
+                        size: 40,
+                        color: Theme.of(dialogContext).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Text(message),
+                    if (showPayment) ...[
+                      const SizedBox(height: 16),
+                      const PaymentDialogContent(),
+                    ],
+                  ],
+                ),
               ),
             ),
-
           );
         },
       );
@@ -209,9 +263,94 @@ class _HomeScreenState extends State<HomeScreen> {
     return screenWidth > 600 ? baseFontSize * 1.5 : baseFontSize; // Larger for tablets
   }
 
+  IconData _ledgerTypeIconForAnalytics(String ledgerType) {
+    switch (ledgerType) {
+      case 'bank':
+        return Icons.account_balance;
+      case 'mobile':
+        return Icons.phone_android;
+      default:
+        return Icons.payments;
+    }
+  }
 
+  Color _ledgerTypeColorForAnalytics(String ledgerType) {
+    switch (ledgerType) {
+      case 'bank':
+        return Colors.blue.shade600;
+      case 'mobile':
+        return Colors.orange.shade600;
+      default:
+        return Colors.green.shade600;
+    }
+  }
 
-  void _showTotalSalesDialog(BuildContext context, SaleController _saleController,DebtHistoryController _debtHistoryController,BoughtController _boughtController, ExpenseController expenseController, Timestamp resetTime) {
+  /// Amount shown for one fund source key (legacy unallocated sales roll into [cash] when [treatMissingAsCash]).
+  double _displayedAmountForAnalyticsSource(
+    String key,
+    Map<String, double> itemizedTotals,
+    double legacyAggregated,
+    bool treatMissingAsCash,
+  ) {
+    double v = itemizedTotals[key] ?? 0.0;
+    if (key == 'cash' && treatMissingAsCash) {
+      v += legacyAggregated;
+    }
+    return v;
+  }
+
+  /// Keys with a positive displayed amount, ordered catalog-first then remaining alphabetically.
+  List<String> _paymentMethodKeysForAnalyticsBar(
+    Map<String, double> itemizedTotals,
+    double legacyAggregated,
+    bool treatMissingAsCash,
+  ) {
+    final candidates = <String>{...itemizedTotals.keys};
+    candidates.add('cash');
+    candidates.removeWhere((k) =>
+        _displayedAmountForAnalyticsSource(
+              k,
+              itemizedTotals,
+              legacyAggregated,
+              treatMissingAsCash,
+            ) <=
+            0);
+    final seen = <String>{};
+    final ordered = <String>[];
+    for (final e in _businessController.effectiveFundSources) {
+      final v = (e['value'] ?? e['id'] ?? '').toString();
+      if (v.isNotEmpty && candidates.contains(v) && seen.add(v)) {
+        ordered.add(v);
+      }
+    }
+    final rest = candidates.where((k) => !seen.contains(k)).toList()..sort();
+    ordered.addAll(rest);
+    return ordered;
+  }
+
+  /// Resolves a human-readable label when the catalog cache missed (e.g. stale list) but Firestore has the row.
+  Future<String?> _fetchFundSourceLabelFromFirestore(String businessId, String fundKey) async {
+    final id = fundKey.trim();
+    if (businessId.isEmpty || id.isEmpty) return null;
+    try {
+      final doc = await firestore
+          .collection('fundSources')
+          .doc(businessId)
+          .collection('userFundSources')
+          .doc(id)
+          .get();
+      if (!doc.exists) return null;
+      final d = doc.data();
+      if (d == null) return null;
+      final t = (d['label'] ?? d['name'] ?? d['value'])?.toString().trim();
+      if (t == null || t.isEmpty) return null;
+      return t;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _showTotalSalesDialog(BuildContext context, SaleController _saleController,DebtHistoryController _debtHistoryController,BoughtController _boughtController, ExpenseController expenseController, Timestamp resetTime) async {
     // double totalSales = _saleController.getTotalSalesFromTimestamp(resetTime);
     double totalPayments = _saleController.getTotalPaymentFromTimestamp(resetTime,Timestamp.now());
     double purchases = _boughtController.getTotalPurchasePaidFromTimestamp(resetTime,Timestamp.now());
@@ -258,10 +397,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
-    // Compute payment totals by method within the same time window
-    double cashTotal = 0.0;
-    double bankTotal = 0.0;
-    double mobileTotal = 0.0;
+    // Compute payment totals per fund source / payment method (supports custom catalog rows).
+    final Map<String, double> itemizedMethodTotals = {};
     double aggregatedTotal = 0.0; // Old sales without payment breakdown
     double debtCollectedExclusive = 0.0;
     // mainCurrency already defined above
@@ -291,13 +428,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? amt
                   : amt * Preferences.getExchangeRateResult();
 
-              if (methodNormalized == 'bank') {
-                bankTotal += amtMain;
-              } else if (methodNormalized == 'mobile') {
-                mobileTotal += amtMain;
-              } else {
-                cashTotal += amtMain;
-              }
+              itemizedMethodTotals[methodNormalized] =
+                  (itemizedMethodTotals[methodNormalized] ?? 0.0) + amtMain;
 
               if (sale.saleType == 'debt_repayment') {
                 debtCollectedExclusive += amtMain;
@@ -316,14 +448,43 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    final String bid = _businessController.businessId.value;
+    final Map<String, String> labelOverrides = <String, String>{};
+    if (bid.isNotEmpty) {
+      try {
+        final list = await FundSourceService().loadFundSources(bid);
+        _businessController.reloadFundSources(list);
+      } catch (_) {}
+      for (final k in itemizedMethodTotals.keys) {
+        final resolved = _businessController.paymentMethodLabelForValue(k);
+        if (resolved != k) continue;
+        final fetched = await _fetchFundSourceLabelFromFirestore(bid, k);
+        if (fetched != null && fetched.isNotEmpty) {
+          labelOverrides[k] = fetched;
+        }
+      }
+    }
+
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(builder: (context, setState) {
           bool treatMissingAsCash = true; // toggle to include/exclude old sales without breakdown
-          final double cashAmountForRow = cashTotal + (treatMissingAsCash ? aggregatedTotal : 0.0);
-          final double totalInflowsAll = cashAmountForRow + bankTotal + mobileTotal;
-          final double netTotalLocal = totalInflowsAll - totalExpensesExclusive - purchasesExclusive;
+          final double itemizedSum = itemizedMethodTotals.values.fold<double>(
+            0.0,
+            (a, b) => a + b,
+          );
+          final double totalInflowsAll =
+              itemizedSum + (treatMissingAsCash ? aggregatedTotal : 0.0);
+          final double netTotalLocal =
+              totalInflowsAll - totalExpensesExclusive - purchasesExclusive;
+          final paymentBarKeys = _paymentMethodKeysForAnalyticsBar(
+            itemizedMethodTotals,
+            aggregatedTotal,
+            treatMissingAsCash,
+          );
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -457,26 +618,28 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 12),
-                                _buildPaymentMethodRow(
-                                  icon: Icons.money,
-                                  iconColor: Colors.green.shade600,
-                                  method: 'Cash',
-                                  amount: formatCurrency(cashAmountForRow, _businessController.business['mainCurrency']),
-                                ),
-                                const SizedBox(height: 8),
-                                _buildPaymentMethodRow(
-                                  icon: Icons.account_balance,
-                                  iconColor: Colors.blue.shade600,
-                                  method: 'Bank',
-                                  amount: formatCurrency(bankTotal, _businessController.business['mainCurrency']),
-                                ),
-                                const SizedBox(height: 8),
-                                _buildPaymentMethodRow(
-                                  icon: Icons.phone_android,
-                                  iconColor: Colors.orange.shade600,
-                                  method: 'Mobile (Lipa Namba)',
-                                  amount: formatCurrency(mobileTotal, _businessController.business['mainCurrency']),
-                                ),
+                                for (var i = 0; i < paymentBarKeys.length; i++) ...[
+                                  if (i > 0) const SizedBox(height: 8),
+                                  _buildPaymentMethodRow(
+                                    icon: _ledgerTypeIconForAnalytics(
+                                      _businessController.getLedgerTypeForMethod(paymentBarKeys[i]),
+                                    ),
+                                    iconColor: _ledgerTypeColorForAnalytics(
+                                      _businessController.getLedgerTypeForMethod(paymentBarKeys[i]),
+                                    ),
+                                    method: labelOverrides[paymentBarKeys[i]] ??
+                                        _businessController.paymentMethodLabelForValue(paymentBarKeys[i]),
+                                    amount: formatCurrency(
+                                      _displayedAmountForAnalyticsSource(
+                                        paymentBarKeys[i],
+                                        itemizedMethodTotals,
+                                        aggregatedTotal,
+                                        treatMissingAsCash,
+                                      ),
+                                      _businessController.business['mainCurrency'],
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 8),
                                 _buildPaymentMethodRow(
                                   icon: Icons.assignment_turned_in,
@@ -711,7 +874,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final bool canEditBusiness = _profileController.hasPermission('edit_business');
 
     return GetBuilder<BusinessController>(
-      init: BusinessController(),
       builder: (controller) {
 
         if (controller.business.isEmpty) {
@@ -749,7 +911,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final ExpenseController expenceController = Get.put(ExpenseController());
         final StoreController storeController = Get.put(StoreController());
         final ClientController clientController = Get.put(ClientController());
-        final AggregatesController aggregatesController = Get.put(AggregatesController());
 
         final SaleController _saleController = Get.put(SaleController());
         final ProductTransferController _transferController = Get.put(ProductTransferController());
@@ -1041,7 +1202,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       route: 'expenses',
                     ),
                     
-                    if (_businessController.business['purchases']=='true')
+                    if (_businessController.isPurchasesAllowedForRole(
+                        (_profileController.user['role'] ?? '').toString()))
                       DrawerTile(
                         title: 'Purchases'.tr,
                         icon: Icons.import_export,
@@ -1151,8 +1313,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       InfoTile(
-                        onTap: () {
-                          _showTotalSalesDialog(
+                        onTap: () async {
+                          await _showTotalSalesDialog(
                             context,
                             _saleController,
                             _debtHistoryController,
@@ -1168,16 +1330,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           _businessController.business['mainCurrency'],
                         ),
                       ),
-                      Obx(() {
-                        final currency = _businessController.business['mainCurrency'];
-                        return InfoTile(
-                          onTap: () {
-                            _showAggregatesBottomSheet(context, aggregatesController, currency);
-                          },
-                          title: 'Available balance (Backend)'.tr,
-                          trailing: formatCurrency(aggregatesController.availableBalance, currency),
-                        );
-                      }),
+                      // Backend aggregates / "Available balance (Backend)" — hidden (test mode only).
                       // Only show service sales InfoTile if value > 0
                       Builder(
                         builder: (context) {
@@ -1359,146 +1512,6 @@ class _HomeScreenState extends State<HomeScreen> {
       businessController: _businessController,
     );
   }
-
-  void _showAggregatesBottomSheet(BuildContext context, AggregatesController c, String currency) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return Obx(() {
-          final cash = c.paymentsCash;
-          final bank = c.paymentsBank;
-          final mobile = c.paymentsMobile;
-          final debtCol = c.debtCollected;
-          final expenses = c.expensesTotal;
-          final purchases = c.purchasesPaidTotal;
-          final available = c.availableBalance;
-          final updated = c.updatedAt;
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.analytics, size: 18, color: Colors.black54),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Aggregates (Backend)'.tr,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    if (updated != null)
-                      Text(
-                        DateFormat('dd MMM, HH:mm').format(updated),
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: _aggMetricTile(Icons.money, 'Cash'.tr, formatCurrency(cash, currency), Colors.green.shade600)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _aggMetricTile(Icons.account_balance, 'Bank'.tr, formatCurrency(bank, currency), Colors.blue.shade600)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: _aggMetricTile(Icons.phone_android, 'Mobile'.tr, formatCurrency(mobile, currency), Colors.orange.shade600)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _aggMetricTile(Icons.assignment_turned_in, 'Debt Collected'.tr, formatCurrency(debtCol, currency), Colors.teal.shade600)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: _aggMetricTile(Icons.receipt_long, 'Expenses'.tr, formatCurrency(expenses, currency), Colors.red.shade600)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _aggMetricTile(Icons.shopping_cart, 'Purchases Paid'.tr, formatCurrency(purchases, currency), Colors.purple.shade600)),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: available >= 0 ? Colors.green.shade50 : Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: (available >= 0 ? Colors.green : Colors.red).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(available >= 0 ? Icons.account_balance : Icons.warning, color: available >= 0 ? Colors.green : Colors.red, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Available balance (Backend)'.tr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black87)),
-                            const SizedBox(height: 4),
-                            Text(
-                              formatCurrency(available, currency),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          );
-        });
-      },
-    );
-  }
-
-  Widget _aggMetricTile(IconData icon, String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
-            child: Icon(icon, color: color, size: 16),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 2),
-                Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _MoreExpandableSection extends StatefulWidget {
@@ -1663,16 +1676,20 @@ class _MoreExpandableSectionState extends State<_MoreExpandableSection>
                         icon: Icons.business_center,
                         route: 'assets',
                       ),
-                    DrawerMenuItem(
-                      title: 'Supplier Debts'.tr,
-                      icon: Icons.account_balance_wallet,
-                      route: 'supplier-debt',
-                    ),
-                    DrawerMenuItem(
-                      title: 'Suppliers'.tr,
-                      icon: Icons.local_shipping,
-                      route: 'suppliers',
-                    ),
+                    if (widget.businessController.isPurchasesAllowedForRole(
+                        (widget.profileController.user['role'] ?? '').toString()))
+                      ...[
+                        DrawerMenuItem(
+                          title: 'Supplier Debts'.tr,
+                          icon: Icons.account_balance_wallet,
+                          route: 'supplier-debt',
+                        ),
+                        DrawerMenuItem(
+                          title: 'Suppliers'.tr,
+                          icon: Icons.local_shipping,
+                          route: 'suppliers',
+                        ),
+                      ],
                   ],
                 ),
               ],

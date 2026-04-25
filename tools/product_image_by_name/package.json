@@ -1,0 +1,8 @@
+{
+  "name": "product-image-by-name",
+  "private": true,
+  "description": "Match Hesabu products to Shopping Manager images by product name",
+  "dependencies": {
+    "firebase-admin": "^12.4.0"
+  }
+}

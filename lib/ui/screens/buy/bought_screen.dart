@@ -67,7 +67,23 @@ class _boughtControllerState extends State<BoughtScreen> {
       });
       return;
     }
-    
+
+    if (!_businessController.isPurchasesAllowedForRole(
+        (_profileController.user['role'] ?? '').toString())) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Purchases are disabled for this business. Contact the owner to enable.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+
     // Check for supplier filter arguments from navigation
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final arguments = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
@@ -601,14 +617,21 @@ class _boughtControllerState extends State<BoughtScreen> {
                                           Builder(builder: (_) {
                                             final String fundSourceText = (() {
                                               final fs = sale.fundSource;
-                                              if (fs == 'bank') return 'Bank';
-                                              if (fs == 'mobile') return 'Lipa Namba';
-                                              if (fs == 'cash') return 'Cash';
-                                              if (fs == 'other') {
-                                                final note = sale.fundSourceNote;
-                                                return (note != null && note.isNotEmpty) ? 'Other: ' + note : 'Other';
+                                              if (fs == null ||
+                                                  fs.toString().trim().isEmpty) {
+                                                return '';
                                               }
-                                              return '';
+                                              final String s = fs.toString();
+                                              if (s == 'other') {
+                                                final note = sale.fundSourceNote;
+                                                return (note != null &&
+                                                        note.isNotEmpty)
+                                                    ? 'Other: $note'
+                                                    : 'Other';
+                                              }
+                                              return _businessController
+                                                  .paymentMethodLabelForValue(
+                                                      s);
                                             })();
 
                                             return Row(

@@ -461,6 +461,219 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
     );
   }
 
+  bool _paymentHasSalaryBreakdown(PaymentRecord p) {
+    if ((p.grossSalary ?? 0) > 0) return true;
+    if ((p.advanceDeductions ?? 0) > 0) return true;
+    if ((p.lossDeductions ?? 0) > 0) return true;
+    if (p.appliedEarlyPaymentDetails != null && p.appliedEarlyPaymentDetails!.isNotEmpty) return true;
+    if (p.appliedLossDetails != null && p.appliedLossDetails!.isNotEmpty) return true;
+    if (p.deductedEarlyPaymentIds != null && p.deductedEarlyPaymentIds!.isNotEmpty) return true;
+    if (p.deductedLossIds != null && p.deductedLossIds!.isNotEmpty) return true;
+    return false;
+  }
+
+  Widget _buildPendingDeductionHint(PaymentRecord payment) {
+    if (payment.status == PaymentStatus.paid || payment.status == PaymentStatus.cancelled) {
+      return const SizedBox.shrink();
+    }
+    if (!_paymentHasSalaryBreakdown(payment)) return const SizedBox.shrink();
+    final adv = payment.advanceDeductions ?? 0;
+    final loss = payment.lossDeductions ?? 0;
+    if (adv <= 0 && loss <= 0) {
+      final hasDetail = (payment.appliedEarlyPaymentDetails?.isNotEmpty ?? false) ||
+          (payment.appliedLossDetails?.isNotEmpty ?? false) ||
+          (payment.deductedEarlyPaymentIds?.isNotEmpty ?? false) ||
+          (payment.deductedLossIds?.isNotEmpty ?? false);
+      if (!hasDetail) return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 14, color: Colors.deepOrange.shade700),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Deductions apply hint'.tr,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.deepOrange.shade800,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shared breakdown: gross, advances, losses, net, carryover, itemized lines with reasons.
+  Widget _buildSalaryDeductionBreakdown(PaymentRecord payment) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Salary breakdown'.tr,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 6),
+        if ((payment.grossSalary ?? 0) > 0)
+          _buildDetailRow('Salary (Gross)', 'TZS ${(payment.grossSalary!).toStringAsFixed(0)}'),
+        if ((payment.advanceDeductions ?? 0) > 0)
+          _buildDetailRow('Early Payments', '- TZS ${(payment.advanceDeductions ?? 0).toStringAsFixed(0)}'),
+        if ((payment.lossDeductions ?? 0) > 0)
+          _buildDetailRow('Employee Losses', '- TZS ${(payment.lossDeductions ?? 0).toStringAsFixed(0)}'),
+        _buildDetailRow('Net to Pay', 'TZS ${payment.amount.toStringAsFixed(0)}', isTotal: true),
+        if ((payment.carryoverDeductions ?? 0) > 0)
+          _buildDetailRow('Carryover to Next Period', 'TZS ${(payment.carryoverDeductions ?? 0).toStringAsFixed(0)}'),
+        const SizedBox(height: 8),
+        if ((payment.appliedEarlyPaymentDetails ?? []).isNotEmpty) ...[
+          Text(
+            'Applied Early Payments (this period):',
+            style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ...((payment.appliedEarlyPaymentDetails ?? []).map((m) {
+            final id = (m['id'] ?? '').toString();
+            final amount = (m['amount'] ?? 0).toDouble();
+            final ep = id.isEmpty ? null : _getEarlyPaymentById(id);
+            final reason = ep?.reason ?? 'Early payment';
+            final date = ep?.dateRequested;
+            final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '';
+            return Text(
+              '- TZS ${amount.toStringAsFixed(0)} • $reason ${dateStr.isNotEmpty ? '• $dateStr' : ''}',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            );
+          })),
+        ] else if ((payment.deductedEarlyPaymentIds ?? []).isNotEmpty) ...[
+          Text(
+            'Applied Early Payments:',
+            style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ...((payment.deductedEarlyPaymentIds ?? []).map((id) {
+            final ep = _getEarlyPaymentById(id);
+            if (ep == null) return Text('- $id', style: TextStyle(fontSize: 11, color: Colors.grey[600]));
+            return Text(
+              '- TZS ${ep.amount.toStringAsFixed(0)} • ${ep.reason} • ${ep.dateRequested.day}/${ep.dateRequested.month}/${ep.dateRequested.year}',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            );
+          })),
+        ],
+        if ((payment.appliedLossDetails ?? []).isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Applied Losses (this period):',
+            style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ...((payment.appliedLossDetails ?? []).map((m) {
+            final id = (m['id'] ?? '').toString();
+            final amount = (m['amount'] ?? 0).toDouble();
+            final loss = id.isEmpty ? null : _getEmployeeLossById(id);
+            final cat = loss?.categoryDisplayName ?? 'Loss';
+            final date = loss?.dateOccurred;
+            final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '';
+            final desc = (loss?.description ?? '').trim();
+            final descShort = desc.length > 72 ? '${desc.substring(0, 72)}…' : desc;
+            final reasonPart = descShort.isNotEmpty ? ' • ${'Loss reason'.tr}: $descShort' : '';
+            return Text(
+              '- TZS ${amount.toStringAsFixed(0)} • $cat $reasonPart ${dateStr.isNotEmpty ? '• $dateStr' : ''}',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            );
+          })),
+        ] else if ((payment.deductedLossIds ?? []).isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Applied Losses:',
+            style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          ...((payment.deductedLossIds ?? []).map((id) {
+            final loss = _getEmployeeLossById(id);
+            if (loss == null) return Text('- $id', style: TextStyle(fontSize: 11, color: Colors.grey[600]));
+            final desc = loss.description.trim();
+            final descShort = desc.length > 72 ? '${desc.substring(0, 72)}…' : desc;
+            final reasonPart = descShort.isNotEmpty ? ' • ${'Loss reason'.tr}: $descShort' : '';
+            return Text(
+              '- TZS ${loss.amount.toStringAsFixed(0)} • ${loss.categoryDisplayName}$reasonPart • ${loss.dateOccurred.day}/${loss.dateOccurred.month}/${loss.dateOccurred.year}',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            );
+          })),
+        ],
+      ],
+    );
+  }
+
+  void _confirmMarkPaid(PaymentRecord payment) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Confirm payment'.tr),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(payment.employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(payment.businessName, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+              const SizedBox(height: 8),
+              Text(
+                '${'Period'.tr}: ${payment.getFormattedPayPeriod()}',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Confirm payment subtitle'.tr,
+                style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 12),
+              if (_paymentHasSalaryBreakdown(payment))
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _buildSalaryDeductionBreakdown(payment),
+                )
+              else ...[
+                _buildDetailRow('Net to Pay', 'TZS ${payment.amount.toStringAsFixed(0)}', isTotal: true),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Mark paid updates advances losses'.tr,
+                style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade700, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('cancel'.tr),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _paymentController.markPaymentAsPaidDirect(payment.id);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: Text('Mark Paid'.tr),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPaymentCard(PaymentRecord payment) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -502,6 +715,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
                 ),
                 const SizedBox(height: 4),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -519,11 +733,37 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      payment.getFormattedAmount('TZS'),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
+                                payment.getFormattedAmount('TZS'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              if ((payment.grossSalary ?? 0) > 0 &&
+                                  ((payment.advanceDeductions ?? 0) > 0 || (payment.lossDeductions ?? 0) > 0)) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  "(${'Net pay to disburse'.tr})",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          _buildPendingDeductionHint(payment),
+                        ],
                       ),
                     ),
                   ],
@@ -553,10 +793,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                // Salary breakdown for clarity
-                if ((payment.grossSalary ?? 0) > 0 ||
-                    (payment.advanceDeductions ?? 0) > 0 ||
-                    (payment.lossDeductions ?? 0) > 0) ...[
+                if (_paymentHasSalaryBreakdown(payment)) ...[
                   const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
@@ -565,78 +802,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
                       color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Breakdown',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _buildDetailRow('Salary (Gross)', 'TZS ${(payment.grossSalary ?? payment.amount).toStringAsFixed(0)}'),
-                        if ((payment.advanceDeductions ?? 0) > 0)
-                          _buildDetailRow('Early Payments', '- TZS ${(payment.advanceDeductions ?? 0).toStringAsFixed(0)}'),
-                        if ((payment.lossDeductions ?? 0) > 0)
-                          _buildDetailRow('Employee Losses', '- TZS ${(payment.lossDeductions ?? 0).toStringAsFixed(0)}'),
-                        _buildDetailRow('Net to Pay', 'TZS ${payment.amount.toStringAsFixed(0)}', isTotal: true),
-                        if ((payment.carryoverDeductions ?? 0) > 0)
-                          _buildDetailRow('Carryover to Next Period', 'TZS ${(payment.carryoverDeductions ?? 0).toStringAsFixed(0)}'),
-                        // Itemized details: prefer applied details with amounts for this period
-                        const SizedBox(height: 8),
-                        if ((payment.appliedEarlyPaymentDetails ?? []).isNotEmpty) ...[
-                          Text('Applied Early Payments (this period):', style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          ...((payment.appliedEarlyPaymentDetails ?? []).map((m) {
-                            final id = (m['id'] ?? '').toString();
-                            final amount = (m['amount'] ?? 0).toDouble();
-                            final ep = id.isEmpty ? null : _getEarlyPaymentById(id);
-                            final reason = ep?.reason ?? 'Early payment';
-                            final date = ep?.dateRequested;
-                            final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '';
-                            return Text('- TZS ${amount.toStringAsFixed(0)} • $reason ${dateStr.isNotEmpty ? '• $dateStr' : ''}',
-                                style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                          })),
-                        ] else if ((payment.deductedEarlyPaymentIds ?? []).isNotEmpty) ...[
-                          Text('Applied Early Payments:', style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          ...((payment.deductedEarlyPaymentIds ?? []).map((id) {
-                            final ep = _getEarlyPaymentById(id);
-                            if (ep == null) return Text('- $id', style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                            return Text('- TZS ${ep.amount.toStringAsFixed(0)} • ${ep.reason} • ${ep.dateRequested.day}/${ep.dateRequested.month}/${ep.dateRequested.year}',
-                                style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                          })),
-                        ],
-                        if ((payment.appliedLossDetails ?? []).isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text('Applied Losses (this period):', style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          ...((payment.appliedLossDetails ?? []).map((m) {
-                            final id = (m['id'] ?? '').toString();
-                            final amount = (m['amount'] ?? 0).toDouble();
-                            final loss = id.isEmpty ? null : _getEmployeeLossById(id);
-                            final cat = loss?.categoryDisplayName ?? 'Loss';
-                            final date = loss?.dateOccurred;
-                            final dateStr = date != null ? '${date.day}/${date.month}/${date.year}' : '';
-                            return Text('- TZS ${amount.toStringAsFixed(0)} • $cat ${dateStr.isNotEmpty ? '• $dateStr' : ''}',
-                                style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                          })),
-                        ] else if ((payment.deductedLossIds ?? []).isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text('Applied Losses:', style: TextStyle(fontSize: 11, color: Colors.grey[700], fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          ...((payment.deductedLossIds ?? []).map((id) {
-                            final loss = _getEmployeeLossById(id);
-                            if (loss == null) return Text('- $id', style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                            return Text('- TZS ${loss.amount.toStringAsFixed(0)} • ${loss.categoryDisplayName} • ${loss.dateOccurred.day}/${loss.dateOccurred.month}/${loss.dateOccurred.year}',
-                                style: TextStyle(fontSize: 11, color: Colors.grey[600]));
-                          })),
-                        ],
-                      ],
-                    ),
+                    child: _buildSalaryDeductionBreakdown(payment),
                   ),
                 ],
                 if (payment.paidDate != null)
@@ -715,7 +881,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
           ),
           const SizedBox(width: 8),
           ElevatedButton(
-            onPressed: () => _paymentController.markPaymentAsPaidDirect(payment.id),
+            onPressed: () => _confirmMarkPaid(payment),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
@@ -727,7 +893,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
       );
     } else {
       return ElevatedButton(
-        onPressed: () => _paymentController.markPaymentAsPaidDirect(payment.id),
+        onPressed: () => _confirmMarkPaid(payment),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.green,
           foregroundColor: Colors.white,
@@ -767,10 +933,10 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
       return;
     }
 
-    _showCommissionDetailsDialog(result, payment.id);
+    _showCommissionDetailsDialog(result, payment);
   }
 
-  void _showCommissionDetailsDialog(Map<String, dynamic> details, String paymentId) {
+  void _showCommissionDetailsDialog(Map<String, dynamic> details, PaymentRecord payment) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -820,7 +986,7 @@ class _PaymentManagementScreenState extends State<PaymentManagementScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _paymentController.markPaymentAsPaidDirect(paymentId);
+              _confirmMarkPaid(payment);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,

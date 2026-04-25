@@ -121,7 +121,7 @@ class ProductTransferRequest {
         'toBusinessId': toBusinessId,
         'productId': productId,
         'transferRequestId': id,
-        'quantity': quantity,
+        'quantity': transferQuantity,
       });
   }
 } 

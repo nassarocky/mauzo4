@@ -59,6 +59,7 @@ class ProductController extends GetxController {
       'Manufacturer',
       'Location',
       'Price',
+      'Wholesale Price',
       'Buying Price',
       'Code',
       'Unit',
@@ -76,6 +77,7 @@ class ProductController extends GetxController {
       'Brand X',
       'Shelf A',
       5000,
+      4500,
       3500,
       'SKU-001',
       'unit',
@@ -268,6 +270,17 @@ class ProductController extends GetxController {
 
       final quantity = dVal(row, 'quantity');
       final buyingPrice = dVal(row, 'buying price');
+      final wholesaleRaw = dVal(row, 'wholesale price');
+      final wholesalePrice =
+          wholesaleRaw > 0 ? wholesaleRaw : price;
+      if (wholesalePrice > price) {
+        skipped++;
+        continue;
+      }
+      if (buyingPrice >= wholesalePrice) {
+        skipped++;
+        continue;
+      }
       final category = sVal(row, 'category') ?? '';
       final manufacturer = sVal(row, 'manufacturer') ?? '';
       final location = sVal(row, 'location') ?? '';
@@ -294,6 +307,7 @@ class ProductController extends GetxController {
         'discount': 0.0,
         'code': code,
         'price': price,
+        'wholesalePrice': wholesalePrice,
         'quantity': finalQty,
         'category': category,
         'image': '',
@@ -402,7 +416,14 @@ class ProductController extends GetxController {
     }
   }
 
-  Future<void> updateProductCount(Product product, double count, String type) async {
+  Future<void> updateProductCount(
+    Product product,
+    double count,
+    String type, {
+    String? referenceId,
+    String? referenceType,
+    String? notes,
+  }) async {
     // Skip quantity update for services
     if (product.itemType == 'service') return;
     final String? business = _businessController.business['id'];
@@ -447,6 +468,9 @@ class ProductController extends GetxController {
           timestamp: Timestamp.now(),
           userId: business,
           price: product.price,
+          referenceId: referenceId,
+          referenceType: referenceType,
+          notes: notes,
           employeeName: _profileController.user['name'],
           totalValue: quantityChange * product.price,
       );
@@ -461,7 +485,7 @@ class ProductController extends GetxController {
       search(searchText.value);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
-      // Batch failed - Firebase will retry when online
+      rethrow;
     }
   }
 
@@ -754,7 +778,18 @@ void clearProducts(){
     sheetObject.appendRow([]);
 
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
+      "Name",
+      "Quantity",
+      "Category",
+      "Manufacturer",
+      "Location",
+      "Price",
+      "Wholesale Price",
+      "Buying Price",
+      "Code",
+      "Unit",
+      "Understock",
+      "Item Type"
     ];
 
     CellStyle headerStyle = CellStyle(
@@ -777,6 +812,7 @@ void clearProducts(){
         product.manufacturer,
         product.location,
         product.price,
+        product.effectiveWholesalePrice,
         product.buyingPrice,
         product.code ?? '',
         product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',

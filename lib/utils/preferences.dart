@@ -147,7 +147,7 @@ class Preferences {
 
   // Retrieve the 'isPurchasesEnabled' setting as a String
   static String getEnablePurchases() {
-    return _prefs?.getString('isPurchasesEnabledd') ?? 'true';
+    return _prefs?.getString('isPurchasesEnabledd') ?? 'false';
   }
 
   // Usage example in a widget (convert String to bool if needed)

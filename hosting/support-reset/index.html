@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>HesabuMauzo — Support tools</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a222c;
+      --border: #2d3a47;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #3b82f6;
+      --accent-dim: #2563eb;
+      --danger: #f87171;
+      --ok: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px 16px 48px;
+    }
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 20px;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    input[type="email"],
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      margin-bottom: 14px;
+    }
+    select { cursor: pointer; }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    .row-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .row-actions.pick-row {
+      align-items: flex-end;
+    }
+    .row-actions.pick-row select {
+      flex: 1;
+      min-width: 140px;
+      margin-bottom: 0;
+    }
+    button {
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-dim);
+    }
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover {
+      color: var(--text);
+      border-color: var(--muted);
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin: 18px 0 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tabs button.tab {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 8px 14px;
+    }
+    .tabs button.tab:hover {
+      color: var(--text);
+    }
+    .tabs button.tab.active {
+      color: var(--text);
+      border-color: var(--border);
+      background: rgba(59, 130, 246, 0.12);
+    }
+    .panel[hidden] { display: none !important; }
+    .detect-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: -8px 0 14px;
+      min-height: 1.2em;
+    }
+    .staff {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .staff strong { color: var(--text); }
+    .warn {
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      margin-top: 16px;
+    }
+    .hint-block {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 14px;
+      line-height: 1.45;
+    }
+    hr.sep {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+    #feedback {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      line-height: 1.45;
+      border: 1px solid transparent;
+    }
+    #feedback.show {
+      display: block;
+      white-space: pre-wrap;
+    }
+    #feedback.ok {
+      background: rgba(74, 222, 128, 0.15);
+      color: #86efac;
+      border-color: rgba(74, 222, 128, 0.35);
+    }
+    #feedback.error {
+      background: rgba(248, 113, 113, 0.12);
+      color: #fca5a5;
+      border-color: rgba(248, 113, 113, 0.35);
+    }
+    #feedback.info {
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+    .admin-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+    .admin-nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .admin-nav a:hover { text-decoration: underline; }
+    .auth-boot { text-align: center; padding: 28px 16px; }
+    .auth-boot-msg { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Support tools</h1>
+    <p class="sub">Password reset and customer records. Verify identity before changes.</p>
+
+    <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <div id="authBootCard" class="card auth-boot" aria-live="polite">
+      <p class="auth-boot-msg">Loading session…</p>
+    </div>
+
+    <div id="loginCard" class="card" hidden>
+      <form id="loginForm">
+        <label for="supportEmail">Your staff email (Firebase Auth)</label>
+        <input id="supportEmail" type="email" autocomplete="username" required />
+        <label for="supportPassword">Password</label>
+        <input id="supportPassword" type="password" autocomplete="current-password" required />
+        <div class="row-actions">
+          <button type="submit" class="primary">Sign in</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="toolCard" class="card" hidden>
+      <nav class="admin-nav" aria-label="Admin navigation">
+        <a href="/admin-hub/">Admin home</a>
+        <a href="/agent-portal/">Commission &amp; agents</a>
+      </nav>
+      <p class="staff">Signed in as <strong id="staffEmail"></strong></p>
+      <button type="button" class="ghost" id="logoutBtn">Sign out</button>
+
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" role="tab" aria-selected="true" data-tab="pwd">Password reset</button>
+        <button type="button" class="tab" role="tab" aria-selected="false" data-tab="data">User / business data</button>
+      </div>
+
+      <div id="panelPwd" class="panel" role="tabpanel">
+        <form id="resetForm">
+          <label for="targetIdentifier">Customer phone or email</label>
+          <input
+            id="targetIdentifier"
+            type="text"
+            autocomplete="off"
+            placeholder="e.g. user@email.com or +255712345678 / 0712345678"
+          />
+          <p id="detectHint" class="detect-hint" aria-live="polite"></p>
+
+          <label for="newPassword">New temporary password</label>
+          <input id="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <label for="confirmPassword">Confirm password</label>
+          <input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+
+          <div class="row-actions">
+            <button type="submit" class="primary" id="submitBtn">Reset password</button>
+          </div>
+        </form>
+        <p class="warn">
+          Do not store passwords in chat or email. Tell the customer the temporary password by phone or in person, then ask them to change it after login.
+        </p>
+      </div>
+
+      <div id="panelData" class="panel" role="tabpanel" hidden>
+        <p class="hint-block">Load by phone, email, or document ID.</p>
+
+        <div id="wrapUserDataExtras">
+          <label for="dataUserLookup">Customer phone or email</label>
+          <input
+            id="dataUserLookup"
+            type="text"
+            autocomplete="off"
+            placeholder="e.g. user@email.com or +255712345678 / 0712345678"
+          />
+          <div class="row-actions">
+            <button type="button" class="primary" id="dataLoadUserBtn">Load user</button>
+          </div>
+          <p id="dataResolvedUidLine" class="sub" hidden style="margin-top:8px;margin-bottom:12px">
+            Resolved UID: <code id="dataResolvedUid"></code>
+          </p>
+          <hr class="sep" />
+        </div>
+
+        <label for="dataCollection">Collection</label>
+        <select id="dataCollection" aria-label="Firestore collection">
+          <option value="gmanusers">gmanusers (user profile)</option>
+          <option value="businesses">businesses (shop)</option>
+        </select>
+        <label for="dataDocId">Document ID</label>
+        <input id="dataDocId" type="text" autocomplete="off" placeholder="User UID or business id" />
+        <div class="row-actions">
+          <button type="button" class="primary" id="dataLoadBtn">Load</button>
+        </div>
+
+        <div id="wrapBusinessPicker" hidden>
+          <label for="dataBusinessSelect">Business to edit (after loading a user)</label>
+          <div class="row-actions pick-row">
+            <select id="dataBusinessSelect" aria-label="Business document">
+              <option value="">— Choose —</option>
+            </select>
+            <button type="button" class="primary" id="dataLoadBusinessBtn">Load business</button>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <label for="fieldEmail">email</label>
+        <input id="fieldEmail" type="text" autocomplete="off" />
+
+        <label for="fieldName">name</label>
+        <input id="fieldName" type="text" autocomplete="off" />
+
+        <label for="fieldPhone">phone</label>
+        <input id="fieldPhone" type="text" autocomplete="off" />
+
+        <div id="wrapUserImage">
+          <label for="fieldImage">image (URL or empty)</label>
+          <input id="fieldImage" type="text" autocomplete="off" />
+        </div>
+        <div id="wrapBizExtra" hidden>
+          <label for="fieldTin">tin</label>
+          <input id="fieldTin" type="text" autocomplete="off" />
+          <label for="fieldLogo">logo (URL)</label>
+          <input id="fieldLogo" type="text" autocomplete="off" />
+        </div>
+
+        <div class="row-actions">
+          <button type="button" class="primary" id="dataSaveBtn" disabled>Save changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

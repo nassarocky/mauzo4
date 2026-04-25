@@ -26,7 +26,7 @@ class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
   final _referenceController = TextEditingController();
   final _notesController = TextEditingController();
 
-  PaymentMethod selectedPaymentMethod = PaymentMethod.cash;
+  String selectedPaymentMethod = 'cash';
   bool isLoading = false;
 
   @override
@@ -107,16 +107,19 @@ class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: DropdownButtonHideUnderline(
-                  child: DropdownButton<PaymentMethod>(
-                    value: selectedPaymentMethod,
+                  child: DropdownButton<String>(
+                    value: _businessController.effectivePaymentMethods
+                            .any((m) => m['value'] == selectedPaymentMethod)
+                        ? selectedPaymentMethod
+                        : _businessController.effectivePaymentMethods.first['value'] as String,
                     isExpanded: true,
-                    items: PaymentMethod.values.map((method) {
-                      return DropdownMenuItem<PaymentMethod>(
-                        value: method,
-                        child: Text(_getPaymentMethodLabel(method)),
+                    items: _businessController.effectivePaymentMethods.map((m) {
+                      return DropdownMenuItem<String>(
+                        value: m['value'] as String,
+                        child: Text(m['label'] as String),
                       );
                     }).toList(),
-                    onChanged: (PaymentMethod? value) {
+                    onChanged: (String? value) {
                       if (value != null) {
                         setState(() {
                           selectedPaymentMethod = value;
@@ -191,19 +194,6 @@ class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
     );
   }
 
-  String _getPaymentMethodLabel(PaymentMethod method) {
-    switch (method) {
-      case PaymentMethod.cash:
-        return 'Cash';
-      case PaymentMethod.bank_transfer:
-        return 'Bank Transfer';
-      case PaymentMethod.mobile_money:
-        return 'Mobile Money';
-      case PaymentMethod.check:
-        return 'Check';
-    }
-  }
-
   Future<void> _markAsPaidDirect() async {
     print('=== DIRECT MARK AS PAID STARTED ===');
     
@@ -221,7 +211,7 @@ class _SimpleMarkPaidDialogState extends State<SimpleMarkPaidDialog> {
 
       final updateData = {
         'status': 'paid',
-        'paymentMethod': selectedPaymentMethod.toString().split('.').last,
+        'paymentMethod': selectedPaymentMethod,
         'referenceNumber': _referenceController.text.isNotEmpty 
             ? _referenceController.text : null,
         'paidDate': FieldValue.serverTimestamp(),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/supplier_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import '../../../utils/preferences.dart';
 
@@ -16,6 +17,27 @@ class SelectSupplierScreen extends StatefulWidget {
 class _SelectSupplierScreenState extends State<SelectSupplierScreen> {
   final SupplierController _supplierController = Get.find();
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
+
+  @override
+  void initState() {
+    super.initState();
+    final role = (_profileController.user['role'] ?? '').toString();
+    if (!_businessController.isPurchasesAllowedForRole(role)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+    }
+  }
 
   @override
   void dispose() {

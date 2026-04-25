@@ -18,6 +18,8 @@ import '../widgets/dashed_seperator.dart';
 import '../widgets/dialogs/add_to_buy_dialog.dart';
 import 'package:intl/intl.dart';
 import '../../services/ledger_service.dart';
+import '../../models/stock_transaction.dart';
+import '../../constants/transaction_constants.dart';
 
 class BuyProductCartScreen extends StatefulWidget {
   final UserData? userData; // Optional user data for flexibility
@@ -97,10 +99,19 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
   String get chosenCurrency => _businessController.business['mainCurrency'] ?? 'USD';
 
+  /// Same flag as cart/sale screens; used in nested closures (e.g. Paid field [onChanged]).
+  bool get _purchaseMultiFundEnabled =>
+      (_businessController.business['multiFundEnabled'] ?? false) == true;
+
   @override
   Widget build(BuildContext context) {
     // CRITICAL SECURITY CHECK: Verify user has permission to buy products
-    if (!_profileController.hasPermission('buy_products')) {
+    final bool purchasesOk = _businessController.isPurchasesAllowedForRole(
+        (_profileController.user['role'] ?? '').toString());
+    if (!_profileController.hasPermission('buy_products') || !purchasesOk) {
+      final String deniedBody = !_profileController.hasPermission('buy_products')
+          ? 'You do not have permission to access the product buying cart'
+          : 'Purchases are disabled for this business. Contact the owner to enable.';
       return Scaffold(
         appBar: AppBar(
           title: Text('Access Denied'),
@@ -126,7 +137,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
               ),
               SizedBox(height: 8),
               Text(
-                'You do not have permission to access the product buying cart',
+                deniedBody,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 16,
@@ -172,8 +183,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
               () {
                 // Ensure a default payment exists so amount is auto-filled
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  final bool multiEnabled = (_businessController.business['multiFundEnabled'] ?? false) == true;
-                  if (!multiEnabled && _fundSource != 'cash') {
+                  if (!_purchaseMultiFundEnabled && _fundSource != 'cash') {
                     setState(() {
                       _fundSource = 'cash';
                     });
@@ -183,11 +193,10 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
                     }
                   }
-                  final String defaultMethod = (!multiEnabled)
-                      ? 'cash'
-                      : (_fundSource == 'mobile'
-                          ? 'mobile'
-                          : (_fundSource == 'bank' ? 'bank' : 'cash'));
+                  // Payment `method` must be the fund source catalog `value` (custom = doc id),
+                  // not ledger bucket — so ledger/sales lists show the label the user configured.
+                  final String defaultMethod =
+                      !_purchaseMultiFundEnabled ? 'cash' : _fundSource;
                   
                   // Calculate current total
                   final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
@@ -278,33 +287,76 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        DropdownButtonFormField<String>(
-                          value: _fundSource,
-                          decoration: InputDecoration(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                            labelText: 'Source of Funds',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(4),
-                              borderSide: BorderSide(
-                                color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                        Obx(() {
+                          final sources = _businessController
+                              .paymentMethodsForDropdown(
+                                  currentValue: _fundSource);
+                          if (sources.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          final values = sources
+                              .map((e) => e['value']?.toString() ?? '')
+                              .where((v) => v.isNotEmpty)
+                              .toList();
+                          if (values.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          final safe = values.contains(_fundSource)
+                              ? _fundSource
+                              : values.first;
+                          if (safe != _fundSource) {
+                            WidgetsBinding.instance
+                                .addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() {
+                                  _fundSource = safe;
+                                  if (_fundSource != 'other') {
+                                    _fundSourceOtherNote = '';
+                                  }
+                                });
+                              }
+                            });
+                          }
+                          return DropdownButtonFormField<String>(
+                            value: safe,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 12),
+                              labelText: 'Source of Funds',
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme()
+                                      ? mediumGrayColor
+                                      : borderColor,
+                                ),
                               ),
                             ),
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                            DropdownMenuItem(value: 'other', child: Text('Other Source')),
-                          ],
-                          onChanged: (val) {
-                            if (val == null) return;
-                            setState(() {
-                              _fundSource = val;
-                              if (_fundSource != 'other') _fundSourceOtherNote = '';
-                            });
-                          },
-                        ),
+                            items: sources
+                                .map((e) {
+                                  final v = e['value']?.toString() ?? '';
+                                  if (v.isEmpty) return null;
+                                  return DropdownMenuItem<String>(
+                                    value: v,
+                                    child: Text(
+                                        e['label']?.toString() ?? v),
+                                  );
+                                })
+                                .whereType<DropdownMenuItem<String>>()
+                                .toList(),
+                            onChanged: (val) {
+                              if (val == null) return;
+                              setState(() {
+                                _fundSource = val;
+                                if (_fundSource != 'other') {
+                                  _fundSourceOtherNote = '';
+                                }
+                              });
+                            },
+                          );
+                        }),
                         if (_fundSource == 'other') ...[
                           const SizedBox(height: 8),
                           TextField(
@@ -700,9 +752,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                               }
                             }
                             if (_cartController.payments.length == 0) {
-                              final String method = _fundSource == 'mobile'
-                                  ? 'mobile'
-                                  : (_fundSource == 'bank' ? 'bank' : 'cash');
+                              final String method = !_purchaseMultiFundEnabled
+                                  ? 'cash'
+                                  : _fundSource;
                               _cartController.addPayment(amt, chosenCurrency, method: method);
                             } else {
                               final existing = _cartController.payments[0];
@@ -896,24 +948,13 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                   try {
                                     // Check if we are updating an existing purchase
                                     if (_cartController.passedArgument != 'NOT') {
-                                      // Check the CURRENT destination to update the right inventory
                                       if (_purchaseDestination == 'shop') {
-                                        // Update business inventory
-                                        await updateBoughtQuantity();
+                                        await _commitEditPurchaseShop(products);
                                       } else {
-                                        // Update store inventory
-                                        await updateStoreQuantity();
+                                        await _commitEditPurchaseStore(products);
                                       }
-                                      // Then update the purchase record
-                                      updatePurchase(products);
                                     } else {
                                       await addSale(products);
-                                      // Only increase bought quantity for new purchases
-                                      if (_purchaseDestination == 'shop') {
-                                        await increaseBoughtQuantity();
-                                      } else {
-                                        await addToStoreQuantity();
-                                      }
                                     }
                                    
                                     // clear cart
@@ -965,18 +1006,17 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     final String? businessId = _businessController.business['id'];
     if (businessId == null) {
       errorSnackbar('Business ID is null');
-      return;
+      throw Exception('Business ID is null');
     }
 
     final newSaleRef = firestore
         .collection('recovered')
         .doc(businessId)
         .collection('userRecovered')
-        .doc(); // Create a DocumentReference with an auto-generated ID
+        .doc();
 
-    // Sale data to be added
-    final saleData = {
-      'client': "", // Purchases don't involve clients, only suppliers
+    final saleData = <String, dynamic>{
+      'client': "",
       'supplier': _cartController.supplier == null ? "" : _cartController.supplier!.id,
       'supplierName': _cartController.supplier?.name ?? "",
       'employeeId': _profileController.user['id'] ?? "",
@@ -993,14 +1033,13 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'date': selectedDate ?? DateTime.now(),
       'fundSource': _fundSource,
       'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
-      'purchaseDestination': _purchaseDestination, // shop | store
+      'purchaseDestination': _purchaseDestination,
+      'id': newSaleRef.id,
     };
 
-    // Capture values needed for debt creation BEFORE any cart clearing occurs
-    final capturedSupplier = _cartController.supplier; // may be null
+    final capturedSupplier = _cartController.supplier;
     final double capturedRemaining = _cartController.remaining;
     final String? capturedComment = _cartController.comment;
-    // Build debt products from products list to avoid dependency on controller later
     final List<Map<String, dynamic>> capturedDebtProducts = products.map<Map<String, dynamic>>((p) {
       return {
         'id': p['id'],
@@ -1010,11 +1049,20 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       };
     }).toList();
 
-    // Call functions separately without `then`
-    await createSale(
+    if (_purchaseDestination == 'shop') {
+      await _commitNewPurchaseShop(newSaleRef, saleData, businessId);
+    } else {
+      final String? storeId = _businessController.business['owner'];
+      if (storeId == null) {
+        errorSnackbar('Business or Store ID is null');
+        throw Exception('Store ID is null');
+      }
+      await _commitNewPurchaseStore(newSaleRef, saleData, businessId, storeId);
+    }
+
+    await _finalizePurchaseSideEffects(
       newSaleRef,
       saleData,
-      businessId,
       supplierAtPurchase: capturedSupplier,
       remainingAtPurchase: capturedRemaining,
       commentAtPurchase: capturedComment,
@@ -1022,96 +1070,14 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     );
   }
 
-  Future<void> createSale(
-    DocumentReference saleRef,
-    Map<String, dynamic> saleData,
-    String businessId, {
-    Supplier? supplierAtPurchase,
-    required double remainingAtPurchase,
-    String? commentAtPurchase,
-    required List<Map<String, dynamic>> debtProductsAtPurchase,
-  }) async {
-    await saleRef.set(saleData).then((_) async {
-      // After the sale is successfully created, update the sale with its ID
-      updateSaleId(saleRef);
-      // Post purchase OUT ledger rows for each payment (paidAmount only)
-      try {
-        final List<dynamic> payments = List<dynamic>.from(saleData['payments'] ?? []);
-        final dynamic d = saleData['date'];
-        final Timestamp postedAt = d is Timestamp ? d : Timestamp.fromDate(d as DateTime);
-        await LedgerService().postPurchaseOut(
-          purchaseId: saleRef.id,
-          payments: payments,
-          postedAt: postedAt,
-          supplierId: supplierAtPurchase?.id,
-          supplierName: supplierAtPurchase?.name,
-        );
-      } catch (e) {
-        print('⚠️ Ledger postPurchaseOut failed for purchase ${saleRef.id}: $e');
-      }
-      
-      // Create supplier debt if there's remaining debt and a supplier is selected
-      print('[DEBUG] Checking if supplier debt should be created');
-      print('[DEBUG] Remaining amount (captured): $remainingAtPurchase');
-      print('[DEBUG] Supplier (captured): ${supplierAtPurchase?.name ?? 'null'}');
-      
-      if (remainingAtPurchase > 0 && supplierAtPurchase != null) {
-        print('[DEBUG] Creating supplier debt for ${supplierAtPurchase.name}');
-        
-        // Update supplier's debt using the SupplierController (similar to client debt)
-        _supplierController.updateDebt(
-          supplierAtPurchase,
-          supplierAtPurchase.debt + remainingAtPurchase,
-        );
-        print('[DEBUG] Updated supplier debt via SupplierController');
-        
-        print('[DEBUG] Calling createSupplierDebt with:');
-        print('[DEBUG]   - Supplier ID: ${supplierAtPurchase.id}');
-        print('[DEBUG]   - Supplier Name: ${supplierAtPurchase.name}');
-        print('[DEBUG]   - Debt Amount: $remainingAtPurchase');
-        print('[DEBUG]   - Purchase ID: ${saleRef.id}');
-        print('[DEBUG]   - Products: ${debtProductsAtPurchase.length} items');
-        
-        await _supplierDebtController.createSupplierDebt(
-          supplierId: supplierAtPurchase.id,
-          supplierName: supplierAtPurchase.name,
-          debtAmount: remainingAtPurchase,
-          comment: (commentAtPurchase == null || commentAtPurchase.isEmpty)
-              ? 'Purchase debt from transaction ${saleRef.id}'
-              : commentAtPurchase,
-          purchaseId: saleRef.id,
-          products: debtProductsAtPurchase,
-        );
-      } else {
-        print('[DEBUG] No supplier debt created - either no remaining amount or no supplier selected');
-      }
-    }).catchError((error) {
-      errorSnackbar('Failed to create sale: $error');
-    });
-    return;
+  Timestamp _coerceFirestoreTimestamp(dynamic d) {
+    if (d is Timestamp) return d;
+    if (d is DateTime) return Timestamp.fromDate(d);
+    return Timestamp.now();
   }
 
-  void updateSaleId(DocumentReference saleRef) {
-    saleRef.update({'id': saleRef.id}).catchError((error) {
-      errorSnackbar('Failed to update sale ID: $error');
-      print('Failed to update sale ID: $error');
-    });
-  }
-  
-  void updatePurchase(List<dynamic> products) {
-    final String? businessId = _businessController.business['id'];
-    if (businessId == null) {
-      errorSnackbar('Business ID is null');
-      return;
-    }
-
-    final purchaseRef = firestore
-        .collection('recovered')
-        .doc(businessId)
-        .collection('userRecovered')
-        .doc(_cartController.passedArgument);
-
-    final updatedData = {
+  Map<String, dynamic> _buildUpdatedPurchaseFields(List<dynamic> products) {
+    return {
       'supplier': _cartController.supplier == null ? "" : _cartController.supplier!.id,
       'supplierName': _cartController.supplier?.name ?? "",
       'products': products,
@@ -1122,17 +1088,428 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       'debt': _cartController.remaining,
       'discount': _cartController.discount.value,
       'comment': _cartController.comment,
-      'date': selectedDate ?? DateTime.now(),
+      'date': _coerceFirestoreTimestamp(selectedDate ?? DateTime.now()),
       'fundSource': _fundSource,
       'fundSourceNote': _fundSource == 'other' ? _fundSourceOtherNote : '',
-      'purchaseDestination': _purchaseDestination, // shop | store
+      'purchaseDestination': _purchaseDestination,
     };
+  }
 
-    purchaseRef.update(updatedData).then((_) {
-      print('Purchase updated successfully');
-    }).catchError((error) {
-      errorSnackbar('Failed to update purchase: $error');
-      print('Failed to update purchase: $error');
+  Future<void> _commitNewPurchaseShop(
+    DocumentReference<Map<String, dynamic>> saleRef,
+    Map<String, dynamic> saleData,
+    String businessId,
+  ) async {
+    final unique = _cartController.getUniqueProducts();
+    await firestore.runTransaction((fireTx) async {
+      final ts = Timestamp.now();
+      final reads = <DocumentSnapshot<Map<String, dynamic>>>[];
+      for (final p in unique) {
+        if (p.itemType == 'service') continue;
+        final pref = firestore.collection('products').doc(businessId).collection('userProducts').doc(p.id);
+        reads.add(await fireTx.get(pref));
+      }
+      var ri = 0;
+      final persistedSale = Map<String, dynamic>.from(saleData);
+      persistedSale['id'] = saleRef.id;
+      persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
+      fireTx.set(saleRef, persistedSale);
+      final employeeName = (_profileController.user['name'] ?? '').toString();
+      for (final p in unique) {
+        if (p.itemType == 'service') continue;
+        final snap = reads[ri++];
+        if (!snap.exists) {
+          throw Exception('Product not found in shop: ${p.name}');
+        }
+        final cur = (snap.data()?['quantity'] ?? 0.0);
+        final curD = cur is num ? cur.toDouble() : 0.0;
+        final delta = _cartController.singleProductBaseQuantity(p.id);
+        if (delta <= 0) continue;
+        final next = curD + delta;
+        final rawP = snap.data()?['price'] ?? p.price;
+        final pr = rawP is num ? rawP.toDouble() : p.price;
+        fireTx.update(snap.reference, {'quantity': next});
+        final tRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
+        fireTx.set(tRef, StockTransaction(
+          transactionId: tRef.id,
+          productId: p.id,
+          quantity: delta,
+          previousQuantity: curD,
+          newQuantity: next,
+          transactionType: TransactionTypes.addition,
+          transactionOrigin: TransactionOrigins.purchase,
+          timestamp: ts,
+          userId: businessId,
+          price: pr,
+          referenceId: saleRef.id,
+          referenceType: TransactionReferenceTypes.purchase,
+          employeeName: employeeName,
+          notes: TransactionOrigins.purchase,
+          totalValue: delta * pr,
+        ).toMap());
+      }
+    });
+  }
+
+  Future<void> _commitNewPurchaseStore(
+    DocumentReference<Map<String, dynamic>> saleRef,
+    Map<String, dynamic> saleData,
+    String businessId,
+    String storeId,
+  ) async {
+    final unique = _cartController.getUniqueProducts();
+    await firestore.runTransaction((fireTx) async {
+      final ts = Timestamp.now();
+      final reads = <DocumentSnapshot<Map<String, dynamic>>>[];
+      for (final p in unique) {
+        if (p.itemType == 'service') continue;
+        final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(p.id);
+        reads.add(await fireTx.get(sref));
+      }
+      var ri = 0;
+      final persistedSale = Map<String, dynamic>.from(saleData);
+      persistedSale['id'] = saleRef.id;
+      persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
+      fireTx.set(saleRef, persistedSale);
+      final employeeName = (_profileController.user['name'] ?? '').toString();
+      for (final p in unique) {
+        if (p.itemType == 'service') continue;
+        final snap = reads[ri++];
+        final delta = _cartController.singleProductBaseQuantity(p.id);
+        if (delta <= 0) continue;
+        final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(p.id);
+        double prev = 0.0;
+        if (snap.exists) {
+          final q = snap.data()?['quantity'] ?? 0;
+          prev = q is num ? q.toDouble() : 0.0;
+          final next = prev + delta;
+          fireTx.update(sref, {'quantity': next, 'total': next});
+        } else {
+          fireTx.set(sref, {
+            'id': p.id,
+            'storeId': storeId,
+            'owner': businessId,
+            'businessId': businessId,
+            'name': p.name,
+            'price': p.price,
+            'buyingPrice': p.buyingPrice,
+            'quantity': delta,
+            'total': delta,
+            'category': p.category,
+            'image': p.image,
+            'storeQuantity': 0,
+            'understock': p.understock,
+            'code': p.code,
+            'details': p.details,
+            'manufacturer': p.manufacturer,
+            'location': p.location,
+            'reserveString1': p.reserveString1,
+            'reserveString2': '',
+            'reserveDouble1': 0.0,
+            'reserveDouble2': 0.0,
+            'reserveList1': <String>[],
+            'reserveList2': <String>[],
+          });
+        }
+        final tRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
+        fireTx.set(tRef, StockTransaction(
+          transactionId: tRef.id,
+          productId: p.id,
+          quantity: delta,
+          previousQuantity: prev,
+          newQuantity: prev + delta,
+          transactionType: TransactionTypes.addition,
+          transactionOrigin: 'Purchase to Store',
+          timestamp: ts,
+          userId: businessId,
+          price: p.price,
+          referenceId: saleRef.id,
+          referenceType: TransactionReferenceTypes.purchase,
+          employeeName: employeeName,
+          notes: 'Purchase to Store',
+          totalValue: delta * p.price,
+        ).toMap());
+      }
+    });
+  }
+
+  Future<void> _finalizePurchaseSideEffects(
+    DocumentReference<Map<String, dynamic>> saleRef,
+    Map<String, dynamic> saleData, {
+    Supplier? supplierAtPurchase,
+    required double remainingAtPurchase,
+    String? commentAtPurchase,
+    required List<Map<String, dynamic>> debtProductsAtPurchase,
+  }) async {
+    try {
+      final List<dynamic> payments = List<dynamic>.from(saleData['payments'] ?? []);
+      final dynamic d = saleData['date'];
+      final Timestamp postedAt = d is Timestamp ? d : Timestamp.fromDate(d as DateTime);
+      await LedgerService().postPurchaseOut(
+        purchaseId: saleRef.id,
+        payments: payments,
+        postedAt: postedAt,
+        supplierId: supplierAtPurchase?.id,
+        supplierName: supplierAtPurchase?.name,
+      );
+    } catch (e) {
+      print('⚠️ Ledger postPurchaseOut failed for purchase ${saleRef.id}: $e');
+    }
+
+    if (remainingAtPurchase > 0 && supplierAtPurchase != null) {
+      await _supplierController.updateDebt(
+        supplierAtPurchase,
+        supplierAtPurchase.debt + remainingAtPurchase,
+      );
+      await _supplierDebtController.createSupplierDebt(
+        supplierId: supplierAtPurchase.id,
+        supplierName: supplierAtPurchase.name,
+        debtAmount: remainingAtPurchase,
+        comment: (commentAtPurchase == null || commentAtPurchase.isEmpty)
+            ? 'Purchase debt from transaction ${saleRef.id}'
+            : commentAtPurchase,
+        purchaseId: saleRef.id,
+        products: debtProductsAtPurchase,
+      );
+    }
+  }
+
+  Future<void> _commitEditPurchaseShop(List<dynamic> products) async {
+    if (_originalPurchaseData == null) {
+      throw Exception('Original purchase data not loaded; try again in a moment.');
+    }
+    final String? businessId = _businessController.business['id'];
+    if (businessId == null) {
+      errorSnackbar('Business ID is null');
+      throw Exception('Business ID is null');
+    }
+    final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
+    final currentProducts = _cartController.getUniqueProducts();
+    final purchaseRef = firestore
+        .collection('recovered')
+        .doc(businessId)
+        .collection('userRecovered')
+        .doc(_cartController.passedArgument);
+    final updatedData = _buildUpdatedPurchaseFields(products);
+    final origQty = <String, double>{};
+    for (final o in originalProducts) {
+      origQty[o['id'] as String] = (o['quantity'] as num).toDouble();
+    }
+    final ids = <String>{};
+    for (final o in originalProducts) {
+      ids.add(o['id'] as String);
+    }
+    for (final c in currentProducts) {
+      ids.add(c.id);
+    }
+    final purchaseId = _cartController.passedArgument;
+
+    await firestore.runTransaction((fireTx) async {
+      final ts = Timestamp.now();
+      final purchaseSnap = await fireTx.get(purchaseRef);
+      if (!purchaseSnap.exists) {
+        throw Exception('Purchase record not found.');
+      }
+      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final id in ids) {
+        final ref = firestore.collection('products').doc(businessId).collection('userProducts').doc(id);
+        snaps[id] = await fireTx.get(ref);
+      }
+      fireTx.update(purchaseRef, updatedData);
+      final employeeName = (_profileController.user['name'] ?? '').toString();
+
+      void writeTxnLine(String productId, double prev, double next, double price, String origin) {
+        if ((next - prev).abs() < 1e-12) return;
+        final tRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
+        final isAdd = next >= prev;
+        final change = (next - prev).abs();
+        fireTx.set(tRef, StockTransaction(
+          transactionId: tRef.id,
+          productId: productId,
+          quantity: change,
+          previousQuantity: prev,
+          newQuantity: next,
+          transactionType: isAdd ? TransactionTypes.addition : TransactionTypes.removal,
+          transactionOrigin: origin,
+          timestamp: ts,
+          userId: businessId,
+          price: price,
+          referenceId: purchaseId,
+          referenceType: TransactionReferenceTypes.purchase,
+          employeeName: employeeName,
+          notes: origin,
+          totalValue: change * price,
+        ).toMap());
+      }
+
+      for (final c in currentProducts) {
+        if (c.itemType == 'service') continue;
+        final snap = snaps[c.id];
+        if (snap == null || !snap.exists) continue;
+        final productMeta = _productController.getProduct(c.id);
+        if (productMeta.id == '') continue;
+        final q = snap.data()?['quantity'] ?? 0.0;
+        final snapQty = q is num ? q.toDouble() : 0.0;
+        final orig = origQty[c.id] ?? 0.0;
+        final newQty = _cartController.singleProductQuantity(c.id).toDouble();
+        final adjusted = snapQty - orig + newQty;
+        final finalQty = adjusted < 0 ? 0.0 : adjusted;
+        final rawP = snap.data()?['price'] ?? productMeta.price;
+        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        fireTx.update(snap.reference, {'quantity': finalQty});
+        writeTxnLine(c.id, snapQty, finalQty, price, TransactionOrigins.purchaseEdit);
+      }
+
+      for (final o in originalProducts) {
+        final id = o['id'] as String;
+        if (currentProducts.any((p) => p.id == id)) continue;
+        final snap = snaps[id];
+        if (snap == null || !snap.exists) continue;
+        final productMeta = _productController.getProduct(id);
+        if (productMeta.id == '' || productMeta.itemType == 'service') continue;
+        final q = snap.data()?['quantity'] ?? 0.0;
+        final snapQty = q is num ? q.toDouble() : 0.0;
+        final orig = (o['quantity'] as num).toDouble();
+        final adjusted = snapQty - orig;
+        final finalQty = adjusted < 0 ? 0.0 : adjusted;
+        final rawP = snap.data()?['price'] ?? productMeta.price;
+        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        fireTx.update(snap.reference, {'quantity': finalQty});
+        writeTxnLine(id, snapQty, finalQty, price, TransactionOrigins.purchaseEdit);
+      }
+    });
+  }
+
+  Future<void> _commitEditPurchaseStore(List<dynamic> products) async {
+    if (_originalPurchaseData == null) {
+      throw Exception('Original purchase data not loaded; try again in a moment.');
+    }
+    final String? businessId = _businessController.business['id'];
+    final String? storeId = _businessController.business['owner'];
+    if (businessId == null || storeId == null) {
+      errorSnackbar('Business or Store ID is null');
+      throw Exception('Business or Store ID is null');
+    }
+    final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
+    final currentProducts = _cartController.getUniqueProducts();
+    final purchaseRef = firestore
+        .collection('recovered')
+        .doc(businessId)
+        .collection('userRecovered')
+        .doc(_cartController.passedArgument);
+    final updatedData = _buildUpdatedPurchaseFields(products);
+    final origQty = <String, double>{};
+    for (final o in originalProducts) {
+      origQty[o['id'] as String] = (o['quantity'] as num).toDouble();
+    }
+    final ids = <String>{};
+    for (final o in originalProducts) {
+      ids.add(o['id'] as String);
+    }
+    for (final c in currentProducts) {
+      ids.add(c.id);
+    }
+    final purchaseId = _cartController.passedArgument;
+
+    await firestore.runTransaction((fireTx) async {
+      final ts = Timestamp.now();
+      final purchaseSnap = await fireTx.get(purchaseRef);
+      if (!purchaseSnap.exists) {
+        throw Exception('Purchase record not found.');
+      }
+      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final id in ids) {
+        final ref = firestore.collection('store').doc(storeId).collection('userStore').doc(id);
+        snaps[id] = await fireTx.get(ref);
+      }
+      fireTx.update(purchaseRef, updatedData);
+      final employeeName = (_profileController.user['name'] ?? '').toString();
+
+      void writeTxnLine(String productId, double prev, double next, double price, String origin) {
+        if ((next - prev).abs() < 1e-12) return;
+        final tRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
+        final isAdd = next >= prev;
+        final change = (next - prev).abs();
+        fireTx.set(tRef, StockTransaction(
+          transactionId: tRef.id,
+          productId: productId,
+          quantity: change,
+          previousQuantity: prev,
+          newQuantity: next,
+          transactionType: isAdd ? TransactionTypes.addition : TransactionTypes.removal,
+          transactionOrigin: origin,
+          timestamp: ts,
+          userId: businessId,
+          price: price,
+          referenceId: purchaseId,
+          referenceType: TransactionReferenceTypes.purchase,
+          employeeName: employeeName,
+          notes: origin,
+          totalValue: change * price,
+        ).toMap());
+      }
+
+      for (final c in currentProducts) {
+        if (c.itemType == 'service') continue;
+        final snap = snaps[c.id];
+        if (snap == null) continue;
+        final productMeta = _productController.getProduct(c.id);
+        if (productMeta.id == '') continue;
+        final newQty = _cartController.singleProductQuantity(c.id).toDouble();
+        final orig = origQty[c.id] ?? 0.0;
+        final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(c.id);
+
+        if (snap.exists) {
+          final q = snap.data()?['quantity'] ?? 0.0;
+          final curStore = q is num ? q.toDouble() : 0.0;
+          final adjusted = curStore - orig + newQty;
+          final finalQty = adjusted < 0 ? 0.0 : adjusted;
+          final rawP = snap.data()?['price'] ?? productMeta.price;
+          final price = rawP is num ? rawP.toDouble() : productMeta.price;
+          fireTx.update(sref, {'quantity': finalQty, 'total': finalQty});
+          writeTxnLine(c.id, curStore, finalQty, price, TransactionOrigins.purchaseEdit);
+        } else if (newQty > 0) {
+          fireTx.set(sref, {
+            'id': productMeta.id,
+            'storeId': storeId,
+            'owner': businessId,
+            'businessId': businessId,
+            'name': productMeta.name,
+            'price': productMeta.price,
+            'buyingPrice': productMeta.buyingPrice,
+            'quantity': newQty,
+            'total': newQty,
+            'category': productMeta.category,
+            'image': productMeta.image,
+            'storeQuantity': 0,
+            'understock': productMeta.understock,
+            'code': productMeta.code,
+            'details': productMeta.details,
+            'manufacturer': productMeta.manufacturer,
+            'location': productMeta.location,
+          });
+          writeTxnLine(c.id, 0.0, newQty, productMeta.price, TransactionOrigins.purchaseEdit);
+        }
+      }
+
+      for (final o in originalProducts) {
+        final id = o['id'] as String;
+        if (currentProducts.any((p) => p.id == id)) continue;
+        final snap = snaps[id];
+        if (snap == null || !snap.exists) continue;
+        final productMeta = _productController.getProduct(id);
+        if (productMeta.id == '' || productMeta.itemType == 'service') continue;
+        final q = snap.data()?['quantity'] ?? 0.0;
+        final curStore = q is num ? q.toDouble() : 0.0;
+        final orig = (o['quantity'] as num).toDouble();
+        final adjusted = curStore - orig;
+        final finalQty = adjusted < 0 ? 0.0 : adjusted;
+        final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(id);
+        final rawP = snap.data()?['price'] ?? productMeta.price;
+        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        fireTx.update(sref, {'quantity': finalQty, 'total': finalQty});
+        writeTxnLine(id, curStore, finalQty, price, TransactionOrigins.purchaseEdit);
+      }
     });
   }
 
@@ -1144,301 +1521,5 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     _cartController.clearDiscount();
     _cartController.clearPayments();
     _cartController.passedArgument='NOT';
-  }
-  
-
-
-  Future<void>  increaseBoughtQuantity() async {
-    // Batch all updates for better offline support
-    final updates = <Future>[];
-    
-    for (var product in _cartController.getUniqueProducts()) {
-      // Get the current quantity of the product
-      double currentQuantity = product.quantity;
-
-      // Calculate the quantity to reduce
-      double boughtQuantity = _cartController.singleProductQuantity(product.id);
-
-      // Determine the new quantity after the sale
-      double newQuantity = currentQuantity + boughtQuantity;
-
-      // Make sure that the quantity doesn't go below zero
-      newQuantity = newQuantity < 0 ? 0 : newQuantity;
-
-      // Add to batch - don't await yet
-      updates.add(_productController.updateProductCount(
-        product,
-        newQuantity,'New Stock',
-      ));
-    }
-    
-    // Wait for all updates together
-    await Future.wait(updates);
-  }
-
-  Future<void> addToStoreQuantity() async {
-    final String? businessId = _businessController.business['id'];
-    final String? storeId = _businessController.business['owner']; // Use owner ID as store ID
-    
-    if (businessId == null || storeId == null) {
-      errorSnackbar('Business or Store ID is null');
-      return;
-    }
-
-    for (var product in _cartController.getUniqueProducts()) {
-      // Calculate the quantity purchased
-      double purchasedQuantity = _cartController.singleProductQuantity(product.id);
-      
-      try {
-        // Get current store product data
-        final storeProductRef = firestore
-            .collection('store')
-            .doc(storeId)
-            .collection('userStore')
-            .doc(product.id);
-            
-        final storeProductDoc = await storeProductRef.get();
-        double currentStoreQuantity = 0.0;
-        
-        if (storeProductDoc.exists) {
-          // Update existing store product quantity
-          currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
-          final newStoreQuantity = currentStoreQuantity + purchasedQuantity;
-          
-          await storeProductRef.update({
-            'quantity': newStoreQuantity,
-            'total': newStoreQuantity,
-          });
-        } else {
-          // Create new store product entry with purchased quantity
-          currentStoreQuantity = 0.0; // New product starts with 0
-          final productData = {
-            'id': product.id,
-            'storeId': storeId,
-            'owner': businessId,
-            'businessId': businessId,
-            'name': product.name,
-            'price': product.price,
-            'buyingPrice': product.buyingPrice,
-            'quantity': purchasedQuantity,
-            'total': purchasedQuantity,
-            'category': product.category,
-            'image': product.image,
-            'storeQuantity': 0,
-            'understock': product.understock,
-            'code': product.code,
-            'details': product.details,
-            'manufacturer': product.manufacturer,
-            'location': product.location,
-            'reserveString1': product.reserveString1,
-            'reserveString2': '',
-            'reserveDouble1': 0.0,
-            'reserveDouble2': 0.0,
-            'reserveList1': [],
-            'reserveList2': [],
-          };
-          
-          await storeProductRef.set(productData);
-        }
-        
-        // Create transaction record for store addition
-        final transactionRef = firestore
-            .collection('transactions')
-            .doc(businessId)
-            .collection('usersTransactions')
-            .doc();
-
-        final transactionData = {
-          'transactionId': transactionRef.id,
-          'productId': product.id,
-          'quantity': purchasedQuantity,
-          'previousQuantity': currentStoreQuantity,
-          'transactionType': 'addition',
-          'transactionOrigin': 'Purchase to Store',
-          'timestamp': Timestamp.now(),
-          'userId': _profileController.user['id'] ?? businessId,
-          'price': product.price ?? 0.0,
-        };
-
-        await transactionRef.set(transactionData);
-        
-      } catch (e) {
-        print('Error adding product ${product.id} to store: $e');
-        errorSnackbar('Failed to add ${product.name} to store');
-      }
-    }
-  }
-
-  Future<void> updateBoughtQuantity() async {
-    if (_originalPurchaseData == null) return;
-
-    final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
-    final currentProducts = _cartController.getUniqueProducts();
-
-    // ✅ Batch all updates for better offline support
-    final updates = <Future>[];
-
-    // Create a map of original products for quick lookup
-    Map<String, double> originalProductQuantities = {};
-    for (var originalProduct in originalProducts) {
-      originalProductQuantities[originalProduct['id']] = (originalProduct['quantity'] as num).toDouble();
-    }
-
-    // Process all current products in the cart
-    for (var currentProduct in currentProducts) {
-      final productId = currentProduct.id;
-      final newQuantity = _cartController.singleProductQuantity(productId).toDouble();
-      final originalQuantity = originalProductQuantities[productId] ?? 0.0; // 0 if new product
-      
-      final product = _productController.getProduct(productId);
-      if (product.id != '') {
-        // Calculate: current_quantity - original_quantity + new_quantity
-        // This reverses the original purchase and applies the new purchase
-        final adjustedQuantity = product.quantity! - originalQuantity + newQuantity;
-        updates.add(_productController.updateProductCount(
-          product,
-          adjustedQuantity,
-          'Edit Purchase',
-        ));
-      }
-    }
-
-    // Handle products that were removed from the purchase (in original but not in current)
-    for (var originalProduct in originalProducts) {
-      final productId = originalProduct['id'];
-      final originalQuantity = (originalProduct['quantity'] as num).toDouble();
-      
-      // Check if this product is still in the current cart
-      bool stillInCart = currentProducts.any((p) => p.id == productId);
-      
-      if (!stillInCart) {
-        // Product was removed, so we need to subtract its original quantity
-        final product = _productController.getProduct(productId);
-        if (product.id != '') {
-          final adjustedQuantity = product.quantity! - originalQuantity;
-          updates.add(_productController.updateProductCount(
-            product,
-            adjustedQuantity,
-            'Edit Purchase - Removed',
-          ));
-        }
-      }
-    }
-    
-    // ✅ Wait for all updates together
-    await Future.wait(updates);
-  }
-
-  Future<void> updateStoreQuantity() async {
-    if (_originalPurchaseData == null) return;
-
-    final String? businessId = _businessController.business['id'];
-    final String? storeId = _businessController.business['owner']; // Use owner ID as store ID
-    
-    if (businessId == null || storeId == null) {
-      errorSnackbar('Business or Store ID is null');
-      return;
-    }
-
-    final originalProducts = _originalPurchaseData!['products'] as List<dynamic>;
-    final currentProducts = _cartController.getUniqueProducts();
-
-    // Create a map of original products for quick lookup
-    Map<String, double> originalProductQuantities = {};
-    for (var originalProduct in originalProducts) {
-      originalProductQuantities[originalProduct['id']] = (originalProduct['quantity'] as num).toDouble();
-    }
-
-    // Process all current products in the cart
-    for (var currentProduct in currentProducts) {
-      final productId = currentProduct.id;
-      final newQuantity = _cartController.singleProductQuantity(productId).toDouble();
-      final originalQuantity = originalProductQuantities[productId] ?? 0.0; // 0 if new product
-      
-      try {
-        // Get store product reference
-        final storeProductRef = firestore
-            .collection('store')
-            .doc(storeId)
-            .collection('userStore')
-            .doc(productId);
-            
-        final storeProductDoc = await storeProductRef.get();
-        
-        if (storeProductDoc.exists) {
-          // Update existing store product quantity
-          final currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
-          // Calculate: current_quantity - original_quantity + new_quantity
-          final adjustedQuantity = currentStoreQuantity - originalQuantity + newQuantity;
-          
-          await storeProductRef.update({
-            'quantity': adjustedQuantity,
-            'total': adjustedQuantity,
-          });
-        } else if (newQuantity > 0) {
-          // Create new store product entry if it doesn't exist
-          final product = _productController.getProduct(productId);
-          if (product.id != '') {
-            final productData = {
-              'id': product.id,
-              'storeId': storeId,
-              'owner': businessId,
-              'businessId': businessId,
-              'name': product.name,
-              'price': product.price,
-              'buyingPrice': product.buyingPrice,
-              'quantity': newQuantity,
-              'total': newQuantity,
-              'category': product.category,
-              'image': product.image,
-              'storeQuantity': 0,
-              'understock': product.understock,
-              'code': product.code,
-              'details': product.details,
-              'manufacturer': product.manufacturer,
-              'location': product.location,
-            };
-            
-            await storeProductRef.set(productData);
-          }
-        }
-      } catch (e) {
-        print('Error updating store product $productId: $e');
-      }
-    }
-
-    // Handle products that were removed from the purchase (in original but not in current)
-    for (var originalProduct in originalProducts) {
-      final productId = originalProduct['id'];
-      final originalQuantity = (originalProduct['quantity'] as num).toDouble();
-      
-      // Check if this product is still in the current cart
-      bool stillInCart = currentProducts.any((p) => p.id == productId);
-      
-      if (!stillInCart) {
-        try {
-          // Product was removed, so we need to subtract its original quantity from store
-          final storeProductRef = firestore
-              .collection('store')
-              .doc(storeId)
-              .collection('userStore')
-              .doc(productId);
-              
-          final storeProductDoc = await storeProductRef.get();
-          
-          if (storeProductDoc.exists) {
-            final currentStoreQuantity = (storeProductDoc.data()?['quantity'] ?? 0).toDouble();
-            final adjustedQuantity = currentStoreQuantity - originalQuantity;
-            
-            await storeProductRef.update({
-              'quantity': adjustedQuantity,
-              'total': adjustedQuantity,
-            });
-          }
-        } catch (e) {
-          print('Error removing store product $productId: $e');
-        }
-      }
-    }
   }
 }

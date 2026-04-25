@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../controllers/product_controller.dart';
+import '../../../controllers/store_controller.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
@@ -8,7 +9,10 @@ import '../buttons/primary_button.dart';
 import '../buttons/secondary_button.dart';
 
 class SortProductsBottomSheet extends StatefulWidget {
-  const SortProductsBottomSheet({Key? key}) : super(key: key);
+  /// When true, filter/sort applies to [StoreController] (store inventory), not shop products.
+  final bool forStore;
+
+  const SortProductsBottomSheet({Key? key, this.forStore = false}) : super(key: key);
 
   @override
   State<SortProductsBottomSheet> createState() =>
@@ -18,11 +22,14 @@ class SortProductsBottomSheet extends StatefulWidget {
 class _SortProductsBottomSheetState extends State<SortProductsBottomSheet> {
   List<String> localFilterCategories = [];
   final ProductController _productController = Get.find();
+  final StoreController _storeController = Get.find();
   DateTime? selectedExpireDate;
 
   @override
   void initState() {
-    localFilterCategories = [..._productController.filterCategories];
+    localFilterCategories = widget.forStore
+        ? [..._storeController.filterCategories]
+        : [..._productController.filterCategories];
     super.initState();
   }
 
@@ -154,9 +161,15 @@ class _SortProductsBottomSheetState extends State<SortProductsBottomSheet> {
                   width: MediaQuery.of(context).size.width * 0.3,
                   child: SecondaryButton(
                     onPressed: () {
-                      _productController.filterCategories.clear();
-                      _productController.resetProducts();
-                      _productController.clearSelectedDateRange();
+                      if (widget.forStore) {
+                        _storeController.filterCategories.clear();
+                        _storeController.resetProducts();
+                        _storeController.clearSelectedDateRange();
+                      } else {
+                        _productController.filterCategories.clear();
+                        _productController.resetProducts();
+                        _productController.clearSelectedDateRange();
+                      }
                       Navigator.pop(context);
                     },
                     text: 'reset'.tr,
@@ -167,29 +180,20 @@ class _SortProductsBottomSheetState extends State<SortProductsBottomSheet> {
                   child: PrimaryButton(
                     text: 'apply'.tr,
                       onPressed: () {
-                        // Debugging outputs
-                        print("Apply button pressed");
-                        print("Selected Expire Date: $selectedExpireDate");
-                        print("Selected Categories: $localFilterCategories");
-
-                        // Apply date filter if selected
-                        if (selectedExpireDate != null) {
-                          _productController.filterProductsByExpireDate(selectedExpireDate!);
-                          print("Filtered products by date");
+                        if (widget.forStore) {
+                          if (selectedExpireDate != null) {
+                            _storeController.filterProductsByExpireDate(selectedExpireDate!);
+                          }
+                          _storeController.setFilterCategories(localFilterCategories);
+                          _storeController.filterProducts();
+                        } else {
+                          if (selectedExpireDate != null) {
+                            _productController.filterProductsByExpireDate(selectedExpireDate!);
+                          }
+                          _productController.setFilterCategories(localFilterCategories);
+                          _productController.filterProducts();
                         }
-
-                        // Apply category filter
-                        _productController.setFilterCategories(localFilterCategories);
-                        print("Filtered products by categories");
-
-                        // Perform final filter
-                        _productController.filterProducts();
-                        print("Final filter applied");
-
-                        print("Attempting to close bottom sheet...");
                         Navigator.pop(context);
-                        print("Bottom sheet closed");
-
                       },
 
                   ),

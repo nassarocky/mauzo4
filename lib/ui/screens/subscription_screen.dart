@@ -1,8 +1,14 @@
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:get/get.dart';
 import '../../controllers/business_controller.dart';
+import '../../controllers/profile_controller.dart';
 import '../../utils/constants.dart';
+import '../../utils/phone_display_utils.dart';
+import '../widgets/dialogs/edit_business_dialog.dart';
+import '../widgets/dialogs/edit_tin_dialog.dart';
+import '../widgets/dialogs/edit_user_dialog.dart';
 import '../widgets/dialogs/payment_dialog.dart';
 
 class SubscriptionScreen extends StatefulWidget {
@@ -14,12 +20,416 @@ class SubscriptionScreen extends StatefulWidget {
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   void initState() {
     super.initState();
-    // Refresh business data when screen opens
-    _businessController.updateBusinessData();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _profileController.refreshUserData();
+      await _businessController.updateBusinessData();
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _refreshAfterAccountEdit() {
+    if (mounted) setState(() {});
+  }
+
+  void _showEditPhoneDialog() {
+    final raw = (_businessController.business['phone'] ?? '').toString();
+    final countryCodeController = TextEditingController(
+      text: raw.startsWith('+255')
+          ? '255'
+          : raw.startsWith('+254')
+              ? '254'
+              : raw.startsWith('+256')
+                  ? '256'
+                  : raw.startsWith('+250')
+                      ? '250'
+                      : raw.startsWith('+257')
+                          ? '257'
+                          : raw.startsWith('+1')
+                              ? '1'
+                              : '255',
+    );
+    final phoneController = TextEditingController(
+      text: raw
+          .replaceAll(RegExp(r'[^0-9]'), '')
+          .replaceFirst(RegExp(r'^(255|254|256|250|257|1)'), ''),
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit Phone Number'.tr),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 80,
+                  child: TextField(
+                    controller: countryCodeController,
+                    decoration: InputDecoration(
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                      labelText: 'Country Code',
+                      counterText: '',
+                      prefix: Text(
+                        '+',
+                        style: bodyText(
+                            Theme.of(ctx).textTheme.bodyLarge!.color),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    maxLength: 3,
+                    keyboardType: TextInputType.phone,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
+                    decoration: InputDecoration(
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                      labelText: '${'phone'.tr}*',
+                      counterText: '',
+                      border: const OutlineInputBorder(
+                        borderSide: BorderSide(color: borderColor),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel'.tr),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newCountryCode = countryCodeController.text;
+              final newPhoneNumber = phoneController.text;
+              if (newPhoneNumber.isEmpty) {
+                errorSnackbar('Please enter a phone number');
+                return;
+              }
+              final formattedPhone = '+$newCountryCode$newPhoneNumber';
+              try {
+                await _firestore
+                    .collection('businesses')
+                    .doc(_businessController.business['id'])
+                    .update({'phone': formattedPhone});
+                await _businessController.updateBusinessData();
+                if (ctx.mounted) Navigator.pop(ctx);
+                successSnackbar('Phone number updated successfully');
+                _refreshAfterAccountEdit();
+              } catch (e) {
+                errorSnackbar('Failed to update phone number: $e');
+              }
+            },
+            child: Text('Save'.tr),
+          ),
+        ],
+      ),
+    ).then((_) {
+      countryCodeController.dispose();
+      phoneController.dispose();
+    });
+  }
+
+  Widget _buildProfileAccountCard(BuildContext context) {
+    final isOwner = _profileController.user['role'] == 'owner';
+    final tin = _businessController.business['tin']?.toString() ?? '';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      elevation: 4,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Icon(Icons.badge_outlined, color: primaryColor, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'account_info'.tr,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: isOwner
+                  ? () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (_) => EditUserDialog(
+                          info: _profileController.user['name'],
+                        ),
+                      ).then((_) => _refreshAfterAccountEdit());
+                    }
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'name'.tr,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        _profileController.user['name']?.toString() ?? '',
+                        textAlign: TextAlign.end,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyLarge!.color),
+                      ),
+                    ),
+                    if (isOwner) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.edit, size: 20, color: gray400Color),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: isOwner
+                  ? () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (_) => EditBusinessDialog(
+                          info: 'business_name'.tr,
+                        ),
+                      ).then((_) => _refreshAfterAccountEdit());
+                    }
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'business_name'.tr,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        _businessController.business['name']?.toString() ?? '',
+                        textAlign: TextAlign.end,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyLarge!.color),
+                      ),
+                    ),
+                    if (isOwner) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.edit, size: 20, color: gray400Color),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 10),
+                    child: Text(
+                      'business_id_label'.tr,
+                      style: bodyText(
+                          Theme.of(context).textTheme.bodyMedium!.color),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: SelectableText(
+                    (_businessController.business['id'] ?? '').toString().isEmpty
+                        ? '—'
+                        : _businessController.business['id'].toString(),
+                    textAlign: TextAlign.end,
+                    style: bodyText(
+                        Theme.of(context).textTheme.bodyLarge!.color),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 20, color: gray400Color),
+                  tooltip: 'business_id_copy_tooltip'.tr,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    final id =
+                        _businessController.business['id']?.toString() ?? '';
+                    if (id.isEmpty) return;
+                    Clipboard.setData(ClipboardData(text: id));
+                    successSnackbar('business_id_copied'.tr);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: isOwner
+                  ? () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (_) => const EditTinDialog(),
+                      ).then((_) => _refreshAfterAccountEdit());
+                    }
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'TIN number'.tr,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        tin.isEmpty ? '—' : tin,
+                        textAlign: TextAlign.end,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyLarge!.color),
+                      ),
+                    ),
+                    if (isOwner) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.edit, size: 20, color: gray400Color),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'email'.tr,
+                    style: bodyText(
+                        Theme.of(context).textTheme.bodyMedium!.color),
+                  ),
+                ),
+                Flexible(
+                  child: Text(
+                    _profileController.user['email']?.toString() ?? 'N/A',
+                    textAlign: TextAlign.end,
+                    style:
+                        bodyText(Theme.of(context).textTheme.bodyLarge!.color),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: isOwner ? _showEditPhoneDialog : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'phone'.tr,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyMedium!.color),
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        formatBusinessPhoneDisplay(
+                          _businessController.business['phone']?.toString(),
+                        ),
+                        textAlign: TextAlign.end,
+                        style: bodyText(
+                            Theme.of(context).textTheme.bodyLarge!.color),
+                      ),
+                    ),
+                    if (isOwner) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.edit, size: 20, color: gray400Color),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Role'.tr,
+                    style: bodyText(
+                        Theme.of(context).textTheme.bodyMedium!.color),
+                  ),
+                ),
+                Text(
+                  (_profileController.user['role'] ?? 'employee')
+                      .toString()
+                      .capitalizeFirst!,
+                  style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -27,25 +437,27 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        title: Text('Subscription'),
+        title: Text('Account Status'.tr),
       ),
       body: Obx(
         () {
           if (_businessController.business.isEmpty) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           }
-          
+
           return SingleChildScrollView(
             child: Column(
               children: [
                 _buildHeaderSection(),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 _buildSubscriptionCard(),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 _buildDetailsCard(),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 _buildPaymentButton(context),
-                SizedBox(height: 24),
+                const SizedBox(height: 24),
+                _buildProfileAccountCard(context),
+                const SizedBox(height: 24),
               ],
             ),
           );

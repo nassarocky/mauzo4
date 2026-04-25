@@ -23,7 +23,8 @@ class ClientController extends GetxController {
     try {
       _clientSubscription = FirestoreDb().getClients().listen((data) {
         clients.value = data;
-        searchClients.value = data;
+        searchClients.value = List<Client>.from(data);
+        sort(sortCategory.value);
       });
     } catch (e) {
       print("Error binding client stream: $e");
@@ -173,25 +174,35 @@ class ClientController extends GetxController {
   void search(String searchText) {
     searchClients.value = clients
         .where((client) =>
-        client.name.toLowerCase().contains(searchText.toLowerCase()))
+            client.name.toLowerCase().contains(searchText.toLowerCase()))
         .toList();
+    sort(sortCategory.value);
+  }
+
+  int _compareNameAZ(Client a, Client b) {
+    return a.name
+        .toLowerCase()
+        .trim()
+        .compareTo(b.name.toLowerCase().trim());
   }
 
   void sort(String category) {
     sortCategory.value = category;
+    final sorted = List<Client>.from(searchClients);
     switch (category) {
       case 'name':
-        searchClients.sort((a, b) => a.name.compareTo(b.name));
+        sorted.sort(_compareNameAZ);
         break;
       case 'debt':
-        searchClients.sort((a, b) => b.debt.compareTo(a.debt));
+        sorted.sort((a, b) => b.debt.compareTo(a.debt));
         break;
       case 'date':
-        searchClients.sort((a, b) => b.date.compareTo(a.date));
+        sorted.sort((a, b) => b.date.compareTo(a.date));
         break;
       default:
-        searchClients.sort((a, b) => a.name.compareTo(b.name));
+        sorted.sort(_compareNameAZ);
     }
+    searchClients.value = sorted;
   }
 
   void setSortCategoryValue(String value) {
@@ -200,25 +211,28 @@ class ClientController extends GetxController {
 
   void applyFilter(String filter) {
     filterType.value = filter;
-    
+
     switch (filter) {
       case 'all':
-        searchClients.value = clients;
+        searchClients.value = List<Client>.from(clients);
         break;
       case 'with_debt':
-        searchClients.value = clients.where((client) => client.debt > 0).toList();
+        searchClients.value =
+            clients.where((client) => client.debt > 0).toList();
         break;
       case 'with_advance':
-        searchClients.value = clients.where((client) => client.advance > 0).toList();
+        searchClients.value =
+            clients.where((client) => client.advance > 0).toList();
         break;
       case 'no_balance':
-        searchClients.value = clients.where((client) => client.debt == 0 && client.advance == 0).toList();
+        searchClients.value = clients
+            .where((client) => client.debt == 0 && client.advance == 0)
+            .toList();
         break;
       default:
-        searchClients.value = clients;
+        searchClients.value = List<Client>.from(clients);
     }
-    
-    // Re-apply current sort after filtering
+
     sort(sortCategory.value);
   }
 }

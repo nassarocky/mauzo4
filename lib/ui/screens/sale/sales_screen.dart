@@ -20,6 +20,8 @@ import '../../../controllers/sale_controller.dart';
 import '../../../models/product_model.dart';
 import '../../../models/sale_model.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/sale_line_quantity.dart';
+import '../../../utils/receipt_footer.dart';
 import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/buttons/secondary_button.dart';
 import 'dart:io';
@@ -426,18 +428,15 @@ class _SalesScreenState extends State<SalesScreen> {
                                   .getClient(sale.client);
                               final time = sale.date.toDate();
 
-                              // Build a compact list of unique payment method labels (Cash, Bank, Mobile)
+                              // Payment method labels (built-in + custom from BusinessController)
                               final String methodsText = (() {
                                 if (sale.payments.isEmpty) return '';
                                 final labels = <String>{};
                                 for (final p in sale.payments) {
-                                  final String method = (p['method'] ?? 'cash').toString();
-                                  final String label = method == 'bank'
-                                      ? 'Bank'
-                                      : method == 'mobile'
-                                          ? 'Mobile'
-                                          : 'Cash';
-                                  labels.add(label);
+                                  final String method =
+                                      (p['method'] ?? 'cash').toString();
+                                  labels.add(_businessController
+                                      .paymentMethodLabelForValue(method));
                                 }
                                 return labels.join(', ');
                               })();
@@ -465,6 +464,44 @@ class _SalesScreenState extends State<SalesScreen> {
                                           ),
                                         ),
                                         const Spacer(),
+                                        if (sale.saleRecordsPricingMode)
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 8),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: sale.saleWasWholesale
+                                                      ? primaryColor
+                                                      : iconGrayColor,
+                                                  width: 1,
+                                                ),
+                                                color: sale.saleWasWholesale
+                                                    ? (Preferences.getTheme()
+                                                        ? primaryColor
+                                                            .withOpacity(0.2)
+                                                        : primaryUltraLightColor)
+                                                    : Colors.transparent,
+                                              ),
+                                              child: Text(
+                                                sale.saleWasWholesale
+                                                    ? 'wholesale_price_short'
+                                                        .tr
+                                                    : 'retail_price_short'.tr,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.color,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
                                         if ((_profileController.hasPermission('edit_sales') || _profileController.hasPermission('delete_sales')) && sale.debt == 0.0 && sale.products.isNotEmpty && sale.payment != 0.0)
 
                                           PopupMenuButton(
@@ -537,59 +574,106 @@ class _SalesScreenState extends State<SalesScreen> {
                                       const DashedSeperator(),
                                       const SizedBox(height: 12),
                                       for (var i = 0; i < sale.products.length; i++)
-                                        Container(
-                                          margin: const EdgeInsets.only(bottom: 12),
-                                          child: Row(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      sale.products[i]['name'],
-                                                      style: bodyText(
-                                                        Theme.of(context).textTheme.bodyLarge!.color,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Row(
-                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        Builder(
+                                          builder: (context) {
+                                            final lineMap =
+                                                Map<String, dynamic>.from(
+                                              sale.products[i] as Map,
+                                            );
+                                            final unitPrice =
+                                                (lineMap['price'] is int)
+                                                    ? (lineMap['price'] as int)
+                                                        .toDouble()
+                                                    : (lineMap['price'] as num?)
+                                                            ?.toDouble() ??
+                                                        0.0;
+                                            final lineTotal =
+                                                saleLineDisplayQuantity(
+                                                        lineMap) *
+                                                    unitPrice;
+                                            final qtyPriceText =
+                                                '${saleLineQuantityWithUomLabel(lineMap)} * ${formatCurrency(
+                                              unitPrice,
+                                              _businessController
+                                                  .business['mainCurrency'],
+                                            )}';
+                                            return Container(
+                                              margin: const EdgeInsets.only(
+                                                  bottom: 12),
+                                              child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
                                                       children: [
-                                                        Expanded(
-                                                          child: Text(
-                                                            '${sale.products[i]['quantity']} * ${formatCurrency(
-                                                              (sale.products[i]['price'] is int) 
-                                                                ? (sale.products[i]['price'] as int).toDouble() 
-                                                                : sale.products[i]['price'],
-                                                              _businessController.business['mainCurrency'],
-                                                            )}',
-                                                            style: TextStyle(
-                                                              fontSize: 14,
-                                                              fontWeight: FontWeight.w400,
-                                                              color: Theme.of(context).textTheme.bodyMedium!.color,
-                                                            ),
+                                                        Text(
+                                                          lineMap['name']
+                                                                  ?.toString() ??
+                                                              '',
+                                                          style: bodyText(
+                                                            Theme.of(context)
+                                                                .textTheme
+                                                                .bodyLarge!
+                                                                .color,
                                                           ),
                                                         ),
-                                                        Text(
-                                                          formatCurrency(
-                                                            (sale.products[i]['quantity'] is int ? (sale.products[i]['quantity'] as int).toDouble() : sale.products[i]['quantity']) * 
-                                                            (sale.products[i]['price'] is int ? (sale.products[i]['price'] as int).toDouble() : sale.products[i]['price']),
-                                                            _businessController.business['mainCurrency'],
-                                                          ),
-                                                          style: TextStyle(
-                                                            fontSize: 14,
-                                                            fontWeight: FontWeight.w400,
-                                                            color: Theme.of(context).textTheme.bodyMedium!.color,
-                                                          ),
+                                                        const SizedBox(
+                                                            height: 4),
+                                                        Row(
+                                                          mainAxisAlignment:
+                                                              MainAxisAlignment
+                                                                  .spaceBetween,
+                                                          children: [
+                                                            Expanded(
+                                                              child: Text(
+                                                                qtyPriceText,
+                                                                style:
+                                                                    TextStyle(
+                                                                  fontSize:
+                                                                      14,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w400,
+                                                                  color: Theme.of(
+                                                                          context)
+                                                                      .textTheme
+                                                                      .bodyMedium!
+                                                                      .color,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            Text(
+                                                              formatCurrency(
+                                                                lineTotal,
+                                                                _businessController
+                                                                        .business[
+                                                                    'mainCurrency'],
+                                                              ),
+                                                              style: TextStyle(
+                                                                fontSize: 14,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w400,
+                                                                color: Theme.of(
+                                                                        context)
+                                                                    .textTheme
+                                                                    .bodyMedium!
+                                                                    .color,
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
                                                       ],
                                                     ),
-                                                  ],
-                                                ),
+                                                  ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
+                                            );
+                                          },
                                         ),
                                       const DashedSeperator(),
                                       const SizedBox(height: 12),
@@ -897,7 +981,13 @@ class _SalesScreenState extends State<SalesScreen> {
               pw.SizedBox(height: 20),
               pw.Divider(),
               pw.Center(
-                child: pw.Text('Thank you for your business!', style: pw.TextStyle(fontSize: 12, fontStyle: pw.FontStyle.italic)),
+                child: pw.Text(
+                  receiptFooterMessage(
+                    Map<String, dynamic>.from(_businessController.business),
+                  ),
+                  style: pw.TextStyle(fontSize: 12, fontStyle: pw.FontStyle.italic),
+                  textAlign: pw.TextAlign.center,
+                ),
               ),
             ],
           );
@@ -1044,6 +1134,7 @@ class _SalesScreenState extends State<SalesScreen> {
       Product existingProduct = _productController.getProduct(product['id']);
 
       if (existingProduct.id == '') {
+        final lineQty = (product['quantity'] as num).toDouble();
         products.add(
           Product(
             id: product['id'],
@@ -1053,13 +1144,16 @@ class _SalesScreenState extends State<SalesScreen> {
                 ? (product['buyingPrice'] as num).toDouble() 
                 : 0.0,
             discount: product['discount'],
-            quantity: (product['quantity'] as num).toDouble(),
+            quantity: lineQty,
+            count: lineQty,
             code: '',
             owner: '',
           ),
         );
       } else {
-        existingProduct.quantity = (product['quantity'] as num).toDouble();
+        final lineQty = (product['quantity'] as num).toDouble();
+        existingProduct.quantity = lineQty;
+        existingProduct.count = lineQty;
         // Preserve historical buyingPrice from the sale, not current product buyingPrice
         existingProduct.buyingPrice = (product['buyingPrice'] ?? existingProduct.buyingPrice) is num
             ? ((product['buyingPrice'] ?? existingProduct.buyingPrice) as num).toDouble()

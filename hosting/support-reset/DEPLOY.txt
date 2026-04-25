@@ -1,0 +1,11 @@
+Moved to web/support-reset/ — bundled with Flutter web build.
+
+Deploy:
+  firebase deploy --only functions   # required for adminSupportResolveUser + adminSupportGetRecord / adminSupportUpdateRecord
+  flutter build web --release
+  firebase deploy --only hosting
+
+URL after deploy:
+  https://YOUR_HOSTING_DOMAIN/support-reset/
+
+(Static files are served before the SPA rewrite; main app at / is unchanged.)

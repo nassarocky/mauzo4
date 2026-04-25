@@ -1,6 +1,7 @@
 const { onCall, onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const {onDocumentCreated, onDocumentWritten} = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 admin.initializeApp();
@@ -9,10 +10,536 @@ const { getAuth } = require('firebase-admin/auth');
 const auth = getAuth();
 const fetch = require("node-fetch");
 const twilio = require('twilio');
+const crypto = require('crypto');
 const functions = require('firebase-functions');
 const accountSid = 'ACdffb6ab3d81793f9677651222e218000'; // your actual SID
 const authToken = '86bf7077fe67b4cd6ce83b01fb0399b6'; // your actual Auth Token
 const client = new twilio(accountSid, authToken);
+
+
+// ─── Africa's Talking secrets (stored in Firebase Secret Manager) ───
+const AT_API_KEY  = defineSecret("AT_API_KEY");
+const AT_USERNAME = defineSecret("AT_USERNAME");
+
+const OTP_EXPIRY_MS   = 10 * 60 * 1000; // 10 minutes
+const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * Normalize phone input to digits suitable for derived email (phone registration).
+ * Examples: 0712345678 → 255712345678, 653422101 → 255653422101, +255653422101 → 255653422101
+ */
+function normalizePhoneDigitsForDerivedEmail(phone) {
+  let d = String(phone || "").replace(/\D/g, "");
+  if (d.startsWith("0") && d.length === 10) {
+    d = "255" + d.slice(1);
+  } else if (d.length === 9 && !d.startsWith("255")) {
+    d = "255" + d;
+  }
+  return d;
+}
+
+/**
+ * Resolve Firebase Auth UID from support identifiers (same rules as password reset).
+ * @param {{ targetUid?: string, email?: string, phone?: string }} p
+ * @returns {Promise<string>}
+ */
+async function resolveSupportTargetUid(p) {
+  const { targetUid, email, phone } = p || {};
+  if (targetUid && typeof targetUid === "string" && targetUid.trim()) {
+    return targetUid.trim();
+  }
+  if (email && typeof email === "string" && email.includes("@")) {
+    try {
+      const rec = await auth.getUserByEmail(email.trim());
+      return rec.uid;
+    } catch (e) {
+      if (e.code === "auth/user-not-found") {
+        throw new HttpsError("not-found", "No user with this email.");
+      }
+      throw new HttpsError("internal", e.message || "Auth lookup failed");
+    }
+  }
+  if (phone != null && String(phone).trim() !== "") {
+    const digits = normalizePhoneDigitsForDerivedEmail(phone);
+    if (digits.length < 10) {
+      throw new HttpsError("invalid-argument", "Invalid phone number.");
+    }
+    const derivedEmail = `${digits}@hesabumauzo.app`;
+    try {
+      const rec = await auth.getUserByEmail(derivedEmail);
+      return rec.uid;
+    } catch (e) {
+      if (e.code === "auth/user-not-found") {
+        throw new HttpsError(
+          "not-found",
+          "No phone-registered user found for this number (derived email not in Auth)."
+        );
+      }
+      throw new HttpsError("internal", e.message || "Auth lookup failed");
+    }
+  }
+  throw new HttpsError(
+    "invalid-argument",
+    "Provide targetUid, email, or phone."
+  );
+}
+
+// ─── Referral commission (promo codes ↔ agents, payment events) ───────────
+
+function normalizeCommissionPromoCode(raw) {
+  if (raw == null) return "";
+  const t = String(raw).trim().toUpperCase();
+  if (t.length < 2 || t.length > 40) return "";
+  if (!/^[A-Z0-9_-]+$/.test(t)) return "";
+  return t;
+}
+
+async function getTier1MonthlyPriceTzs() {
+  try {
+    const snap = await firestore.collection("subscriptionPricing").doc("config").get();
+    const m = snap.exists ? snap.data()?.tier1?.month : null;
+    const n = typeof m === "number" && m > 0 ? m : 15000;
+    return n;
+  } catch (_) {
+    return 15000;
+  }
+}
+
+/**
+ * After a successful subscription payment, log one event per business row (for commission by promo code).
+ */
+async function recordReferralPaymentEventsForDocs(docs, paymentStart, numberOfDays) {
+  if (!docs || docs.length === 0) return;
+  const monthPrice = await getTier1MonthlyPriceTzs();
+  const basis = (numberOfDays / 30) * monthPrice;
+  const roundedBasis = Math.round(basis * 100) / 100;
+  let batch = firestore.batch();
+  let n = 0;
+  for (const businessDoc of docs) {
+    const business = businessDoc.data() || {};
+    const codeNorm = normalizeCommissionPromoCode(business.installReferrerCode);
+    if (!codeNorm) continue;
+    const ref = firestore.collection("referralPaymentEvents").doc();
+    batch.set(ref, {
+      businessId: businessDoc.id,
+      installReferrerCode: codeNorm,
+      paidAt: paymentStart,
+      periodDays: numberOfDays,
+      commissionBasisTzs: roundedBasis,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    n++;
+    if (n >= 400) {
+      await batch.commit();
+      batch = firestore.batch();
+      n = 0;
+    }
+  }
+  if (n > 0) await batch.commit();
+}
+
+async function assertCommissionAdmin(request) {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  const d = await firestore.collection("commission_admins").doc(request.auth.uid).get();
+  if (!d.exists) {
+    throw new HttpsError("permission-denied", "Not a commission admin.");
+  }
+  return request.auth.uid;
+}
+
+async function assertCommissionAgent(request) {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  const d = await firestore.collection("commission_agents").doc(request.auth.uid).get();
+  if (!d.exists || d.data()?.active === false) {
+    throw new HttpsError("permission-denied", "Not an active commission agent.");
+  }
+  return { uid: request.auth.uid, data: d.data() || {} };
+}
+
+/** Returns normalized codes; throws if duplicate across other agents. */
+async function assertPromoCodesAvailableForAgent(codes, excludeAgentUid) {
+  const normalized = [...new Set(codes.map(normalizeCommissionPromoCode).filter(Boolean))];
+  const snap = await firestore.collection("commission_agents").get();
+  for (const doc of snap.docs) {
+    if (excludeAgentUid && doc.id === excludeAgentUid) continue;
+    const theirs = (doc.data()?.promoCodes || []).map(normalizeCommissionPromoCode).filter(Boolean);
+    for (const c of normalized) {
+      if (theirs.includes(c)) {
+        throw new HttpsError(
+          "already-exists",
+          `Promo code "${c}" is already assigned to another agent.`
+        );
+      }
+    }
+  }
+  return normalized;
+}
+
+/** For gmanusers `business` array: parallel read of `businesses/{id}` for dropdown labels. */
+async function listBusinessSummariesForUserData(data) {
+  const bizIds = Array.isArray(data?.business)
+    ? data.business.filter((b) => typeof b === "string" && b.length > 0)
+    : [];
+  return Promise.all(
+    bizIds.map(async (id) => {
+      const bSnap = await firestore.collection("businesses").doc(id).get();
+      const name = bSnap.exists ? (bSnap.data()?.name ?? "") : "";
+      return {
+        id,
+        name: typeof name === "string" ? name : String(name || ""),
+      };
+    })
+  );
+}
+
+/**
+ * sendOtp  –  generates a 6-digit OTP, stores its SHA-256 hash in Firestore,
+ * and delivers the plaintext code via Africa's Talking SMS.
+ *
+ * Request data: { phone: string }  (E.164, e.g. "+255712345678")
+ */
+exports.sendOtp = onCall(
+  { region: "us-central1", secrets: [AT_API_KEY, AT_USERNAME] },
+  async (request) => {
+    const { phone } = request.data;
+
+    if (!phone || !/^\+\d{7,15}$/.test(phone)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid E.164 phone number is required (e.g. +255712345678)"
+      );
+    }
+
+    // ── Rate-limit: at most one OTP per 60 seconds ──
+    const otpRef = firestore.collection("otp_requests").doc(phone);
+    const existing = await otpRef.get();
+    if (existing.exists) {
+      const secondsAgo = (Date.now() - existing.data().createdAt.toMillis()) / 1000;
+      if (secondsAgo < 60) {
+        throw new HttpsError(
+          "resource-exhausted",
+          `Please wait ${Math.ceil(60 - secondsAgo)} seconds before requesting another OTP.`
+        );
+      }
+    }
+
+    // ── Log OTP to Firestore for debugging (remove in production) ──
+    // This lets you see the OTP in Firebase console if SMS fails
+    // DELETE this block once SMS delivery is confirmed working reliably
+
+    // ── Generate & hash OTP ──
+    const otp     = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = crypto.createHash("sha256").update(otp + phone).digest("hex");
+
+    await otpRef.set({
+      otpHash,
+      expiresAt:  admin.firestore.Timestamp.fromMillis(Date.now() + OTP_EXPIRY_MS),
+      createdAt:  admin.firestore.Timestamp.now(),
+      attempts:   0,
+      otpPlain:   otp,   // ← DEBUG ONLY: visible in Firestore console. Remove before going live.
+    });
+
+    // ── Send SMS via Africa's Talking ──
+    const AfricasTalking = require("africastalking");
+    const at = AfricasTalking({
+      apiKey:   AT_API_KEY.value().trim(),
+      username: AT_USERNAME.value().trim(),
+    });
+
+    try {
+      await at.SMS.send({
+        to:      [phone],
+        message: `Your HesabuMauzo code: ${otp}. Valid 10 min. Do not share.`,
+        // from: "HesabuMz",  // ← uncomment and set your approved AT Sender ID once registered
+      });
+      console.log(`[sendOtp] OTP sent to ${phone}`);
+    } catch (smsErr) {
+      console.error("[sendOtp] Africa's Talking error:", smsErr);
+      await otpRef.delete();
+      throw new HttpsError("internal", `SMS delivery failed: ${smsErr.message}`);
+    }
+
+    return { success: true };
+  }
+);
+
+/**
+ * verifyOtp  –  validates the code, then returns a Firebase custom token
+ * for the phone-number user (creating the Auth account if it is new).
+ *
+ * Request data: { phone: string, code: string }
+ * Response:     { token: string }
+ */
+exports.verifyOtp = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    const { phone, code } = request.data;
+
+    if (!phone || !code) {
+      throw new HttpsError("invalid-argument", "phone and code are required.");
+    }
+
+    const otpRef = firestore.collection("otp_requests").doc(phone);
+    const otpDoc = await otpRef.get();
+
+    if (!otpDoc.exists) {
+      throw new HttpsError(
+        "not-found",
+        "No OTP found for this number. Please request a new code."
+      );
+    }
+
+    const data = otpDoc.data();
+
+    // ── Expiry check ──
+    if (Date.now() > data.expiresAt.toMillis()) {
+      await otpRef.delete();
+      throw new HttpsError(
+        "deadline-exceeded",
+        "This OTP has expired. Please request a new one."
+      );
+    }
+
+    // ── Attempt guard ──
+    if (data.attempts >= MAX_OTP_ATTEMPTS) {
+      await otpRef.delete();
+      throw new HttpsError(
+        "resource-exhausted",
+        "Too many failed attempts. Please request a new OTP."
+      );
+    }
+
+    // ── Hash comparison ──
+    const inputHash = crypto.createHash("sha256").update(code + phone).digest("hex");
+    if (inputHash !== data.otpHash) {
+      await otpRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
+      const remaining = MAX_OTP_ATTEMPTS - data.attempts - 1;
+      throw new HttpsError(
+        "unauthenticated",
+        `Incorrect code. ${remaining} attempt(s) remaining.`
+      );
+    }
+
+    // ── OTP valid – delete (single-use) ──
+    await otpRef.delete();
+
+    // ── Resolve Firebase Auth UID for this phone number ──
+    // App "phone registration" uses email/password with derived email only (no phoneNumber on Auth).
+    // Try derived email first so we never prefer a stray phone-only user from an older verifyOtp bug.
+    const digits = normalizePhoneDigitsForDerivedEmail(phone);
+    let uid;
+    let derivedUser = null;
+    if (digits.length >= 10) {
+      try {
+        derivedUser = await auth.getUserByEmail(`${digits}@hesabumauzo.app`);
+      } catch (e) {
+        if (e.code !== "auth/user-not-found") {
+          throw new HttpsError("internal", `Auth lookup failed: ${e.message}`);
+        }
+      }
+    }
+    if (derivedUser) {
+      uid = derivedUser.uid;
+    } else {
+      try {
+        const userRecord = await auth.getUserByPhoneNumber(phone);
+        uid = userRecord.uid;
+      } catch (e) {
+        if (e.code === "auth/user-not-found") {
+          const newUser = await auth.createUser({ phoneNumber: phone });
+          uid = newUser.uid;
+        } else {
+          throw new HttpsError("internal", `Auth lookup failed: ${e.message}`);
+        }
+      }
+    }
+
+    const customToken = await auth.createCustomToken(uid);
+    console.log(`[verifyOtp] Verified ${phone} → uid: ${uid}`);
+    return { token: customToken };
+  }
+);
+
+/**
+ * adminResetUserPassword — support-only: set a new password for a user when email reset / OTP fails.
+ *
+ * Authorization: Firestore commission_admins/{callerAuthUid} (same as agent portal admin).
+ *
+ * Request data (one identifier required):
+ *   - targetUid: string (Firebase Auth UID), OR
+ *   - email: string (real email or derived phone email), OR
+ *   - phone: string (digits / +255… / 0… local TZ formats)
+ *   - newPassword: string (min 8 characters)
+ *
+ * Phone-registered users use Auth email {digits}@hesabumauzo.app — resolved via `phone`.
+ */
+exports.adminResetUserPassword = onCall({ region: "us-central1" }, async (request) => {
+  const callerUid = await assertCommissionAdmin(request);
+
+  const { targetUid, email, phone, newPassword } = request.data || {};
+
+  if (!newPassword || typeof newPassword !== "string" || newPassword.length < 8) {
+    throw new HttpsError(
+      "invalid-argument",
+      "newPassword is required and must be at least 8 characters."
+    );
+  }
+
+  let uid;
+  try {
+    uid = await resolveSupportTargetUid({ targetUid, email, phone });
+  } catch (e) {
+    if (
+      e instanceof HttpsError &&
+      e.code === "invalid-argument" &&
+      e.message === "Provide targetUid, email, or phone."
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Provide targetUid, email, or phone together with newPassword."
+      );
+    }
+    throw e;
+  }
+
+  try {
+    await auth.updateUser(uid, { password: newPassword });
+  } catch (e) {
+    if (e.code === "auth/user-not-found") {
+      throw new HttpsError("not-found", "User not found.");
+    }
+    throw new HttpsError("internal", e.message || "Failed to update password.");
+  }
+
+  console.log(`[adminResetUserPassword] Caller ${callerUid} reset password for uid ${uid}`);
+  return { success: true, targetUid: uid };
+});
+
+const SUPPORT_RECORD_COLLECTIONS = {
+  gmanusers: ["email", "name", "phone", "image"],
+  businesses: ["email", "name", "phone", "tin", "logo"],
+};
+
+/** Support: read one gmanusers or businesses document (Admin SDK). Commission admins only. */
+exports.adminSupportGetRecord = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const { collection: col, documentId } = request.data || {};
+  if (col !== "gmanusers" && col !== "businesses") {
+    throw new HttpsError(
+      "invalid-argument",
+      "collection must be \"gmanusers\" or \"businesses\"."
+    );
+  }
+  if (!documentId || typeof documentId !== "string") {
+    throw new HttpsError("invalid-argument", "documentId is required.");
+  }
+  const snap = await firestore.collection(col).doc(documentId.trim()).get();
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "Document not found.");
+  }
+  const data = snap.data() || {};
+  let businesses;
+  if (col === "gmanusers") {
+    businesses = await listBusinessSummariesForUserData(data);
+  }
+  return { id: snap.id, data, ...(businesses ? { businesses } : {}) };
+});
+
+/** Support: resolve gmanusers by phone/email/UID and return profile + business list for picker. Commission admins only. */
+exports.adminSupportResolveUser = onCall({ region: "us-central1" }, async (request) => {
+  const callerUid = await assertCommissionAdmin(request);
+  const { targetUid, email, phone } = request.data || {};
+  const uid = await resolveSupportTargetUid({ targetUid, email, phone });
+  const userSnap = await firestore.collection("gmanusers").doc(uid).get();
+  if (!userSnap.exists) {
+    throw new HttpsError(
+      "not-found",
+      "No gmanusers profile for this account (Auth UID exists but Firestore user doc missing)."
+    );
+  }
+  const data = userSnap.data() || {};
+  const businesses = await listBusinessSummariesForUserData(data);
+  console.log(`[adminSupportResolveUser] caller=${callerUid} uid=${uid}`);
+  return { uid, data, businesses };
+});
+
+/** Support: merge allowed fields on gmanusers or businesses; mirrors name/email/phone to userEmployees for that user. Commission admins only. */
+exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (request) => {
+  const callerUid = await assertCommissionAdmin(request);
+  const { collection: col, documentId, patch } = request.data || {};
+  if (col !== "gmanusers" && col !== "businesses") {
+    throw new HttpsError(
+      "invalid-argument",
+      "collection must be \"gmanusers\" or \"businesses\"."
+    );
+  }
+  if (!documentId || typeof documentId !== "string") {
+    throw new HttpsError("invalid-argument", "documentId is required.");
+  }
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new HttpsError("invalid-argument", "patch must be a non-array object.");
+  }
+  const allowed = SUPPORT_RECORD_COLLECTIONS[col];
+  const sanitized = {};
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      const v = patch[key];
+      if (v === null) {
+        sanitized[key] = null;
+      } else if (typeof v === "string") {
+        sanitized[key] = v.trim();
+      } else {
+        sanitized[key] = v;
+      }
+    }
+  }
+  if (Object.keys(sanitized).length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Provide at least one of: ${allowed.join(", ")}`
+    );
+  }
+
+  const docRef = firestore.collection(col).doc(documentId.trim());
+  const before = await docRef.get();
+  if (!before.exists) {
+    throw new HttpsError("not-found", "Document not found.");
+  }
+
+  await docRef.set(sanitized, { merge: true });
+
+  if (col === "gmanusers") {
+    const bizList = (before.data().business || []).filter(
+      (b) => typeof b === "string" && b.length > 0
+    );
+    const empPatch = {};
+    if (sanitized.email !== undefined) empPatch.email = sanitized.email;
+    if (sanitized.name !== undefined) empPatch.name = sanitized.name;
+    if (sanitized.phone !== undefined) empPatch.phone = sanitized.phone;
+    if (Object.keys(empPatch).length > 0) {
+      for (const bid of bizList) {
+        const empRef = firestore
+          .collection("employees")
+          .doc(bid)
+          .collection("userEmployees")
+          .doc(documentId.trim());
+        const empSnap = await empRef.get();
+        if (empSnap.exists) {
+          await empRef.set(empPatch, { merge: true });
+        }
+      }
+    }
+  }
+
+  console.log(
+    `[adminSupportUpdateRecord] caller=${callerUid} collection=${col} id=${documentId.trim()} keys=${Object.keys(sanitized).join(",")}`
+  );
+  return { success: true, updatedKeys: Object.keys(sanitized) };
+});
 
 // Load v2 aggregate functions (write to new 'aggregates' collection only)
 const aggregates = require('./aggregates_v2');
@@ -434,7 +961,7 @@ exports.deleteUser = onRequest(async (req, res) => {
 
 
 
-exports.registerUrser = onRequest({ region: 'us-central1' }, async (req, res) => {
+exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => {
   // CORS: allow production domains (and common localhost ports for dev) and handle preflight
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -453,16 +980,36 @@ exports.registerUrser = onRequest({ region: 'us-central1' }, async (req, res) =>
     return res.status(204).send("");
   }
 
-  const { name, email, phone, password, business, role } = req.body;
+  const { name, password, business, role } = req.body;
+  // Single field from app: phoneOrEmail. Legacy clients may still send `email` only.
+  const phoneOrEmail = String(
+    req.body.phoneOrEmail || req.body.email || ""
+  ).trim();
 
   if (!name) return res.status(400).send('Missing name');
-  if (!email) return res.status(400).send('Missing email');
+  if (!phoneOrEmail) return res.status(400).send('Missing phone or email');
   if (!password) return res.status(400).send('Missing password');
   if (!business) return res.status(400).send('Missing business');
 
+  let authEmail;
+  let profileEmail = "";
+  let profilePhone = "";
+
+  if (phoneOrEmail.includes("@")) {
+    authEmail = phoneOrEmail;
+    profileEmail = phoneOrEmail;
+  } else {
+    const digits = normalizePhoneDigitsForDerivedEmail(phoneOrEmail);
+    if (digits.length < 10) {
+      return res.status(400).send('Invalid phone number');
+    }
+    authEmail = `${digits}@hesabumauzo.app`;
+    profilePhone = `+${digits}`;
+  }
+
   try {
     const userRecord = await auth.createUser({
-      email,
+      email: authEmail,
       password,
       displayName: name,
     });
@@ -470,26 +1017,34 @@ exports.registerUrser = onRequest({ region: 'us-central1' }, async (req, res) =>
     const userId = userRecord.uid;
     const userData = {
       id: userId,
-      email,
-      role: role || 'employee', // Use provided role or default to 'employee'
-      phone,
+      email: profileEmail,
+      role: role || "employee",
+      phone: profilePhone,
       name,
       maxBusiness: 2,
-      password,
       business: [business],
-      image: '',
+      image: "",
       date: new Date(),
     };
 
-    await firestore.collection('gmanusers').doc(userId).set(userData);
-    await firestore.collection('employees').doc(business).collection('userEmployees').doc(userId).set(userData);
+    await firestore.collection("gmanusers").doc(userId).set(userData);
+    await firestore
+      .collection("employees")
+      .doc(business)
+      .collection("userEmployees")
+      .doc(userId)
+      .set(userData);
 
     return res.status(201).send({ message: "User created", userId });
   } catch (error) {
-    console.error('Error:', error);
-    if (error.code === 'auth/email-already-exists') return res.status(400).send('Email exists');
-    if (error.code === 'auth/weak-password') return res.status(400).send('Weak password');
-    return res.status(500).send('Server error');
+    console.error("Error:", error);
+    if (error.code === "auth/email-already-exists") {
+      return res.status(400).send("Email exists");
+    }
+    if (error.code === "auth/weak-password") {
+      return res.status(400).send("Weak password");
+    }
+    return res.status(500).send("Server error");
   }
 });
 
@@ -729,6 +1284,11 @@ exports.paymentCallbackEmail2 = onRequest(
       });
 
       await Promise.all(updatePromises);
+      await recordReferralPaymentEventsForDocs(
+        businessesSnapshot.docs,
+        paymentStart,
+        numberOfDays
+      );
       console.log(`Updated businesses with email ${email}`);
 
       return res.status(200).json({
@@ -765,68 +1325,59 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
     return;
   }
 
-  const businessesRef = firestore.collection('businesses');
-  businessesRef.where('email', '==', email).get()
-    .then((snapshot) => {
-      if (snapshot.empty) {
-        console.log(`No businesses found with email ${email}.`);
-        res.status(404).send('No businesses found.');
-        return;
+  try {
+    const snapshot = await firestore
+      .collection('businesses')
+      .where('email', '==', email)
+      .get();
+
+    if (snapshot.empty) {
+      console.log(`No businesses found with email ${email}.`);
+      res.status(404).send('No businesses found.');
+      return;
+    }
+
+    const paymentStart = admin.firestore.Timestamp.now();
+
+    const updatePromises = snapshot.docs.map((businessDoc) => {
+      const business = businessDoc.data();
+      const now = paymentStart.toDate();
+
+      const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
+
+      const trialStart = business.trialStart ? business.trialStart.toDate() : null;
+      const trialExpiry = trialStart ? new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000) : null;
+
+      let startDate = now;
+
+      if (existingPaymentLast && existingPaymentLast > startDate) {
+        startDate = existingPaymentLast;
       }
 
-      const paymentStart = admin.firestore.Timestamp.now();
+      if (trialExpiry && trialExpiry > startDate) {
+        startDate = trialExpiry;
+      }
 
-      // Update businesses with fair renewal logic
-      const updatePromises = snapshot.docs.map((businessDoc) => {
-        const business = businessDoc.data();
-        const now = paymentStart.toDate();
-        
-        // Check paid subscription end date
-        const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
-        
-        // Check trial end date (trialStart + 30 days)
-        const trialStart = business.trialStart ? business.trialStart.toDate() : null;
-        const trialExpiry = trialStart ? new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000) : null;
-        
-        // Determine start date: use the latest of now, paid expiry, or trial expiry
-        let startDate = now;
-        
-        // Check if paid subscription extends beyond current startDate
-        if (existingPaymentLast && existingPaymentLast > startDate) {
-          startDate = existingPaymentLast;
-        }
-        
-        // Check if trial extends beyond current startDate (could be later than paid)
-        if (trialExpiry && trialExpiry > startDate) {
-          startDate = trialExpiry;
-        }
-        
-        const paymentLast = admin.firestore.Timestamp.fromDate(
-          new Date(startDate.getTime() + (numberOfDays * 24 * 60 * 60 * 1000))
-        );
+      const paymentLast = admin.firestore.Timestamp.fromDate(
+        new Date(startDate.getTime() + (numberOfDays * 24 * 60 * 60 * 1000))
+      );
 
-        return businessDoc.ref.update({
-          paid: true,
-          subscriptionStatus: 'subscription_ok',
-          paymentStart: paymentStart,
-          paymentLast: paymentLast
-        });
+      return businessDoc.ref.update({
+        paid: true,
+        subscriptionStatus: 'subscription_ok',
+        paymentStart: paymentStart,
+        paymentLast: paymentLast
       });
-
-      Promise.all(updatePromises)
-        .then(() => {
-          console.log(`Updated all businesses with email ${email}.`);
-          res.status(200).send(`Payment processed for ${email}`);
-        })
-        .catch((error) => {
-          console.error('Error updating Firestore:', error);
-          res.status(500).send('Error processing payment.');
-        });
-    })
-    .catch((error) => {
-      console.error('Error querying Firestore:', error);
-      res.status(500).send('Error during query.');
     });
+
+    await Promise.all(updatePromises);
+    await recordReferralPaymentEventsForDocs(snapshot.docs, paymentStart, numberOfDays);
+    console.log(`Updated all businesses with email ${email}.`);
+    res.status(200).send(`Payment processed for ${email}`);
+  } catch (error) {
+    console.error('Error in paymentCallbackEmail:', error);
+    res.status(500).send('Error processing payment.');
+  }
 });
 
 
@@ -2702,4 +3253,261 @@ exports.updateSubscriptionPricing = onRequest(async (req, res) => {
     console.error("Error updating subscription pricing:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// ─── Commission agent portal (callable from web/agent-portal) ─────────────
+
+exports.commissionAdminListAgents = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const snap = await firestore.collection("commission_agents").get();
+  const agents = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+  return { agents };
+});
+
+exports.commissionAdminCreateAgent = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const { email, password, displayName, promoCodes, commissionPercent } = request.data || {};
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    throw new HttpsError("invalid-argument", "Valid email is required.");
+  }
+  if (!password || String(password).length < 8) {
+    throw new HttpsError("invalid-argument", "Password must be at least 8 characters.");
+  }
+  const rawCodes = Array.isArray(promoCodes) ? promoCodes : [];
+  const codes = await assertPromoCodesAvailableForAgent(rawCodes, null);
+  if (codes.length === 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Add at least one promo code (2–40 chars: letters, numbers, _ or -)."
+    );
+  }
+  const pct =
+    typeof commissionPercent === "number" && commissionPercent >= 0 && commissionPercent <= 100
+      ? commissionPercent
+      : 20;
+  let uid;
+  try {
+    const rec = await auth.createUser({
+      email: email.trim(),
+      password: String(password),
+      displayName: (displayName || email).toString().trim(),
+    });
+    uid = rec.uid;
+  } catch (e) {
+    if (e.code === "auth/email-already-exists") {
+      throw new HttpsError("already-exists", "That email is already registered in Firebase Auth.");
+    }
+    throw new HttpsError("internal", e.message || "Failed to create agent user.");
+  }
+  await firestore.collection("commission_agents").doc(uid).set({
+    email: email.trim(),
+    displayName: (displayName || "").toString().trim() || email.trim(),
+    promoCodes: codes,
+    commissionPercent: pct,
+    active: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return { uid, email: email.trim(), promoCodes: codes, commissionPercent: pct };
+});
+
+exports.commissionAdminUpdateAgent = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const { agentUid, displayName, promoCodes, commissionPercent, active } = request.data || {};
+  if (!agentUid || typeof agentUid !== "string") {
+    throw new HttpsError("invalid-argument", "agentUid is required.");
+  }
+  const ref = firestore.collection("commission_agents").doc(agentUid);
+  const ex = await ref.get();
+  if (!ex.exists) {
+    throw new HttpsError("not-found", "Agent not found.");
+  }
+  const patch = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  if (displayName != null) patch.displayName = String(displayName).trim();
+  if (typeof commissionPercent === "number" && commissionPercent >= 0 && commissionPercent <= 100) {
+    patch.commissionPercent = commissionPercent;
+  }
+  if (typeof active === "boolean") patch.active = active;
+  if (Array.isArray(promoCodes)) {
+    const codes = await assertPromoCodesAvailableForAgent(promoCodes, agentUid);
+    if (codes.length === 0) {
+      throw new HttpsError("invalid-argument", "promoCodes must include at least one valid code.");
+    }
+    patch.promoCodes = codes;
+  }
+  await ref.set(patch, { merge: true });
+  const latest = await ref.get();
+  return { agent: { uid: agentUid, ...latest.data() } };
+});
+
+/** Permanently remove agent: deletes commission_agents/{uid} and Firebase Auth user (portal login). */
+exports.commissionAdminDeleteAgent = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const agentUid = (request.data?.agentUid || "").toString().trim();
+  if (!agentUid || typeof agentUid !== "string") {
+    throw new HttpsError("invalid-argument", "agentUid is required.");
+  }
+  if (agentUid === request.auth.uid) {
+    throw new HttpsError("invalid-argument", "Cannot delete your own Firebase Auth user.");
+  }
+  const ref = firestore.collection("commission_agents").doc(agentUid);
+  const ex = await ref.get();
+  if (!ex.exists) {
+    throw new HttpsError("not-found", "Agent not found.");
+  }
+  await ref.delete();
+  let authDeleteError = "";
+  try {
+    await auth.deleteUser(agentUid);
+  } catch (e) {
+    if (e.code !== "auth/user-not-found") {
+      authDeleteError = e.message || String(e);
+      console.error("[commissionAdminDeleteAgent] auth.deleteUser", e);
+    }
+  }
+  return { ok: true, ...(authDeleteError ? { authDeleteError } : {}) };
+});
+
+/** Lightweight auth check for commission admin (e.g. support-reset sign-in gate). */
+exports.commissionAdminPing = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  return { ok: true };
+});
+
+/** Lightweight auth check for the agent portal (no Firestore composite indexes required). */
+exports.commissionAgentPing = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAgent(request);
+  return { ok: true };
+});
+
+/**
+ * Referrals, payment events in month, and estimated commission for a commission_agents profile.
+ * @param {object} agentData Firestore commission_agents document fields
+ * @param {string} yearMonth YYYY-MM
+ */
+async function buildCommissionDashboardForAgentData(agentData, yearMonth) {
+  if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+    throw new HttpsError("invalid-argument", "yearMonth must be YYYY-MM");
+  }
+  const rawCodes = Array.isArray(agentData?.promoCodes) ? agentData.promoCodes : [];
+  const codes = [...new Set(rawCodes.map(normalizeCommissionPromoCode).filter(Boolean))];
+  const percentRaw = agentData?.commissionPercent;
+  const percent =
+    typeof percentRaw === "number" && percentRaw >= 0 && percentRaw <= 100 ? percentRaw : 20;
+
+  const [y, mo] = yearMonth.split("-").map((x) => parseInt(x, 10));
+  const monthStart = admin.firestore.Timestamp.fromDate(new Date(y, mo - 1, 1, 0, 0, 0, 0));
+  const monthEnd = admin.firestore.Timestamp.fromDate(new Date(y, mo, 1, 0, 0, 0, 0));
+
+  const referralsMap = new Map();
+
+  for (let i = 0; i < codes.length; i += 10) {
+    const chunk = codes.slice(i, i + 10);
+    if (chunk.length === 0) continue;
+    const bs = await firestore.collection("businesses").where("installReferrerCode", "in", chunk).get();
+    for (const doc of bs.docs) {
+      const b = doc.data() || {};
+      referralsMap.set(doc.id, {
+        businessId: doc.id,
+        businessName: b.name || "",
+        email: b.email || "",
+        phone: b.phone || "",
+        installReferrerCode: (b.installReferrerCode || "").toString(),
+        subscriptionStatus: b.subscriptionStatus || "",
+        trialStart: b.trialStart || null,
+        paymentStart: b.paymentStart || null,
+        paymentLast: b.paymentLast || null,
+      });
+    }
+  }
+
+  const paymentEvents = [];
+  const paidBusinessIds = new Set();
+  let totalBasis = 0;
+  let paymentEventsQueryError = "";
+
+  try {
+    for (let i = 0; i < codes.length; i += 10) {
+      const chunk = codes.slice(i, i + 10);
+      if (chunk.length === 0) continue;
+      const evSnap = await firestore
+        .collection("referralPaymentEvents")
+        .where("installReferrerCode", "in", chunk)
+        .where("paidAt", ">=", monthStart)
+        .where("paidAt", "<", monthEnd)
+        .get();
+      for (const evDoc of evSnap.docs) {
+        const e = evDoc.data() || {};
+        paymentEvents.push({
+          id: evDoc.id,
+          businessId: e.businessId,
+          installReferrerCode: e.installReferrerCode,
+          paidAt: e.paidAt,
+          periodDays: e.periodDays,
+          commissionBasisTzs: e.commissionBasisTzs,
+        });
+        if (e.businessId) paidBusinessIds.add(e.businessId);
+        const b = typeof e.commissionBasisTzs === "number" ? e.commissionBasisTzs : 0;
+        totalBasis += b;
+      }
+    }
+  } catch (err) {
+    console.error("buildCommissionDashboardForAgentData referralPaymentEvents query", err);
+    paymentEventsQueryError =
+      err?.message || "Could not load payment events for this month.";
+  }
+
+  const estimatedCommissionTzs = Math.round(totalBasis * (percent / 100) * 100) / 100;
+
+  const baseNote = "Commission figures are estimates.";
+  const commissionNote = paymentEventsQueryError ? `${baseNote} ${paymentEventsQueryError}` : baseNote;
+
+  return {
+    yearMonth,
+    commissionPercent: percent,
+    promoCodes: codes,
+    referrals: [...referralsMap.values()],
+    paidInMonthBusinessCount: paidBusinessIds.size,
+    paidInMonthEventCount: paymentEvents.length,
+    estimatedCommissionTzs,
+    commissionNote,
+    paymentEvents: paymentEvents.slice(0, 500),
+  };
+}
+
+/** Commission admin: same dashboard payload as the agent sees, for any agent UID. */
+exports.commissionAdminGetAgentDashboard = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const agentUid = (request.data?.agentUid || "").toString().trim();
+  if (!agentUid) {
+    throw new HttpsError("invalid-argument", "agentUid is required.");
+  }
+  let yearMonth = (request.data?.yearMonth || "").toString().trim();
+  if (!yearMonth) {
+    const d = new Date();
+    yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  const snap = await firestore.collection("commission_agents").doc(agentUid).get();
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "Agent not found.");
+  }
+  const agentRow = snap.data() || {};
+  const payload = await buildCommissionDashboardForAgentData(agentRow, yearMonth);
+  return {
+    ...payload,
+    agentUid,
+    agentEmail: typeof agentRow.email === "string" ? agentRow.email : "",
+    agentDisplayName: typeof agentRow.displayName === "string" ? agentRow.displayName : "",
+    agentActive: agentRow.active !== false,
+  };
+});
+
+exports.commissionAgentGetDashboard = onCall({ region: "us-central1" }, async (request) => {
+  const { data } = await assertCommissionAgent(request);
+  let yearMonth = (request.data?.yearMonth || "").toString().trim();
+  if (!yearMonth) {
+    const d = new Date();
+    yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  return buildCommissionDashboardForAgentData(data, yearMonth);
 });

@@ -55,6 +55,22 @@ class _EditSupplierScreenState extends State<EditSupplierScreen> {
       return;
     }
 
+    final role = (_profileController.user['role'] ?? '').toString();
+    if (!_businessController.isPurchasesAllowedForRole(role)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
+
     // Get supplier from arguments
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;

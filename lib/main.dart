@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +11,7 @@ import 'package:mauzo/utils/app_router.dart';
 import 'package:mauzo/utils/languages.dart';
 import 'firebase_options.dart';
 import 'utils/preferences.dart';
+import 'services/referral_attribution_service.dart';
 import 'dart:async';
 
 Future<void> main() async {
@@ -32,6 +35,9 @@ Future<void> main() async {
         //Get.put(BusinessController(), permanent: true);
         print("BusinessController initialized");
       });
+
+      // Silent install / signup referrer (deep link or web ?ref=); no UI.
+      await ReferralAttributionService.bootstrap();
 
       // Firebase initialization for all supported platforms
       await Firebase.initializeApp(
@@ -84,6 +90,36 @@ class MyApp extends StatelessWidget {
       theme: Themes.lightTheme,
       darkTheme: Themes.darkTheme,
       onGenerateRoute: AppRouter.onGenerateRoute,
+      // Android edge-to-edge (forced on API 35+): the system navigation bar
+      // overlays the app. mq.padding.bottom already equals the nav-bar height
+      // (Flutter reports it via viewPadding, not as a separate delta), so the
+      // old `viewPadding - padding` delta is always 0 and never fires.
+      //
+      // Fix:
+      // 1. Physically shrink the root layout by navBottom so EVERY screen's
+      //    body ends above the nav bar, even without SafeArea.
+      // 2. Zero out padding.bottom in the inherited MediaQuery so SafeArea
+      //    widgets inside Scaffolds don't add a second navBottom padding.
+      //    viewPadding.bottom is left intact for any widget that needs the
+      //    raw window inset.
+      // Skip entirely when the keyboard is visible so Scaffold's
+      // adjustResize/resizeToAvoidBottomInset behaviour is undisturbed.
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        Widget content = child ?? const SizedBox.shrink();
+        if (mq.viewInsets.bottom > 0) return content;
+        final navBottom = mq.padding.bottom;
+        if (navBottom <= 0) return content;
+        return MediaQuery(
+          data: mq.copyWith(
+            padding: mq.padding.copyWith(bottom: 0),
+          ),
+          child: Padding(
+            padding: EdgeInsets.only(bottom: navBottom),
+            child: content,
+          ),
+        );
+      },
     );
   }
 }

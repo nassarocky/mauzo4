@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../../models/product_model.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/product_controller.dart';
 import '../../../controllers/profile_controller.dart';
@@ -34,6 +35,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _wholesalePriceController = TextEditingController();
+  final TextEditingController _wholesaleMinQtyController =
+      TextEditingController(
+          text: Product.defaultWholesaleMinQuantity.toString());
   final TextEditingController _categoryController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
@@ -113,6 +118,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
       if (_isTypingTotal) {
         _updateBuyingPricePerItem();
       }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _businessController.updateBusinessData();
+      if (mounted) setState(() {});
     });
   }
 
@@ -282,6 +293,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _nameController.clear();
     _codeController.clear();
     _priceController.clear();
+    _wholesalePriceController.clear();
+    _wholesaleMinQtyController.text =
+        Product.defaultWholesaleMinQuantity.toString();
     _categoryController.clear();
     _quantityController.clear();
     _detailsController.clear();
@@ -297,7 +311,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _productController.setCategory('No category'.tr);
     _productController.setManufacturer('No manufacturer'.tr);
     _productController.setLocation('No location'.tr);
-
   }
   List<String> removeDuplicateUnits(List<String> allUnits) {
     final seen = <String>{}; // Use a Set for efficient duplicate checking
@@ -611,8 +624,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               ),
                             ],
                           ),
-
-
                           SizedBox(
                             height: 44,
                             width: double.infinity,
@@ -641,6 +652,87 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
                           // Additional fields that are shown/hidden
                           if (showAdditionalFields) ...[
+                            Row(
+                              children: [
+                                Text(
+                                  'wholesale_selling_price'.tr,
+                                  style: bodyText(textPlaceholderColor),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 44,
+                                    child: TextField(
+                                      controller: _wholesalePriceController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(horizontal: 10),
+                                        labelText: _payment,
+                                        hintText: 'wholesale_price_leave_empty'.tr,
+                                        labelStyle: bodyText(textPlaceholderColor),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide: BorderSide(
+                                            color: Preferences.getTheme()
+                                                ? mediumGrayColor
+                                                : borderColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 120,
+                                  child: Text(
+                                    'wholesale_min_quantity_label'.tr,
+                                    style: bodyText(textPlaceholderColor),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 44,
+                                    child: TextField(
+                                      controller: _wholesaleMinQtyController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 10),
+                                        hintText:
+                                            'wholesale_min_quantity_hint'.tr,
+                                        labelStyle:
+                                            bodyText(textPlaceholderColor),
+                                        border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                          borderSide: BorderSide(
+                                            color: Preferences.getTheme()
+                                                ? mediumGrayColor
+                                                : borderColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
                             // Item type selection in additional details
                             Row(
                               children: [
@@ -1032,12 +1124,41 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 });
 
                                 // Validation: for service, only name, price, and buying price are required
-                                if (!_isNameEmpty && !_isPriceEmpty && !_isBuyingPriceEmpty && (_selectedItemType == 'service' || !_isQuantityEmpty)) {
+                                if (!_isNameEmpty &&
+                                    !_isPriceEmpty &&
+                                    !_isBuyingPriceEmpty &&
+                                    (_selectedItemType == 'service' || !_isQuantityEmpty)) {
                                   double buyingPrice = double.parse(_buyingPriceController.text.replaceAll(',', ''));
                                   double sellingPrice = double.parse(_priceController.text.replaceAll(',', ''));
+                                  final wholesaleRaw =
+                                      _wholesalePriceController.text.trim().replaceAll(',', '');
+                                  double wholesalePrice = 0.0;
+                                  if (wholesaleRaw.isNotEmpty) {
+                                    wholesalePrice =
+                                        double.parse(wholesaleRaw.replaceAll(',', ''));
+                                  }
 
+                                  if (wholesalePrice > sellingPrice) {
+                                    _showSnackbar('wholesale_above_retail'.tr);
+                                    return;
+                                  }
                                   if (buyingPrice >= sellingPrice) {
                                     _showSnackbar('Buying price must be less than selling price.'.tr);
+                                    return;
+                                  }
+                                  if (wholesalePrice > 0 &&
+                                      buyingPrice >= wholesalePrice) {
+                                    _showSnackbar('buying_must_be_below_wholesale'.tr);
+                                    return;
+                                  }
+
+                                  final wMinRaw = _wholesaleMinQtyController.text
+                                      .trim()
+                                      .replaceAll(',', '');
+                                  final wholesaleMinQty = int.tryParse(wMinRaw);
+                                  if (wholesaleMinQty == null ||
+                                      wholesaleMinQty < 1) {
+                                    _showSnackbar('wholesale_min_invalid'.tr);
                                     return;
                                   }
 
@@ -1104,6 +1225,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       details: _detailsController.text.trim(),
                                       imageUrl: imageUrl ?? '',
                                       price: sellingPrice,
+                                      wholesalePrice: wholesalePrice,
+                                      wholesaleMinQuantity: wholesaleMinQty,
                                       quantity: _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
                                       manufacturer: _manufacturerController.text.trim(),
                                       location: _locationController.text.trim(),
@@ -1130,6 +1253,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                               : _discountController.text.trim().replaceAll(',', '')),
                                       'code': _codeController.text.trim(),
                                       'price': sellingPrice,
+                                      'wholesalePrice': wholesalePrice,
+                                      'wholesaleMinQuantity': wholesaleMinQty,
                                       'quantity': _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
                                       'category': _categoryController.text.trim(),
                                       'image': imageUrl ?? '',
@@ -1213,6 +1338,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
     required String name,
     required double buyingPrice,
     required double price,
+    double wholesalePrice = 0,
+    int wholesaleMinQuantity = Product.defaultWholesaleMinQuantity,
     required double quantity,
     String? manufacturer,
     String? details,
@@ -1245,6 +1372,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
       'understock': understock,
       'code': code,
       'price': price,
+      'wholesalePrice': wholesalePrice,
+      'wholesaleMinQuantity': wholesaleMinQuantity,
       'quantity': quantity,
       'category': category,
       'imageUrl': imageUrl,

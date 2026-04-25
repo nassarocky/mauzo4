@@ -14,9 +14,12 @@ import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/download_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../constants/transaction_constants.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
+import '../utils/sale_line_quantity.dart';
 import '../services/firestore_db.dart';
+import '../services/ledger_service.dart';
 import 'business_controller.dart';
 import 'expence_controller.dart';
 
@@ -82,16 +85,7 @@ class SaleController extends GetxController {
 
         if (product is Map<String, dynamic>) {
           productId = (product['id'] ?? '').toString();
-          final dynamic q = product['quantity'];
-          if (q is int) {
-            quantityToAdd = q.toDouble();
-          } else if (q is double) {
-            quantityToAdd = q;
-          } else if (q is num) {
-            quantityToAdd = q.toDouble();
-          } else {
-            quantityToAdd = double.tryParse(q?.toString() ?? '') ?? 0.0;
-          }
+          quantityToAdd = saleLineBaseQuantity(product);
         } else if (product is Product) {
           productId = product.id ?? '';
           final dynamic q = product.quantity;
@@ -117,7 +111,16 @@ class SaleController extends GetxController {
               ? (productInInventory.quantity as num).toDouble()
               : double.tryParse(productInInventory.quantity.toString()) ?? 0.0;
           double newQuantity = baseQty + quantityToAdd;
-          updates.add(productController.updateProductCount(productInInventory, newQuantity,'Sale'));
+          updates.add(
+            productController.updateProductCount(
+              productInInventory,
+              newQuantity,
+              TransactionOrigins.saleDeleted,
+              referenceId: sale.id,
+              referenceType: TransactionReferenceTypes.sale,
+              notes: 'Stock restored after the sale was deleted.',
+            ),
+          );
         }
       }
       
@@ -131,6 +134,17 @@ class SaleController extends GetxController {
           .collection('userSales')
           .doc(sale.id)
           .delete();
+
+      // Remove corresponding ledger entries
+      try {
+        await LedgerService().deleteSaleLedgerEntries(
+          saleId: sale.id,
+          payments: sale.payments,
+          postedAt: sale.date,
+        );
+      } catch (e) {
+        print('⚠️ SaleController.deleteSale: ledger cleanup failed for ${sale.id}: $e');
+      }
 
       successSnackbar('Sale ${'deleted'.tr}');
     } catch (e) {
@@ -370,29 +384,45 @@ class SaleController extends GetxController {
 
   double getTotalServiceSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
     double totalServiceSales = 0;
+    const double debtTol = 0.01;
+
     for (var sale in sales) {
-      if (sale.date is Timestamp) {
-        Timestamp saleTimestamp = sale.date;
-        if (saleTimestamp.compareTo(startTimestamp) > 0 && saleTimestamp.compareTo(endTimestamp) < 0) {
-          for (var product in sale.products) {
-            // product can be Map<String, dynamic> or Product
-            String itemType = 'product';
-            if (product is Map<String, dynamic> && product.containsKey('itemType')) {
-              itemType = product['itemType'] ?? 'product';
-            } else if (product is Product) {
-              itemType = product.itemType;
-            }
-            if (itemType == 'service') {
-              double price = 0;
-              if (product is Map<String, dynamic> && product.containsKey('price')) {
-                price = (product['price'] is int) ? (product['price'] as int).toDouble() : (product['price'] ?? 0.0) as double;
-                double quantity = (product['quantity'] is int) ? (product['quantity'] as int).toDouble() : (product['quantity'] ?? 1.0) as double;
-                totalServiceSales += price * quantity;
-              } else if (product is Product) {
-                totalServiceSales += product.price * product.quantity;
-              }
-            }
-          }
+      if (sale.saleType == 'debt_repayment') {
+        continue;
+      }
+      if (sale.date is! Timestamp) {
+        continue;
+      }
+      final Timestamp saleTimestamp = sale.date;
+      if (saleTimestamp.compareTo(startTimestamp) < 0 ||
+          saleTimestamp.compareTo(endTimestamp) > 0) {
+        continue;
+      }
+
+      // Align with product-style reporting: service revenue is not counted in this tile
+      // while the sale still has outstanding debt; after debt is cleared on the original
+      // sale document, lines count like a normal settled sale.
+      final bool debtBlocksServiceRevenue = sale.debt.abs() > debtTol;
+
+      for (var product in sale.products) {
+        String itemType = 'product';
+        if (product is Map<String, dynamic> && product.containsKey('itemType')) {
+          itemType = (product['itemType'] ?? 'product').toString();
+        } else if (product is Product) {
+          itemType = product.itemType;
+        }
+        if (itemType != 'service') continue;
+        if (debtBlocksServiceRevenue) continue;
+
+        if (product is Map<String, dynamic>) {
+          final dynamic rawP = product['price'];
+          final double price = rawP is int
+              ? rawP.toDouble()
+              : (rawP is num ? rawP.toDouble() : double.tryParse(rawP?.toString() ?? '0') ?? 0.0);
+          final double quantity = saleLineBaseQuantity(product);
+          totalServiceSales += price * quantity;
+        } else if (product is Product) {
+          totalServiceSales += product.price * product.quantity;
         }
       }
     }

@@ -14,8 +14,7 @@ import '../../widgets/buttons/primary_button.dart';
 
 Future<void> registerUser({
   required String name,
-  required String email,
-  required String phone,
+  required String phoneOrEmail,
   required String password,
   required String business,
   String role = 'employee', // Default to 'employee' for backward compatibility
@@ -23,14 +22,13 @@ Future<void> registerUser({
   final Uri url = Uri.parse('https://registeruser-z3bhqccxda-uc.a.run.app');
 
   try {
-    // Sending POST request to Cloud Function
+    // Sending POST request to Cloud Function (backend detects email vs phone)
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'name': name,
-        'email': email,
-        'phone': phone,
+        'phoneOrEmail': phoneOrEmail.trim(),
         'password': password,
         'business': business,
         'role': role,
@@ -89,7 +87,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   String _selectedRole = 'sales_person';
 
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _phoneOrEmailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
@@ -164,7 +162,20 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   }
 
   bool isValidEmail(String email) {
-    return RegExp(r"^[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$").hasMatch(email);
+    return RegExp(r"^[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$")
+        .hasMatch(email);
+  }
+
+  /// `@` → valid email; otherwise treat as phone (TZ-friendly, matches owner registration).
+  bool isValidPhoneOrEmail(String value) {
+    final t = value.trim();
+    if (t.isEmpty) return false;
+    if (t.contains('@')) return isValidEmail(t);
+    final d = t.replaceAll(RegExp(r'[^0-9]'), '');
+    if (d.startsWith('0') && d.length == 10) return true;
+    if (d.length == 9 && !d.startsWith('255')) return true;
+    if (d.startsWith('255') && d.length >= 12) return true;
+    return d.length >= 10;
   }
 
   bool isValidPassword(String password) {
@@ -299,12 +310,13 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                 ),
                 const SizedBox(height: 24),
                 TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
+                  controller: _phoneOrEmailController,
+                  keyboardType: TextInputType.text,
                   decoration: InputDecoration(
                     contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10),
-                    labelText: 'email'.tr,
+                        const EdgeInsets.symmetric(horizontal: 10),
+                    labelText: '${'phone_or_email'.tr}*',
+                    hintText: 'user@email.com, +255…, 0712…',
                     labelStyle: bodyText(textPlaceholderColor),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(4),
@@ -363,11 +375,11 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                         onPressed: () async {
                           try {
                             if (_nameController.text.isEmpty ||
-                                _emailController.text.isEmpty ||
+                                _phoneOrEmailController.text.isEmpty ||
                                 _passwordController.text.isEmpty) {
                               errorSnackbar('fill_required_fields'.tr);
-                            } else if (!isValidEmail(_emailController.text)) {
-                              errorSnackbar('Invalid email format.');
+                            } else if (!isValidPhoneOrEmail(_phoneOrEmailController.text)) {
+                              errorSnackbar('invalid_phone_or_email'.tr);
                             } else if (!isValidPassword(_passwordController.text)) {
                               errorSnackbar('Password must be at least 8 characters.');
                             } else {
@@ -392,13 +404,12 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                               }
 
                               await registerUser(
-  name: _nameController.text,
-  email: _emailController.text,
-  phone: _profileController.user['phone'], // Assuming this is available in ProfileController
-  password: _passwordController.text,
-  business: businessId,
-  role: _selectedRole,
-);
+                                name: _nameController.text,
+                                phoneOrEmail: _phoneOrEmailController.text,
+                                password: _passwordController.text,
+                                business: businessId,
+                                role: _selectedRole,
+                              );
 
                               setState(() {
                                 isUploading = false;

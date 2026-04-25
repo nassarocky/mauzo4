@@ -12,6 +12,7 @@ import 'package:pattern_formatter/numeric_formatter.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
+import '../../../constants/transaction_constants.dart';
 import '../../../controllers/business_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../widgets/bottomsheets/product_location_bottom_sheet.dart';
@@ -37,6 +38,8 @@ class _EditProductScreenState extends State<EditProductScreen> {
   late final TextEditingController _categoryController =
   TextEditingController(text: widget.product.category);
   late final TextEditingController _priceController = TextEditingController();
+  late final TextEditingController _wholesalePriceController;
+  late final TextEditingController _wholesaleMinQtyController;
   late final TextEditingController _expireDateController = TextEditingController(
     text: widget.product.expireDate != null
         ? DateFormat('yyyy-MM-dd').format(widget.product.expireDate!)
@@ -70,7 +73,18 @@ class _EditProductScreenState extends State<EditProductScreen> {
   @override
   void initState() {
     super.initState();
-    
+    _wholesalePriceController = TextEditingController(
+      text: widget.product.wholesalePrice > 0
+          ? widget.product.wholesalePrice.toString()
+          : '',
+    );
+    _wholesaleMinQtyController = TextEditingController(
+      text: widget.product.effectiveWholesaleMinQuantity.toString(),
+    );
+    if (widget.product.wholesalePrice > 0) {
+      showAdditionalFields = true;
+    }
+
     // CRITICAL SECURITY CHECK: Verify user has permission to edit products
     if (!_profileController.hasPermission('edit_products')) {
       print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditProductScreen without edit_products permission');
@@ -87,15 +101,31 @@ class _EditProductScreenState extends State<EditProductScreen> {
       });
       return;
     }
-    
+
     // Load custom units from business data
     _loadCustomUnits();
-    
+
     if (_payment == 'UZS') {
       _priceController.text = widget.product.price.toString();
     } else {
       _priceController.text = widget.product.price.toString();
     }
+
+    final rs = widget.product.reserveString1.trim();
+    if (rs.isNotEmpty) {
+      _selectedUnit = rs;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _businessController.updateBusinessData();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   void _loadCustomUnits() {
@@ -435,7 +465,42 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                       ),
                     ),
                   ],
-                ),    const SizedBox(height: 24),
+                ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _wholesalePriceController,
+                  builder: (context, value, _) {
+                    final w = double.tryParse(
+                      value.text.trim().replaceAll(',', ''),
+                    );
+                    if (w == null || w <= 0 || showAdditionalFields) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'wholesale_selling_price'.tr,
+                              style: bodyText(textPlaceholderColor),
+                            ),
+                          ),
+                          Text(
+                            formatCurrency(
+                              w,
+                              _businessController.business['mainCurrency'] ?? 'TZS',
+                            ),
+                            style: h6(
+                              Theme.of(context).textTheme.bodyLarge?.color ??
+                                  textDarkColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
                 Row(
                   children: [
                     Text(
@@ -499,6 +564,82 @@ uniqueUnits=removeDuplicateUnits(allUnits);
 
                 // Additional fields that are shown/hidden
                 if (showAdditionalFields) ...[
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Text(
+                        'wholesale_selling_price'.tr,
+                        style: bodyText(textPlaceholderColor),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: TextField(
+                            controller: _wholesalePriceController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              labelText: _payment,
+                              hintText: 'wholesale_price_leave_empty'.tr,
+                              labelStyle: bodyText(textPlaceholderColor),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme()
+                                      ? mediumGrayColor
+                                      : borderColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 120,
+                        child: Text(
+                          'wholesale_min_quantity_label'.tr,
+                          style: bodyText(textPlaceholderColor),
+                        ),
+                      ),
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: TextField(
+                            controller: _wholesaleMinQtyController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10),
+                              hintText: 'wholesale_min_quantity_hint'.tr,
+                              labelStyle: bodyText(textPlaceholderColor),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: Preferences.getTheme()
+                                      ? mediumGrayColor
+                                      : borderColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
                   SizedBox(
                     height: 44,
@@ -786,7 +927,7 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                               } else if (_priceController.text.isEmpty) {
                                 errorSnackbar(
                                     'product_price_required'.tr);
-                              }else if(_buyingPriceController.text.isEmpty) {
+                              } else if(_buyingPriceController.text.isEmpty) {
                                 errorSnackbar(
                                     'product_buyingprice_required'.tr);
                               }else if (quantityController
@@ -802,62 +943,100 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                                   .replaceAll(',', '')) <
                                   0) {
                                 errorSnackbar('quantity_negative'.tr);
-                              } else if(buyingp>=sellip){
-                                errorSnackbar(
-                                    'Buying price must be less than selling price.'.tr);
-
                               } else {
-                                setState(() {
-                                  isUploading = true;
-                                });
+                                final wMinRaw = _wholesaleMinQtyController.text
+                                    .trim()
+                                    .replaceAll(',', '');
+                                final wholesaleMinQty = int.tryParse(wMinRaw);
+                                if (wholesaleMinQty == null ||
+                                    wholesaleMinQty < 1) {
+                                  errorSnackbar('wholesale_min_invalid'.tr);
+                                } else {
+                                final wholesaleRaw =
+                                    _wholesalePriceController.text
+                                        .trim()
+                                        .replaceAll(',', '');
+                                double wholesaleDisplay = 0.0;
+                                if (wholesaleRaw.isNotEmpty) {
+                                  wholesaleDisplay =
+                                      double.parse(wholesaleRaw);
+                                }
+                                if (wholesaleDisplay > sellip + 1e-9) {
+                                  errorSnackbar('wholesale_above_retail'.tr);
+                                } else if (buyingp >= sellip) {
+                                  errorSnackbar(
+                                      'Buying price must be less than selling price.'
+                                          .tr);
+                                } else if (wholesaleDisplay > 0 &&
+                                    buyingp >= wholesaleDisplay - 1e-9) {
+                                  errorSnackbar('buying_must_be_below_wholesale'.tr);
+                                } else {
+                                  setState(() {
+                                    isUploading = true;
+                                  });
 
-                                double priceMain = double.parse(
-                                    _priceController.text
-                                        .replaceAll(',', ''));
-                                double priceSecondary;
-                                if (_payment ==
-                                    _businessController
-                                        .business['secondaryCurrency']) {
-                                  priceSecondary = double.parse(
+                                  double priceMain = double.parse(
                                       _priceController.text
                                           .replaceAll(',', ''));
-                                  priceMain = double.parse(
-                                      (priceSecondary *
-                                          Preferences
-                                              .getExchangeRate())
-                                          .toStringAsFixed(0));
-                                }
+                                  if (_payment ==
+                                      _businessController
+                                          .business['secondaryCurrency']) {
+                                    final priceSecondary = double.parse(
+                                        _priceController.text
+                                            .replaceAll(',', ''));
+                                    priceMain = double.parse(
+                                        (priceSecondary *
+                                                Preferences.getExchangeRate())
+                                            .toStringAsFixed(0));
+                                  }
 
-                                String url = widget.product.image!;
-                                if (imageFile != null) {
-                                  url = await uploadFile(
-                                    'products',
-                                    imageFile!,
-                                  );
-                                }
-                                await updateProduct(
-                                  _businessController,
-                                  _nameController,
-                                  _codeController,
-                                  priceMain,
-                                  quantityController,
-                                  _categoryController,
-                                  url,
-                                  _buyingPriceController,
+                                  double wholesaleMain = 0.0;
+                                  if (wholesaleDisplay > 0) {
+                                    wholesaleMain = wholesaleDisplay;
+                                    if (_payment ==
+                                        _businessController
+                                            .business['secondaryCurrency']) {
+                                      wholesaleMain = double.parse(
+                                          (wholesaleDisplay *
+                                                  Preferences.getExchangeRate())
+                                              .toStringAsFixed(0));
+                                    }
+                                  }
+
+                                  String url = widget.product.image!;
+                                  if (imageFile != null) {
+                                    url = await uploadFile(
+                                      'products',
+                                      imageFile!,
+                                    );
+                                  }
+                                  await updateProduct(
+                                    _businessController,
+                                    _nameController,
+                                    _codeController,
+                                    priceMain,
+                                    wholesaleMain,
+                                    wholesaleMinQty,
+                                    quantityController,
+                                    _categoryController,
+                                    url,
+                                    _buyingPriceController,
                                     _underStockController,
                                     _discountController,
                                     _locationController,
                                     _manufacturerController,
                                     _detailsController,
-                                  _expireDateController
-                                );
-                                setState(() {
-                                  isUploading = false;
-                                });
-                                if (mounted) {
-                                  Navigator.pop(context);
+                                    _expireDateController,
+                                  );
+                                  setState(() {
+                                    isUploading = false;
+                                  });
+                                  if (mounted) {
+                                    Navigator.pop(context);
+                                  }
+                                  successSnackbar('product_updated'.tr);
                                 }
-                                successSnackbar('product_updated'.tr);
+                                }
                               }
                             } catch (e) {
                               errorSnackbar('An error occurred: $e');
@@ -883,17 +1062,18 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       TextEditingController nameController,
       TextEditingController codeController,
       double price,
+      double wholesalePrice,
+      int wholesaleMinQuantity,
       TextEditingController quantityController,
       TextEditingController categoryController,
       String url,
       TextEditingController buyingPriceController,
       TextEditingController underStockController,
       TextEditingController discountController,
-      TextEditingController  locationController,
+      TextEditingController locationController,
       TextEditingController manufacturerController,
       TextEditingController detailsController,
       TextEditingController expireDateController,
-
       ) async {
     final String? businessId = _businessController.business['id'];
 
@@ -918,6 +1098,11 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       }
     }
 
+    final double oldQuantity = (widget.product.quantity is num)
+        ? (widget.product.quantity as num).toDouble()
+        : double.tryParse(widget.product.quantity.toString()) ?? 0.0;
+    final double newQuantity = double.parse(quantityController.text.trim().replaceAll(',', ''));
+
     await firestore
         .collection('products')
         .doc(businessId)
@@ -928,7 +1113,10 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       'name': nameController.text.trim(),
       'code': codeController.text.trim(),
       'price': price,
-      'quantity': double.parse(quantityController.text.trim().replaceAll(',', '')),
+      'wholesalePrice': wholesalePrice,
+      'wholesaleMinQuantity': wholesaleMinQuantity,
+      'uomConversions': <Map<String, dynamic>>[],
+      'quantity': newQuantity,
       'category': categoryController.text.trim(),
       'image': url,
       'buyingPrice':double.parse(
@@ -945,8 +1133,24 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       'reserveString1': _selectedUnit,
       'manufacturer': manufacturerController.text.trim(),
       'expireDate':expireDate
-
     });
+
+    if (newQuantity != oldQuantity) {
+      final double change = (newQuantity - oldQuantity).abs();
+      await _productController.createStockTransaction(
+        productId: widget.product.id,
+        quantityChange: change,
+        previousQuantity: oldQuantity,
+        newQuantity: newQuantity,
+        transactionType: newQuantity > oldQuantity
+            ? TransactionTypes.addition
+            : TransactionTypes.removal,
+        transactionOrigin: TransactionOrigins.manualAdjustment,
+        price: price,
+        referenceType: TransactionReferenceTypes.manual,
+        notes: 'Manual quantity edit',
+      );
+    }
   }
   Future<void> _showAddUnitDialog(BuildContext context) async {
     // Create a new controller for this dialog to avoid conflicts

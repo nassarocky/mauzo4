@@ -18,8 +18,10 @@ class SupplierDebtController extends GetxController {
   final selectedStatus = 'No status'.obs;
   final RxBool isLoading = false.obs;
   
-  // Current status being viewed (default: pending for optimization)
+  /// Firestore filter key: `'pending'` = unpaid tab (pending + partially_paid), `'paid'`, or `'__all__'`.
   final currentStatus = 'pending'.obs;
+
+  static const String _allStatusesKey = '__all__';
 
   StreamSubscription<QuerySnapshot>? _supplierDebtSubscription;
 
@@ -91,13 +93,25 @@ class SupplierDebtController extends GetxController {
       print('[WARN SupplierDebtController] businessId is empty in getSupplierDebts()');
     }
 
-    final stream = firestore
+    final base = firestore
         .collection('supplierDebts')
         .doc(businessId)
-        .collection('userSupplierDebts')
-        .where('status', isEqualTo: status)
-        .snapshots();
-    
+        .collection('userSupplierDebts');
+
+    // "Pending" tab = any unpaid row: first payment keeps status `pending`; the next sets `partially_paid`,
+    // which must still appear here (previously `isEqualTo: pending` hid the debt).
+    final Query<Map<String, dynamic>> q;
+    if (status == _allStatusesKey) {
+      q = base;
+    } else if (status == 'paid') {
+      q = base.where('status', isEqualTo: 'paid');
+    } else if (status == 'pending') {
+      q = base.where('status', whereIn: ['pending', 'partially_paid']);
+    } else {
+      q = base.where('status', isEqualTo: status);
+    }
+
+    final stream = q.snapshots();
     print('[DEBUG SupplierDebtController] Stream created for path: supplierDebts/$businessId/userSupplierDebts with status filter');
     return stream;
   }
@@ -345,8 +359,8 @@ class SupplierDebtController extends GetxController {
       final dbStatus = statuses.first.toLowerCase();
       loadDebtsByStatus(dbStatus);
     } else if (statuses.isEmpty) {
-      // Default to pending if no status selected  
-      loadDebtsByStatus('pending');
+      // "All" — no status filter in Firestore
+      loadDebtsByStatus(_allStatusesKey);
     } else {
       // For multiple statuses, filter in memory
       filterSupplierDebts();

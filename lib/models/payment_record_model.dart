@@ -7,13 +7,6 @@ enum PaymentStatus {
   cancelled,
 }
 
-enum PaymentMethod {
-  cash,
-  bank_transfer,
-  mobile_money,
-  check,
-}
-
 class PaymentRecord {
   final String id;
   final String payRoleId;
@@ -26,7 +19,7 @@ class PaymentRecord {
   final double amount;
   final String currency;
   final PaymentStatus status;
-  final PaymentMethod? paymentMethod;
+  final String? paymentMethod;
   final String? referenceNumber;
   
   // Dates
@@ -74,7 +67,7 @@ class PaymentRecord {
     required this.amount,
     required this.currency,
     required this.status,
-    this.paymentMethod,
+    this.paymentMethod = 'cash',
     this.referenceNumber,
     required this.payPeriodStart,
     required this.payPeriodEnd,
@@ -118,7 +111,7 @@ class PaymentRecord {
       amount: data['amount']?.toDouble() ?? 0.0,
       currency: data['currency'] ?? 'TZS',
       status: getPaymentStatus(data['status']),
-      paymentMethod: getPaymentMethod(data['paymentMethod']),
+      paymentMethod: data['paymentMethod']?.toString() ?? 'cash',
       referenceNumber: data['referenceNumber'],
       payPeriodStart: (data['payPeriodStart'] as Timestamp).toDate(),
       payPeriodEnd: (data['payPeriodEnd'] as Timestamp).toDate(),
@@ -170,21 +163,6 @@ class PaymentRecord {
     }
   }
 
-  static PaymentMethod? getPaymentMethod(String? method) {
-    switch (method) {
-      case 'cash':
-        return PaymentMethod.cash;
-      case 'bank_transfer':
-        return PaymentMethod.bank_transfer;
-      case 'mobile_money':
-        return PaymentMethod.mobile_money;
-      case 'check':
-        return PaymentMethod.check;
-      default:
-        return null;
-    }
-  }
-
   // Method to convert PaymentRecord to Firestore format
   Map<String, dynamic> toFirestore() {
     return {
@@ -196,7 +174,7 @@ class PaymentRecord {
       'amount': amount,
       'currency': currency,
       'status': status.toString().split('.').last,
-      'paymentMethod': paymentMethod?.toString().split('.').last,
+      'paymentMethod': paymentMethod ?? 'cash',
       'referenceNumber': referenceNumber,
       'payPeriodStart': Timestamp.fromDate(payPeriodStart),
       'payPeriodEnd': Timestamp.fromDate(payPeriodEnd),
@@ -271,7 +249,7 @@ class PaymentRecord {
   // Copy with method for updates
   PaymentRecord copyWith({
     PaymentStatus? status,
-    PaymentMethod? paymentMethod,
+    String? paymentMethod,
     String? referenceNumber,
     DateTime? paidDate,
     DateTime? updatedAt,

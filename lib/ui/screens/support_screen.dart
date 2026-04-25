@@ -132,11 +132,11 @@ class _SupportScreenState extends State<SupportScreen> {
                           style: TextStyle(fontSize: getFontSize(context, 14), color: textDarkColor),
                         ),
                         Link(
-                          uri: Uri.parse('mailto:goodnassah1@gmail.com'),
+                          uri: Uri.parse('mailto:info@hesabumauzo.co.tz'),
                           builder: (context, followLink) => GestureDetector(
                             onTap: followLink,
                             child: Text(
-                              'goodnassah1@gmail.com',
+                              'info@hesabumauzo.co.tz',
                               style: TextStyle(fontSize: getFontSize(context, 14), color: primaryColor),
                             ),
                           ),

@@ -103,6 +103,19 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     });
   }
 
+  String _effectiveFundSourceValue() {
+    final rows = _businessController.paymentMethodsForDropdown(
+        currentValue: _fundSource);
+    if (rows.isEmpty) return _fundSource;
+    final values = rows
+        .map((e) => e['value']?.toString() ?? '')
+        .where((v) => v.isNotEmpty)
+        .toList();
+    if (values.contains(_fundSource)) return _fundSource;
+    final first = rows.first['value']?.toString();
+    return (first != null && first.isNotEmpty) ? first : _fundSource;
+  }
+
   void _showAddCategoryDialog() {
     final TextEditingController categoryController = TextEditingController();
 
@@ -334,14 +347,33 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _fundSource,
-                          items: const [
-                            DropdownMenuItem(value: 'cash', child: Text('Cash')),
-                            DropdownMenuItem(value: 'bank', child: Text('Bank')),
-                            DropdownMenuItem(value: 'mobile', child: Text('Lipa Namba (Mobile)')),
-                            DropdownMenuItem(value: 'other', child: Text('Other Source')),
-                          ],
+                        Obx(() {
+                          final items = _businessController
+                              .paymentMethodsForDropdown(
+                                  currentValue: _fundSource)
+                              .map((fs) {
+                                final v = fs['value']?.toString() ?? '';
+                                if (v.isEmpty) return null;
+                                return DropdownMenuItem<String>(
+                                  value: v,
+                                  child: Text(
+                                      fs['label']?.toString() ?? v),
+                                );
+                              })
+                              .whereType<DropdownMenuItem<String>>()
+                              .toList();
+                          if (items.isEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Loading fund sources...'.tr,
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
+                            );
+                          }
+                          return DropdownButtonFormField<String>(
+                          value: _effectiveFundSourceValue(),
+                          items: items,
                           decoration: InputDecoration(
                             hintText: 'Select source of funds...'.tr,
                             border: OutlineInputBorder(
@@ -363,7 +395,8 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                               if (_fundSource != 'other') _fundSourceOtherNote = '';
                             });
                           },
-                        ),
+                        );
+                        }),
                         if (_fundSource == 'other') ...[
                           const SizedBox(height: 8),
                           TextField(

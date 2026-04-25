@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>HesabuMauzo — Agent &amp; commission</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #141c2e;
+      --border: #2a3750;
+      --text: #e8eef8;
+      --muted: #8b9ab8;
+      --accent: #6366f1;
+      --accent-dim: #4f46e5;
+      --danger: #f87171;
+      --ok: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px 16px 48px;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 22px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 20px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    input[type="email"], input[type="password"], input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0d1424;
+      color: var(--text);
+      font-size: 1rem;
+      margin-bottom: 12px;
+    }
+    textarea { min-height: 64px; font-family: inherit; resize: vertical; }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+    }
+    button {
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.92rem;
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover:not(:disabled) { background: var(--accent-dim); }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+    .staff { font-size: 0.85rem; color: var(--muted); margin-bottom: 14px; }
+    .staff strong { color: var(--text); }
+    #feedback {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    #feedback.show { display: block; white-space: pre-wrap; }
+    #feedback.ok { background: rgba(74, 222, 128, 0.12); color: #86efac; border-color: rgba(74, 222, 128, 0.35); }
+    #feedback.error { background: rgba(248, 113, 113, 0.1); color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
+    #feedback.info { background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.35); }
+    h2 { font-size: 1.05rem; margin: 20px 0 12px; color: var(--text); }
+    .hint { font-size: 0.82rem; color: var(--muted); margin: 10px 0 14px; line-height: 1.45; }
+    .stats { font-size: 0.9rem; margin: 8px 0; color: var(--muted); }
+    .stats strong { color: var(--text); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: rgba(99, 102, 241, 0.12); color: var(--muted); font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr[data-uid] { cursor: pointer; }
+    tbody tr[data-uid]:hover { background: rgba(255,255,255,0.04); }
+    tbody tr.selected { background: rgba(99, 102, 241, 0.18); }
+    code { font-size: 0.78rem; background: #0d1424; padding: 2px 6px; border-radius: 4px; }
+    details.events { margin-top: 16px; }
+    details.events summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+    hr.sep { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+    .admin-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      align-items: center;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+    .admin-nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .admin-nav a:hover { text-decoration: underline; }
+    .auth-boot { text-align: center; padding: 28px 16px; }
+    .auth-boot-msg { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav id="adminTopNav" class="admin-nav" hidden aria-label="Admin navigation">
+      <a href="/admin-hub/">Admin home</a>
+      <a href="/support-reset/">Support tools</a>
+    </nav>
+    <h1>Agent commission &amp; promo codes</h1>
+    <p class="sub">Commission and promo codes for agents and admins.</p>
+
+    <div id="feedback" role="status" aria-live="polite"></div>
+
+    <div id="authBootCard" class="card auth-boot" aria-live="polite">
+      <p class="auth-boot-msg">Loading session…</p>
+    </div>
+
+    <div id="loginCard" class="card" hidden>
+      <form id="loginForm">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" autocomplete="username" required />
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required />
+        <button type="submit" class="primary">Sign in</button>
+      </form>
+    </div>
+
+    <div id="adminCard" class="card" hidden>
+      <p class="staff">Signed in as <strong id="signedInAs"></strong></p>
+      <button type="button" class="ghost" id="logoutBtn">Sign out</button>
+
+      <h2>Create agent</h2>
+      <form id="adminCreateForm">
+        <label for="newAgentEmail">Agent email (login)</label>
+        <input id="newAgentEmail" type="email" required />
+        <label for="newAgentPassword">Temporary password (min 8)</label>
+        <input id="newAgentPassword" type="password" minlength="8" required />
+        <label for="newAgentName">Display name</label>
+        <input id="newAgentName" type="text" placeholder="e.g. John — Dar zone" />
+        <label for="newPromoCodes">Promo codes (comma or space separated)</label>
+        <textarea id="newPromoCodes" placeholder="AGENT01 PARTNER_X" required></textarea>
+        <label for="newAgentPercent">Commission % (default 20)</label>
+        <input id="newAgentPercent" type="number" min="0" max="100" step="0.5" value="20" />
+        <button type="submit" class="primary">Create agent</button>
+      </form>
+
+      <hr class="sep" />
+
+      <h2>Agents</h2>
+      <div class="row">
+        <button type="button" class="ghost" id="adminRefreshBtn">Refresh list</button>
+      </div>
+      <div class="table-wrap" id="adminAgentsTable">
+        <table>
+          <thead>
+            <tr>
+              <th>UID</th>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Promo codes</th>
+              <th>%</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="adminAgentsBody"></tbody>
+        </table>
+      </div>
+
+      <hr class="sep" />
+
+      <h2>Agent statistics</h2>
+      <div class="row">
+        <label for="adminStatsMonth" style="margin:0;">Month (YYYY-MM)</label>
+        <input id="adminStatsMonth" type="text" pattern="\\d{4}-\\d{2}" placeholder="2026-04" style="max-width:140px;margin:0;" />
+        <button type="button" class="primary" id="adminAgentStatsBtn">Load stats</button>
+      </div>
+      <div id="adminAgentDashboard"></div>
+
+      <hr class="sep" />
+
+      <h2>Edit selected agent</h2>
+      <form id="adminUpdateForm">
+        <label for="editAgentUid">Agent UID</label>
+        <input id="editAgentUid" type="text" placeholder="Firebase Auth uid" />
+        <label for="editPercent">New commission % (0–100)</label>
+        <input id="editPercent" type="number" min="0" max="100" step="0.5" placeholder="e.g. 25" />
+        <label for="editPromoCodes">Replace promo codes (comma / space)</label>
+        <textarea id="editPromoCodes" placeholder="Leave empty to keep unchanged"></textarea>
+        <div class="row">
+          <button type="submit" class="primary">Save changes</button>
+          <button type="button" class="ghost" id="adminDeactivateBtn">Deactivate agent</button>
+          <button type="button" class="ghost" id="adminDeleteAgentBtn" style="border-color:var(--danger);color:var(--danger)">Delete agent</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="agentCard" class="card" hidden>
+      <p class="staff">Signed in as <strong id="signedInAsAgent"></strong></p>
+      <button type="button" class="ghost" id="logoutBtnAgent">Sign out</button>
+      <div class="row">
+        <label for="agentMonth" style="margin:0;">Month (YYYY-MM)</label>
+        <input id="agentMonth" type="text" pattern="\\d{4}-\\d{2}" placeholder="2026-04" style="max-width:140px;margin:0;" />
+        <button type="button" class="primary" id="agentRefreshBtn">Load</button>
+      </div>
+      <div id="agentDashboard"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

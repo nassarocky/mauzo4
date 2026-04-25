@@ -11,6 +11,7 @@ import 'package:mauzo/models/sale_model.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/profile_controller.dart';
 import '../../utils/preferences.dart';
+import '../../utils/sale_line_quantity.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({Key? key}) : super(key: key);
@@ -183,11 +184,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       }
       
       if (includeThisSale) {
+        final bool debtBlocksServiceStats = sale.debt.abs() > 0.01;
         for (var product in sale.products) {
-          String productId = product['id'];
-          String productName = product['name'];
-          double quantity = (product['quantity'] ?? 0).toDouble();
-          double price = (product['price'] ?? 0).toDouble();
+          final pm = Map<String, dynamic>.from(product as Map);
+          final String itemType = (pm['itemType'] ?? 'product').toString();
+          if (itemType == 'service' && debtBlocksServiceStats) {
+            continue;
+          }
+          String productId = pm['id'];
+          String productName = pm['name'];
+          double quantity = saleLineBaseQuantity(pm);
+          double price = (pm['price'] ?? 0).toDouble();
 
           if (productStats.containsKey(productId)) {
             productStats[productId]!['quantity'] += quantity;

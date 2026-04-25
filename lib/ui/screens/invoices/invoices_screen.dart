@@ -9,6 +9,7 @@ import 'package:mauzo/controllers/client_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/ui/screens/sale/invoice_dual_screen.dart';
+import 'package:mauzo/ui/screens/invoices/invoice_payment_settings_screen.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/dashed_seperator.dart';
 import 'package:pdf/pdf.dart';
@@ -31,6 +32,7 @@ import '../../widgets/printer_selection_dialog.dart';
 import '../../../models/sale_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../utils/download_helper.dart';
+import '../../../utils/receipt_footer.dart';
 
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({Key? key}) : super(key: key);
@@ -97,6 +99,18 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       appBar: AppBar(
         title: Text('all_invoices'.tr),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            tooltip: 'Invoice Payment Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const InvoicePaymentSettingsScreen(),
+              ),
+            ),
+          ),
+        ],
       ),
       body: Obx(
             () => Column(
@@ -599,186 +613,362 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
 
   Future<pw.Document> _generateInvoice(dynamic invoice, Client client) async {
     final pdf = pw.Document();
-    final currency = _businessController.business['mainCurrency'];
+    final currency = (_businessController.business['mainCurrency'] ?? 'TZS').toString();
     final dateTime = invoice.date.toDate();
+    final business = _businessController.business;
 
-    // Load the logo if available, ensuring a non-null widget is always returned
-    pw.Widget logoWidget;
-    if (_businessController.business['logo'] != null && _businessController.business['logo'] != '') {
+    // Enabled payment details
+    final List<Map<String, dynamic>> paymentDetails =
+        List<Map<String, dynamic>>.from(
+      (business['invoicePaymentDetails'] as List? ?? [])
+          .where((e) => (e as Map)['showOnInvoice'] == true)
+          .map((e) => Map<String, dynamic>.from(e as Map)),
+    );
+
+    // Resolve client name
+    final clientName = client.name.isNotEmpty
+        ? client.name
+        : (invoice.clientname?.toString().isNotEmpty == true
+            ? invoice.clientname.toString()
+            : 'N/A');
+
+    // Load logo
+    pw.Widget logoWidget = pw.SizedBox(width: 60, height: 60);
+    if (business['logo'] != null && business['logo'].toString().isNotEmpty) {
       try {
-        final netImage = await networkImage(_businessController.business['logo']);
-        print('Logo loaded successfully');
-        logoWidget = pw.Image(netImage, width: 50, height: 50);
-      } catch (e) {
-        print('Error loading logo: $e');
-        logoWidget = pw.Container(
-          width: 50,
-          height: 50,
-          child: pw.Center(
-            child: pw.Text('No Logo', style: pw.TextStyle(fontSize: 10)),
-          ),
-        );
-      }
-    } else {
-      print('No logo URL provided');
-      logoWidget = pw.Container(
-        width: 50,
-        height: 50,
-        child: pw.Center(
-          child: pw.Text('No Logo', style: pw.TextStyle(fontSize: 10)),
-        ),
-      );
+        final netImage = await networkImage(business['logo'].toString());
+        logoWidget =
+            pw.Image(netImage, width: 60, height: 60, fit: pw.BoxFit.contain);
+      } catch (_) {}
     }
 
+    // Totals
+    final subtotal = (invoice.price + invoice.discount) as double;
+    final discount = (invoice.discount ?? 0.0) as double;
+    final total = (invoice.price ?? 0.0) as double;
+    final paid = (invoice.payment ?? 0.0) as double;
+    final debt = (invoice.debt ?? 0.0) as double;
+
     pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.roll80,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 36, vertical: 36),
+        build: (context) => [
+          // ── HEADER ─────────────────────────────────────────────
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Header with Business Info on the Left and Logo on the Right
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        _businessController.business['name'] ?? _businessController.business['business'],
-                        style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.Text('Phone: ${_businessController.business['phone']}', style: pw.TextStyle(fontSize: 14)),
-                      if (_businessController.business['tin'] != null && _businessController.business['tin'] != '')
-                        pw.Text('TIN: ${_businessController.business['tin']}', style: pw.TextStyle(fontSize: 14)),
-                    ],
-                  ),
-                  logoWidget,
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(),
-
-              // Transaction Info
-              pw.Text(
-                'Invoice',
-                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Invoice #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}', style: pw.TextStyle(fontSize: 12)),
-                  pw.Text(
-                    '${DateFormat('yyyy-MM-dd').format(dateTime)} ${DateFormat('HH:mm').format(dateTime)}',
-                    style: pw.TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 5),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Client: ${client.name}', style: pw.TextStyle(fontSize: 12)),
-                  if (invoice.employeeId != null && invoice.employeeName != null)
-                    pw.Text('Served by: ${invoice.employeeName}', style: pw.TextStyle(fontSize: 12)),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(),
-
-              // Itemized List
-              pw.Table(
-                border: pw.TableBorder.all(),
-                columnWidths: {
-                  0: pw.FractionColumnWidth(0.4), // Product Name
-                  1: pw.FractionColumnWidth(0.2), // Quantity
-                  2: pw.FractionColumnWidth(0.2), // Price
-                  3: pw.FractionColumnWidth(0.2), // Total
-                },
-                children: [
-                  pw.TableRow(
-                    decoration: pw.BoxDecoration(color: PdfColors.grey300),
-                    children: [
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Product', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Qty', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Price', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text('Total ($currency)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
-                      ),
-                    ],
-                  ),
-                  ...invoice.products.map<pw.TableRow>((product) {
-                    final quantity = (product['quantity'] ?? 0).toDouble();
-                    final price = (product['price'] ?? 0.0).toDouble();
-                    return pw.TableRow(
-                      children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(product['name'], style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.left),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(quantity.toString(), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(8),
-                          child: pw.Text(formatCurrency(quantity * price, currency), style: pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.center),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                ],
-              ),
-
-              // Summary
-              pw.SizedBox(height: 10),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
+              pw.Expanded(
                 child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Subtotal: ${formatCurrency(invoice.price + invoice.discount, currency)}', style: pw.TextStyle(fontSize: 12)),
-                    if (invoice.discount > 0)
-                      pw.Text('Discount: ${formatCurrency(invoice.discount, currency)}', style: pw.TextStyle(fontSize: 12)),
-                    pw.Divider(),
-                    pw.Text('Total: ${formatCurrency(invoice.price, currency)}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                  //  if (invoice.debt > 0)
-                 //     pw.Text('Debt: ${formatCurrency(invoice.debt, currency)}', style: pw.TextStyle(fontSize: 12)),
-                  //  if (invoice.payment > 0)
-                    //  pw.Text('Paid: ${formatCurrency(invoice.payment, currency)}', style: pw.TextStyle(fontSize: 12)),
+                    pw.Text(
+                      business['name']?.toString() ??
+                          business['business']?.toString() ?? '',
+                      style: pw.TextStyle(
+                          fontSize: 22, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.SizedBox(height: 4),
+                    if ((business['phone'] ?? '').toString().isNotEmpty)
+                      pw.Text('Phone: ${business['phone']}',
+                          style: const pw.TextStyle(fontSize: 10)),
+                    if ((business['tin'] ?? '').toString().isNotEmpty)
+                      pw.Text('TIN: ${business['tin']}',
+                          style: const pw.TextStyle(fontSize: 10)),
                   ],
                 ),
               ),
+              logoWidget,
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          pw.Divider(thickness: 1.5),
 
-              // Footer
-              pw.SizedBox(height: 20),
-              pw.Divider(),
-              pw.Center(
-                child: pw.Text('Thank you for your business!', style: pw.TextStyle(fontSize: 12, fontStyle: pw.FontStyle.italic)),
+          // ── INVOICE TITLE BAR ───────────────────────────────────
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 7),
+            color: PdfColors.grey800,
+            child: pw.Center(
+              child: pw.Text(
+                'INVOICE',
+                style: pw.TextStyle(
+                  fontSize: 15,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                  letterSpacing: 3,
+                ),
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 16),
+
+          // ── INVOICE DETAILS + BILL TO ───────────────────────────
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Invoice Details',
+                        style: pw.TextStyle(
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.grey700)),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                        'Invoice #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}',
+                        style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text(
+                        'Date: ${DateFormat('dd/MM/yyyy').format(dateTime)}',
+                        style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('Time: ${DateFormat('HH:mm').format(dateTime)}',
+                        style: const pw.TextStyle(fontSize: 10)),
+                    if (invoice.employeeName != null &&
+                        invoice.employeeName.toString().isNotEmpty)
+                      pw.Text('Served by: ${invoice.employeeName}',
+                          style: const pw.TextStyle(fontSize: 10)),
+                  ],
+                ),
+              ),
+              pw.SizedBox(width: 24),
+              pw.Expanded(
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey400),
+                    borderRadius:
+                        const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Bill To:',
+                          style: pw.TextStyle(
+                              fontSize: 10,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColors.grey700)),
+                      pw.SizedBox(height: 4),
+                      pw.Text(clientName,
+                          style: pw.TextStyle(
+                              fontSize: 13,
+                              fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                ),
               ),
             ],
-          );
-        },
+          ),
+          pw.SizedBox(height: 20),
+
+          // ── ITEMS TABLE ─────────────────────────────────────────
+          pw.Table(
+            border: pw.TableBorder.all(
+                color: PdfColors.grey400, width: 0.5),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(28),
+              1: pw.FlexColumnWidth(3.5),
+              2: pw.FlexColumnWidth(1),
+              3: pw.FlexColumnWidth(1.8),
+              4: pw.FlexColumnWidth(1.8),
+            },
+            children: [
+              pw.TableRow(
+                decoration:
+                    const pw.BoxDecoration(color: PdfColors.grey300),
+                children: [
+                  _tableHeader('#'),
+                  _tableHeader('Product'),
+                  _tableHeader('Qty'),
+                  _tableHeader('Unit Price'),
+                  _tableHeader('Total ($currency)'),
+                ],
+              ),
+              ...invoice.products
+                  .asMap()
+                  .entries
+                  .map<pw.TableRow>((entry) {
+                final i = entry.key as int;
+                final product =
+                    entry.value as Map<String, dynamic>;
+                final qty =
+                    (product['quantity'] ?? 0).toDouble();
+                final price =
+                    (product['price'] ?? 0.0).toDouble();
+                return pw.TableRow(
+                  children: [
+                    _tableCell('${i + 1}',
+                        align: pw.TextAlign.center),
+                    _tableCell(
+                        product['name']?.toString() ?? '',
+                        align: pw.TextAlign.left),
+                    _tableCell(
+                        qty % 1 == 0
+                            ? qty.toStringAsFixed(0)
+                            : qty.toStringAsFixed(1),
+                        align: pw.TextAlign.center),
+                    _tableCell(
+                        formatCurrency(price, currency),
+                        align: pw.TextAlign.right),
+                    _tableCell(
+                        formatCurrency(qty * price, currency),
+                        align: pw.TextAlign.right),
+                  ],
+                );
+              }).toList(),
+            ],
+          ),
+          pw.SizedBox(height: 12),
+
+          // ── SUMMARY ─────────────────────────────────────────────
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.end,
+            children: [
+              pw.Container(
+                width: 230,
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey300),
+                  borderRadius:
+                      const pw.BorderRadius.all(pw.Radius.circular(4)),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    _summaryRow(
+                        'Subtotal', formatCurrency(subtotal, currency)),
+                    if (discount > 0)
+                      _summaryRow('Discount',
+                          '- ${formatCurrency(discount, currency)}',
+                          color: PdfColors.orange800),
+                    pw.Divider(thickness: 0.8),
+                    _summaryRow(
+                        'TOTAL', formatCurrency(total, currency),
+                        bold: true),
+                    if (paid > 0)
+                      _summaryRow('Paid', formatCurrency(paid, currency),
+                          color: PdfColors.green800),
+                    if (debt > 0)
+                      _summaryRow(
+                          'Balance Due', formatCurrency(debt, currency),
+                          color: PdfColors.red),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          // ── PAYMENT DETAILS ─────────────────────────────────────
+          if (paymentDetails.isNotEmpty) ...[
+            pw.SizedBox(height: 20),
+            pw.Divider(thickness: 0.8),
+            pw.SizedBox(height: 6),
+            pw.Text('Payment Details',
+                style: pw.TextStyle(
+                    fontSize: 11, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.Table(
+              border: pw.TableBorder.all(
+                  color: PdfColors.grey300, width: 0.5),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1),
+                1: pw.FlexColumnWidth(1.5),
+                2: pw.FlexColumnWidth(2),
+              },
+              children: [
+                pw.TableRow(
+                  decoration:
+                      const pw.BoxDecoration(color: PdfColors.grey200),
+                  children: [
+                    _tableHeader('Type'),
+                    _tableHeader('Provider / Bank'),
+                    _tableHeader('Account / Lipa Namba'),
+                  ],
+                ),
+                ...paymentDetails.map((pd) => pw.TableRow(
+                      children: [
+                        _tableCell(pd['type'] == 'bank'
+                            ? 'Bank'
+                            : 'Mobile Money'),
+                        _tableCell(pd['provider']?.toString() ?? ''),
+                        _tableCell(pd['number']?.toString() ?? ''),
+                      ],
+                    )),
+              ],
+            ),
+          ],
+
+          // ── FOOTER ──────────────────────────────────────────────
+          pw.SizedBox(height: 24),
+          pw.Divider(thickness: 0.8),
+          pw.Center(
+            child: pw.Text(
+              receiptFooterMessage(Map<String, dynamic>.from(business)),
+              style: pw.TextStyle(
+                fontSize: 11,
+                fontStyle: pw.FontStyle.italic,
+                color: PdfColors.grey600,
+              ),
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+        ],
       ),
     );
 
     return pdf;
+  }
+
+  // ── PDF helper widgets ───────────────────────────────────────────
+
+  pw.Widget _tableHeader(String text) {
+    return pw.Padding(
+      padding:
+          const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      child: pw.Text(
+        text,
+        style:
+            pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+        textAlign: pw.TextAlign.center,
+      ),
+    );
+  }
+
+  pw.Widget _tableCell(String text,
+      {pw.TextAlign align = pw.TextAlign.left}) {
+    return pw.Padding(
+      padding:
+          const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+      child: pw.Text(text,
+          style: const pw.TextStyle(fontSize: 9), textAlign: align),
+    );
+  }
+
+  pw.Widget _summaryRow(String label, String value,
+      {bool bold = false, PdfColor? color}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label,
+              style: pw.TextStyle(
+                  fontSize: 10,
+                  fontWeight: bold
+                      ? pw.FontWeight.bold
+                      : pw.FontWeight.normal)),
+          pw.Text(value,
+              style: pw.TextStyle(
+                  fontSize: 10,
+                  fontWeight: bold
+                      ? pw.FontWeight.bold
+                      : pw.FontWeight.normal,
+                  color: color)),
+        ],
+      ),
+    );
   }
 
   Future<void> printInvoice(dynamic invoice, Client client) async {

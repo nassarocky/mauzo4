@@ -602,8 +602,8 @@ class _EmployeePayrollManagementScreenState extends State<EmployeePayrollManagem
   }
 
   void _showMarkAsPaidDialog(EarlyPaymentModel payment) {
-    final paymentMethods = ['Cash', 'Bank Transfer', 'Mobile Money', 'Check'];
-    String selectedMethod = paymentMethods.first;
+    final paymentMethods = _businessController.effectivePaymentMethods;
+    String selectedMethod = paymentMethods.first['value'] as String;
 
     showDialog(
       context: context,
@@ -626,10 +626,10 @@ class _EmployeePayrollManagementScreenState extends State<EmployeePayrollManagem
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
-                  items: paymentMethods.map((method) {
-                    return DropdownMenuItem(
-                      value: method,
-                      child: Text(method),
+                  items: paymentMethods.map((m) {
+                    return DropdownMenuItem<String>(
+                      value: m['value'] as String,
+                      child: Text(m['label'] as String),
                     );
                   }).toList(),
                   onChanged: (value) {

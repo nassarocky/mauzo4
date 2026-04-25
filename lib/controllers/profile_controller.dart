@@ -104,6 +104,7 @@ class ProfileController extends GetxController {
             'date': user.date,
             'email': user.email, // you can store the email here
             'permissions': user.permissions, // Include permissions in user data
+            'installReferrerCode': user.installReferrerCode ?? '',
           };
 
           role.value = user.role;

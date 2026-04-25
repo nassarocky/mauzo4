@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/transaction_controller.dart';
 import '../../../controllers/profile_controller.dart';
+import '../../../constants/transaction_constants.dart';
 import '../../../models/product_model.dart';
 import '../../../models/stock_transaction.dart';
 import '../../../utils/constants.dart';
@@ -207,6 +208,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   .where((transaction) =>
               selectedOrigin == 'all' ||
                   transaction.transactionOrigin == selectedOrigin ||
+                  (selectedOrigin == 'Sale' &&
+                      transaction.transactionOrigin == TransactionOrigins.saleDeleted) ||
                   (selectedOrigin == 'Stock Added' && transaction.transactionOrigin == 'Opening Stock'))
                   .toList();
 

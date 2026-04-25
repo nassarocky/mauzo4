@@ -10,6 +10,7 @@ import 'package:mauzo/controllers/auth_controller.dart';
 import 'package:mauzo/controllers/theme_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/ui/widgets/bottomsheets/discount_allow_bottom_sheet.dart';
+import 'package:mauzo/services/referral_attribution_service.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -33,12 +34,12 @@ import '../../utils/image.dart';
 import '../widgets/buttons/primary_button.dart';
 import 'package:http/http.dart' as http;
 
-import '../widgets/dialogs/edit_business_dialog.dart';
+import '../widgets/bottomsheets/currency_picker_bottom_sheet.dart';
+import 'settings/fund_and_payment_settings.dart';
 import '../widgets/dialogs/edit_discount_dialog.dart';
 import '../widgets/dialogs/edit_expire_warning_dialog.dart';
-import '../widgets/dialogs/edit_tin_dialog.dart';
-import '../widgets/dialogs/edit_user_dialog.dart';
-import '../widgets/dialogs/edit_phone_dialog.dart';
+import '../widgets/dialogs/edit_receipt_footer_dialog.dart';
+import '../../utils/receipt_footer.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -70,34 +71,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final CartController _cartController = Get.find();
   final EmployeeController _employeeController = Get.find();
   final ClosedBooksController _closedBooksController = Get.find();
-
-  String formatNumberSync(String? phoneNumber) {
-    if (phoneNumber == null || phoneNumber.isEmpty) return '';
-    
-    // Remove any non-digit characters
-    String digits = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    // Handle different country codes
-    if (digits.startsWith('255')) {
-      return '+255 ${digits.substring(3, 6)} ${digits.substring(6)}';
-    } else if (digits.startsWith('254')) {
-      return '+254 ${digits.substring(3, 6)} ${digits.substring(6)}';
-    } else if (digits.startsWith('256')) {
-      return '+256 ${digits.substring(3, 6)} ${digits.substring(6)}';
-    } else if (digits.startsWith('250')) {
-      return '+250 ${digits.substring(3, 6)} ${digits.substring(6)}';
-    } else if (digits.startsWith('257')) {
-      return '+257 ${digits.substring(3, 6)} ${digits.substring(6)}';
-    } else if (digits.startsWith('1')) {
-      // US format: +1 (XXX) XXX-XXXX
-      if (digits.length >= 10) {
-        return '+1 (${digits.substring(1, 4)}) ${digits.substring(4, 7)}-${digits.substring(7, 11)}';
-      }
-    }
-    
-    // If no country code matches, return the original number
-    return phoneNumber;
-  }
 
   Future<String> uploadFile(String folder, File file) async {
     try {
@@ -131,6 +104,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _initPackageInfo();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _profileController.refreshUserData();
+      await _businessController.updateBusinessData();
+    });
   }
 
   Future<void> _initPackageInfo() async {
@@ -138,6 +115,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _packageInfo = info;
     });
+  }
+
+  Future<void> _saveManualReferralCode(String raw) async {
+    final normalized = ReferralAttributionService.normalizeReferrerCode(raw);
+    if (normalized == null) {
+      errorSnackbar('referral_code_invalid'.tr);
+      return;
+    }
+    final uid = (_profileController.user['id'] ?? '').toString();
+    if (uid.isEmpty) return;
+    try {
+      await _firestore.collection('gmanusers').doc(uid).set(
+        {
+          'installReferrerCode': normalized,
+          'installReferrerAttributedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      if (_profileController.user['role'] == 'owner') {
+        final bid =
+            (_businessController.business['id'] ?? '').toString().trim();
+        if (bid.isNotEmpty) {
+          await _firestore.collection('businesses').doc(bid).set(
+            {
+              'installReferrerCode': normalized,
+              'installReferrerAttributedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+      await _profileController.refreshUserData();
+      await _businessController.updateBusinessData();
+      if (!mounted) return;
+      setState(() {});
+      successSnackbar('referral_code_saved'.tr);
+    } catch (e) {
+      errorSnackbar(e.toString());
+    }
+  }
+
+  void _showAddReferralCodeDialog() {
+    final ctrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('referral_code_dialog_title'.tr),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'referral_code_dialog_hint'.tr,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(ctx).textTheme.bodySmall?.color,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'e.g. AGENT01',
+              ),
+              onSubmitted: (v) {
+                Navigator.pop(ctx);
+                _saveManualReferralCode(v);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('cancel'.tr),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _saveManualReferralCode(ctrl.text);
+            },
+            child: Text('referral_code_save'.tr),
+          ),
+        ],
+      ),
+    ).then((_) => ctrl.dispose());
   }
 
   Future<void> syncProductsAcrossAllBusinesses() async {
@@ -419,125 +485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
-                // Rest of the UI remains unchanged
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      if (_profileController.user['role'] == 'owner') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => EditUserDialog(
-                            info: _profileController.user['name'],
-                          ),
-                        );
-                      }
-                    },
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'name'.tr,
-                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                        ),
-                        Row(
-                          children: [
-                            Text(
-                              _profileController.user['name'],
-                              style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                            ),
-                            const SizedBox(width: 18),
-                            const Icon(
-                              Icons.edit,
-                              size: 20,
-                              color: gray400Color,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 0),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: GestureDetector(
-                    onTap: () {
-                      if (_profileController.user['role'] == 'owner') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => EditBusinessDialog(
-                            info: 'business_name'.tr,
-                          ),
-                        );
-                      }
-                    },
-                    behavior: HitTestBehavior.opaque,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'business_name'.tr,
-                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                        ),
-                        Row(
-                          children: [
-                            Text(
-                              _businessController.business['name'],
-                              style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                            ),
-                            const SizedBox(width: 18),
-                            const Icon(
-                              Icons.edit,
-                              size: 20,
-                              color: gray400Color,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 0),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      if (_profileController.user['role'] == 'owner') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => const EditTinDialog(),
-                        );
-                      }
-                    },
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'TIN number'.tr,
-                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                        ),
-                        Row(
-                          children: [
-                            Text(
-                              _businessController.business['tin'],
-                              style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                            ),
-                            const SizedBox(width: 18),
-                            const Icon(
-                              Icons.edit,
-                              size: 20,
-                              color: gray400Color,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 0),
+                // Business profile (name, TIN, phone, etc.) is under Account Status.
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: GestureDetector(
@@ -616,155 +564,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 0),
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'email'.tr,
-                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                      ),
-                      Text(
-                        _profileController.user['email'] ?? 'N/A',
-                        style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 0),
-                Padding(
-                  padding: const EdgeInsets.all(16),
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () {
                       if (_profileController.user['role'] == 'owner') {
-                        final TextEditingController countryCodeController = TextEditingController(
-                          text: _businessController.business['phone']!.toString().startsWith('+255') ? '255' :
-                                _businessController.business['phone']!.toString().startsWith('+254') ? '254' :
-                                _businessController.business['phone']!.toString().startsWith('+256') ? '256' :
-                                _businessController.business['phone']!.toString().startsWith('+250') ? '250' :
-                                _businessController.business['phone']!.toString().startsWith('+257') ? '257' :
-                                _businessController.business['phone']!.toString().startsWith('+1') ? '1' : '255',
-                        );
-                        final TextEditingController phoneController = TextEditingController(
-                          text: _businessController.business['phone']!.toString().replaceAll(RegExp(r'[^0-9]'), '')
-                                .replaceFirst(RegExp(r'^(255|254|256|250|257|1)'), ''),
-                        );
-
                         showDialog(
                           context: context,
-                          builder: (_) => AlertDialog(
-                            title: Text('Edit Phone Number'.tr),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 80,
-                                      child: TextField(
-                                        controller: countryCodeController,
-                                        decoration: InputDecoration(
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                          labelText: 'Country Code',
-                                          counterText: '',
-                                          prefix: Text(
-                                            '+',
-                                            style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                                          ),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                        ),
-                                        maxLength: 3,
-                                        keyboardType: TextInputType.phone,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: phoneController,
-                                        keyboardType: TextInputType.phone,
-                                        inputFormatters: [
-                                          FilteringTextInputFormatter.digitsOnly,
-                                          LengthLimitingTextInputFormatter(10),
-                                        ],
-                                        decoration: InputDecoration(
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                          labelText: '${'phone'.tr}*',
-                                          counterText: '',
-                                          border: const OutlineInputBorder(
-                                            borderSide: BorderSide(color: borderColor),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: Text('Cancel'.tr),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ElevatedButton(
-                                      onPressed: () async {
-                                        String newCountryCode = countryCodeController.text;
-                                        String newPhoneNumber = phoneController.text;
-                                        
-                                        if (newPhoneNumber.isEmpty) {
-                                          errorSnackbar('Please enter a phone number');
-                                          return;
-                                        }
-
-                                        String formattedPhone = '+$newCountryCode$newPhoneNumber';
-                                        
-                                        try {
-                                          await _firestore
-                                              .collection('businesses')
-                                              .doc(_businessController.business['id'])
-                                              .update({'phone': formattedPhone});
-                                          
-                                          _businessController.updateBusinessData();
-                                          Navigator.pop(context);
-                                          successSnackbar('Phone number updated successfully');
-                                        } catch (e) {
-                                          errorSnackbar('Failed to update phone number: $e');
-                                        }
-                                      },
-                                      child: Text('Save'.tr),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
+                          builder: (_) => const EditReceiptFooterDialog(),
                         );
                       }
                     },
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'phone'.tr,
-                          style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            'receipt_footer_message'.tr,
+                            style: bodyText(
+                                Theme.of(context).textTheme.bodyMedium!.color),
+                          ),
                         ),
-                        Row(
-                          children: [
-                            Text(
-                              formatNumberSync(_businessController.business['phone']),
-                              style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                            ),
-                            const SizedBox(width: 18),
-                            const Icon(
-                              Icons.edit,
-                              size: 20,
-                              color: gray400Color,
-                            ),
-                          ],
+                        Expanded(
+                          flex: 3,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  receiptFooterMessage(
+                                    Map<String, dynamic>.from(
+                                        _businessController.business),
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.end,
+                                  style: bodyText(Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge!
+                                      .color),
+                                ),
+                              ),
+                              const SizedBox(width: 18),
+                              const Icon(
+                                Icons.edit,
+                                size: 20,
+                                color: gray400Color,
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -780,28 +628,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'main_currency'.tr,
-                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                      ),
-                      Row(
-                        children: [
-                          Text(
-                            _businessController.business['mainCurrency'],
-                            style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                          ),
-                          const SizedBox(width: 18),
-                          const Icon(
-                            Icons.unfold_more,
-                            size: 20,
-                            color: gray400Color,
-                          ),
-                        ],
-                      ),
-                    ],
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (_profileController.user['role'] != 'owner') return;
+                      // Seed the auth controller with the current value so the
+                      // picker shows it as selected, then use isAuth:true path.
+                      _authController.mainCurrency.value =
+                          _businessController.business['mainCurrency'] ?? 'TZS';
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(4)),
+                        ),
+                        builder: (_) =>
+                            const CurrencyPickerBottomSheet(isAuth: true),
+                      ).then((_) async {
+                        final chosen =
+                            _authController.mainCurrency.value.trim();
+                        if (chosen.isEmpty) return;
+                        final businessId =
+                            _businessController.business['id'];
+                        try {
+                          await _firestore
+                              .collection('businesses')
+                              .doc(businessId)
+                              .update({'mainCurrency': chosen});
+                          await _businessController.updateBusinessData();
+                          successSnackbar('Currency updated successfully'.tr);
+                        } catch (e) {
+                          errorSnackbar('Failed to update currency');
+                        }
+                      });
+                    },
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'main_currency'.tr,
+                          style: bodyText(
+                              Theme.of(context).textTheme.bodyMedium!.color),
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              _businessController.business['mainCurrency'] ??
+                                  'TZS',
+                              style: bodyText(Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge!
+                                  .color),
+                            ),
+                            const SizedBox(width: 18),
+                            const Icon(
+                              Icons.edit,
+                              size: 20,
+                              color: gray400Color,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -859,7 +748,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Switch(
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           activeColor: primaryLightColor,
-                          value: Preferences.isPurchasesEnabled(),
+                          value: (_businessController.business['purchases']?.toString() ?? 'false') ==
+                              'true',
                           onChanged: (bool value) async {
                             setState(() {
                               Preferences.setEnablePurchases(value ? 'true' : 'false');
@@ -911,6 +801,127 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           },
                         ),
                     ],
+                  ),
+                ),
+                const Divider(height: 0),
+                if (_profileController.user['role'] == 'owner') ...
+                [
+                  _SettingsNavRow(
+                    title: 'Fund Sources',
+                    subtitle: 'Expenses, checkout, payroll & debt payments',
+                    icon: Icons.account_balance_wallet_outlined,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const FundSourceSettingsScreen()),
+                    ),
+                  ),
+                  const Divider(height: 0),
+                ],
+                GetBuilder<ProfileController>(
+                  builder: (_) => GetBuilder<BusinessController>(
+                    builder: (_) {
+                      final fromUser = (_profileController
+                                  .user['installReferrerCode'] ??
+                              '')
+                          .toString()
+                          .trim();
+                      final fromBiz = (_businessController
+                                  .business['installReferrerCode'] ??
+                              '')
+                          .toString()
+                          .trim();
+                      final code =
+                          fromUser.isNotEmpty ? fromUser : fromBiz;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.card_giftcard_outlined,
+                                        size: 20, color: primaryColor),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'referral_code_title'.tr,
+                                        style: bodyText(Theme.of(context)
+                                                .textTheme.bodyMedium?.color)
+                                            .copyWith(
+                                                fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                    if (code.isNotEmpty)
+                                      IconButton(
+                                        constraints: const BoxConstraints(
+                                            minWidth: 40, minHeight: 40),
+                                        padding: EdgeInsets.zero,
+                                        icon: const Icon(Icons.copy_rounded,
+                                            size: 22),
+                                        tooltip: 'referral_code_copy'.tr,
+                                        onPressed: () {
+                                          Clipboard.setData(
+                                              ClipboardData(text: code));
+                                          successSnackbar(
+                                              'referral_code_copied'.tr);
+                                        },
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Expanded(
+                                      child: SelectableText(
+                                        code.isEmpty
+                                            ? 'referral_code_none'.tr
+                                            : code,
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: code.isEmpty
+                                              ? FontWeight.normal
+                                              : FontWeight.w600,
+                                          letterSpacing:
+                                              code.isEmpty ? 0 : 0.8,
+                                          color: code.isEmpty
+                                              ? Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.color
+                                              : Theme.of(context)
+                                                  .textTheme
+                                                  .bodyLarge
+                                                  ?.color,
+                                        ),
+                                      ),
+                                    ),
+                                    if (code.isEmpty)
+                                      TextButton(
+                                        onPressed: _showAddReferralCodeDialog,
+                                        style: TextButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 4),
+                                          minimumSize: Size.zero,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                        child: Text('referral_code_add'.tr),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 0),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 SizedBox(
@@ -1061,28 +1072,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Role'.tr,
-                        style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
-                      ),
-                      Text(
-                        (_profileController.user['role'] ?? 'employee').toString().capitalizeFirst!,
-                        style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 24),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
                         'Version'.tr,
                         style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
                       ),
                       Text(
-                        '1.7',
+                        _packageInfo.version == 'Unknown'
+                            ? '…'
+                            : 'v${_packageInfo.version}+${_packageInfo.buildNumber}',
                         style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
                       ),
                     ],
@@ -1137,6 +1133,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsNavRow extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _SettingsNavRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: Theme.of(context).primaryColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w500)),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios,
+                size: 14, color: Colors.grey),
+          ],
         ),
       ),
     );

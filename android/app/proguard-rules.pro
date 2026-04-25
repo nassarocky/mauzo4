@@ -1,3 +1,6 @@
+# Play Install Referrer (silent marketing attribution)
+-keep class com.android.installreferrer.** { *; }
+
 # Keep Google Play Services classes
 -keep class com.google.android.gms.auth.** { *; }
 -keep class com.google.android.gms.auth.api.** { *; }

@@ -228,7 +228,32 @@ class ProductInfoBottomSheet extends StatelessWidget {
                             ],
                           ),
                         ),
-
+                        if (product.wholesalePrice > 0) ...[
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${'wholesale_selling_price'.tr}:',
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    formatCurrency(
+                                      product.wholesalePrice,
+                                      _businessController.business['mainCurrency'] ?? 'TZS',
+                                    ),
+                                    style: h6(
+                                      Theme.of(context).textTheme.bodyLarge!.color,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
 
                         if (product.buyingPrice != null && product.buyingPrice != 0) ...[
                           const Divider(),
@@ -429,30 +454,6 @@ class ProductInfoBottomSheet extends StatelessWidget {
                   children: [
                     Expanded(
                       child: SecondaryButton(
-                        text: 'Copy to Store'.tr,
-                        onPressed: () {
-                          // Check if user has permission to edit products (block agents)
-                          if (!_profileController.hasPermission('edit_products')) {
-                            Get.snackbar(
-                              'Access Denied'.tr,
-                              'You do not have permission to copy products to store'.tr,
-                              backgroundColor: Colors.red,
-                              colorText: Colors.white,
-                              duration: Duration(seconds: 3),
-                            );
-                            return;
-                          }
-                          _productController.copyProductToStore(product.id);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SecondaryButton(
                         text: 'Move to Store'.tr,
                         onPressed: () {
                           if(canEditProduct){
@@ -620,7 +621,11 @@ class ProductInfoBottomSheet extends StatelessWidget {
                     if (product.quantity! > 0) {
 
                       Navigator.pushNamed(context, '/sale/add');
-                      _cartController.updateCart(product, 1, product.price);
+                      _cartController.updateCart(
+                        product,
+                        1,
+                        _cartController.defaultUnitSellingPrice(product),
+                      );
                       Navigator.pushNamed(context, '/cart');
                     } else {
                       errorSnackbar('not_enough'.tr);

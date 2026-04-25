@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/models/product_model.dart';
 import 'package:mauzo/models/stock_transaction.dart';
+import 'package:mauzo/constants/transaction_constants.dart';
 import 'package:mauzo/utils/constants.dart';
 
 class TransactionDetailDialog extends StatelessWidget {
@@ -28,6 +29,9 @@ class TransactionDetailDialog extends StatelessWidget {
   }
 
   Color getTransactionColor(String type, String origin) {
+    if (origin == TransactionOrigins.saleDeleted) {
+      return Colors.deepOrange;
+    }
     // Sales should be blue (not red) since they're revenue-generating
     if (origin == 'Sale' || origin.contains('Sale')) {
       return Colors.blue;
@@ -40,7 +44,10 @@ class TransactionDetailDialog extends StatelessWidget {
     return Colors.red;
   }
 
-  IconData getTransactionIcon(String type) {
+  IconData getTransactionIcon(String type, String origin) {
+    if (origin == TransactionOrigins.saleDeleted) {
+      return Icons.delete_sweep_outlined;
+    }
     return type == 'addition' ? Icons.add_circle_outline : Icons.remove_circle_outline;
   }
 
@@ -50,10 +57,24 @@ class TransactionDetailDialog extends StatelessWidget {
     final currency = businessController.business['mainCurrency'] ?? 'TZS';
     
     final isAddition = transaction.transactionType == 'addition';
-    final quantityChange = transaction.quantity;
-    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
     final beforeQty = transaction.previousQuantity;
-    final afterQty = transaction.newQuantity ?? (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+
+    final bool isCFTransferTransaction =
+        transaction.transactionOrigin == 'Product Transfer Out' ||
+        transaction.transactionOrigin == 'Product Transfer In';
+
+    final double quantityChange;
+    final double afterQty;
+    if (isCFTransferTransaction) {
+      afterQty = transaction.newQuantity ?? transaction.quantity;
+      quantityChange = (beforeQty - afterQty).abs();
+    } else {
+      quantityChange = transaction.quantity;
+      afterQty = transaction.newQuantity ??
+          (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+    }
+
+    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
     final transactionColor = getTransactionColor(transaction.transactionType, transaction.transactionOrigin);
 
     return Dialog(
@@ -77,7 +98,7 @@ class TransactionDetailDialog extends StatelessWidget {
                 child: Row(
                   children: [
                     Icon(
-                      getTransactionIcon(transaction.transactionType),
+                      getTransactionIcon(transaction.transactionType, transaction.transactionOrigin),
                       color: transactionColor,
                       size: 32,
                     ),

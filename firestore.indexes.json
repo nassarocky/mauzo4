@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "referralPaymentEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "installReferrerCode", "order": "ASCENDING" },
+        { "fieldPath": "paidAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "userLosses",
       "queryScope": "COLLECTION",
       "fields": [

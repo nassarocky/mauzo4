@@ -1,0 +1,8 @@
+Admin hub — single sign-in for commission admins, then links to support-reset and agent-portal.
+
+URL (after Flutter web build + hosting deploy):
+  https://YOUR_HOSTING_DOMAIN/admin-hub/
+
+Copy this folder into build/web/admin-hub/ before firebase deploy --only hosting (same as web/support-reset and web/agent-portal).
+
+Requires: commission_admins/{uid}, Cloud Function commissionAdminPing deployed.

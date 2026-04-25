@@ -120,7 +120,7 @@ class BusinessListController extends GetxController {
         'reserve': 0.0,
         'additionalDouble1': 0.0,
         'additionalDouble2': 0.0,
-        'additionalString1': '',
+        'additionalString1': 'false',
         'additionalString2': '',
         'additionalList1': [],
         'additionalList2': [],

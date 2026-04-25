@@ -27,6 +27,8 @@ class Sale {
   final String? fundSource;
   // Optional note/description when fundSource is 'other'
   final String? fundSourceNote;
+  /// Audit snapshot for retail vs wholesale at checkout (see CartController.buildWholesalePricingAuditMap).
+  final Map<String, dynamic>? wholesalePricingAudit;
 
   Sale({
     required this.id,
@@ -50,6 +52,7 @@ class Sale {
     this.payments = const [],
     this.fundSource,
     this.fundSourceNote,
+    this.wholesalePricingAudit,
   });
   static Sale fromSnapshot(DocumentSnapshot snapshot) {
     var data = snapshot.data() as Map<String, dynamic>?;
@@ -76,8 +79,25 @@ class Sale {
       payments: List<Map<String, dynamic>>.from(data?['payments'] ?? const []),
       fundSource: data?['fundSource'],
       fundSourceNote: data?['fundSourceNote'],
+      wholesalePricingAudit: () {
+        final w = data?['wholesalePricingAudit'];
+        if (w is Map) return Map<String, dynamic>.from(Map.from(w));
+        return null;
+      }(),
     );
   }
 
+  /// Checkout saved [wholesalePricingAudit] with a `usedWholesalePricing` flag (newer sales).
+  bool get saleRecordsPricingMode {
+    final m = wholesalePricingAudit;
+    return m != null && m.containsKey('usedWholesalePricing');
+  }
 
+  /// True when wholesale catalog pricing was active at checkout. Only meaningful if [saleRecordsPricingMode].
+  bool get saleWasWholesale {
+    final v = wholesalePricingAudit?['usedWholesalePricing'];
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    return v.toString() == 'true';
+  }
 }

@@ -35,6 +35,7 @@ dependencies:
   pattern_formatter: ^3.0.0
   pinput: ^2.2.31
   shared_preferences: ^2.2.0
+  app_links: ^6.4.0
   sticky_headers: ^0.3.0+2
   pdf: ^3.3.0
   printing: ^5.5.0
@@ -46,6 +47,7 @@ dependencies:
   google_mlkit_barcode_scanning: ^0.14.1
   universal_html: ^2.2.4
   print_bluetooth_thermal: ^1.1.1
+  play_install_referrer: ^0.5.0
 dev_dependencies:
   flutter_lints: ^2.0.2
   flutter_test:

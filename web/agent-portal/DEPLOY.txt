@@ -1,0 +1,54 @@
+Agent commission portal (static HTML + Firebase Auth + Callable Functions).
+
+Prerequisites
+-------------
+1. Deploy Cloud Functions (includes commissionAgentPing, commissionAdminDeleteAgent, commissionAdminGetAgentDashboard, commissionAgentGetDashboard):
+     firebase deploy --only functions
+
+2. Deploy Firestore rules + composite index:
+     firebase deploy --only firestore:rules
+     firebase deploy --only firestore:indexes
+   (First deploy may take minutes until the referralPaymentEvents index builds.)
+
+3. Bootstrap Firestore — add ONE document so you can open the admin UI:
+     Collection: commission_admins
+     Document ID: your Firebase Auth user UID (same email you use to sign in here)
+     Fields: optional { "note": "ops" }
+
+4. Build Flutter web so these files are copied to hosting (same pattern as support-reset):
+     flutter build web --release
+     firebase deploy --only hosting
+
+URL after deploy
+----------------
+Commission admins (recommended entry):
+  https://YOUR_HOSTING_DOMAIN/admin-hub/
+
+Agent portal (admins & sales agents):
+  https://YOUR_HOSTING_DOMAIN/agent-portal/
+
+Admin: sign in with an account that has commission_admins/{uid}.
+Agent: sign in with an account created via the admin form (stored in commission_agents/{uid}).
+
+Troubleshooting "Not authorised" for a new agent
+-----------------------------------------------
+1. In Firebase Console → Authentication, open the agent user and copy their User UID.
+2. In Firestore → collection commission_agents, there must be a document whose **document ID**
+   is exactly that UID (not the email). Fields should include active: true (or omit active).
+3. Open the portal from the **same** URL you used as admin (prefer the hosted
+   https://YOUR_DOMAIN/agent-portal/). If you open the portal from localhost, Cloud Functions
+   now default to **production**; use the emulator only when running `firebase emulators:start`
+   and either:
+   - add ?functionsEmulator=1 to the URL once, or
+   - run in the browser console: localStorage.setItem('hesabu_functions_emulator','1') then reload.
+
+Data model
+----------
+- commission_admins/{authUid}     — who can create/edit agents (manual in Console first).
+- commission_agents/{authUid}    — promoCodes[], commissionPercent (default 20), email, displayName, active.
+- referralPaymentEvents/{id}    — written when subscription payment callbacks succeed; used for “paid in month” + commission basis.
+
+Commission estimate
+---------------------
+Per successful payment callback: commissionBasisTzs ≈ (tier1 monthly price from subscriptionPricing/config) × (paidDays / 30).
+Agent month total ≈ sum(basis for events in that calendar month) × (agent commissionPercent / 100).

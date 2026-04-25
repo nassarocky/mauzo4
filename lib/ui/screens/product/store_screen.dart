@@ -12,8 +12,9 @@ import '../../../controllers/store_controller.dart';
 import '../../../utils/constants.dart';
 import '../../widgets/bottomsheets/sort_products_bottom_sheet.dart';
 import '../../widgets/search_filter_icon.dart';
-import '../../widgets/tiles/product_tile.dart';
+import '../../widgets/bottomsheets/store_info_buttomsheet.dart';
 import '../../widgets/tiles/store_tile.dart';
+import '../mobile_code.dart';
 
 class StoreScreen extends StatefulWidget {
   const StoreScreen({Key? key}) : super(key: key);
@@ -37,6 +38,7 @@ class _StoreScreenState extends State<StoreScreen> {
       _storeController.searchProducts.value = _storeController.products;
       _storeController.searchText.value = '';
       _storeController.filteredProducts.value = _storeController.products;
+      _storeController.clearSelectedDateRange();
     });
     super.dispose();
   }
@@ -50,16 +52,18 @@ class _StoreScreenState extends State<StoreScreen> {
     // Your function logic here
     // For example, you could refresh data or perform any setup needed when this page is accessed
   }
-  // * SCAN
-  /*
   Future<void> scanner(BuildContext context) async {
-    String barcodeScanRes;
     try {
-      barcodeScanRes = await FlutterBarcodeScanner.scanBarcode(
-          '#ff6666', 'cancel'.tr, true, ScanMode.BARCODE);
-      if (barcodeScanRes != "-1") {
-        var product = _storeController.getProductByCode(barcodeScanRes);
+      final scannedCode = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BarcodeScannerScreen(),
+        ),
+      );
+      if (scannedCode != null && scannedCode is String) {
+        final product = _storeController.getProductByCode(scannedCode);
         if (product.id != '') {
+          if (!context.mounted) return;
           showModalBottomSheet(
             isScrollControlled: true,
             shape: const RoundedRectangleBorder(
@@ -69,19 +73,31 @@ class _StoreScreenState extends State<StoreScreen> {
               ),
             ),
             context: context,
-            builder: (_) => StoreInfoBottomSheet(product: product),
+            builder: (ctx) => DraggableScrollableSheet(
+              initialChildSize: 0.7,
+              minChildSize: 0.4,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) {
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: StoreInfoBottomSheet(product: product),
+                  ),
+                );
+              },
+            ),
           );
         } else {
           errorSnackbar(
-            "${'not_found'.tr}. ${'code'.tr}: $barcodeScanRes",
+            "${'not_found'.tr}. ${'code'.tr}: $scannedCode",
           );
         }
       }
-    } on PlatformException {
-      barcodeScanRes = 'something_went_wrong'.tr;
+    } catch (e) {
+      errorSnackbar('something_went_wrong'.tr);
     }
-    if (!mounted) return;
-  }*/
+  }
   void _showSnackbar(String message) {
     final snackBar = SnackBar(
       content: Text(message),
@@ -310,7 +326,7 @@ class _StoreScreenState extends State<StoreScreen> {
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               height: showSearchBar ? null : 0,
-             // child: SearchWidget(scanner: scanner),
+              child: SearchWidget(scanner: scanner),
             ),
             Expanded(
               child: _storeController.filteredProducts.isEmpty
@@ -371,6 +387,12 @@ class _StoreScreenState extends State<StoreScreen> {
                             ),
                             onPressed: () {
                               _storeController.filterCategories.value = [];
+                              _storeController.searchProducts.value =
+                                  _storeController.products;
+                              _storeController.searchText.value = '';
+                              _storeController.filteredProducts.value =
+                                  _storeController.products;
+                              _storeController.clearSelectedDateRange();
                               _storeController.filterProducts();
                             },
                           ),
@@ -476,7 +498,7 @@ class _SearchWidgetState extends State<SearchWidget> {
                           ),
                         ),
                         builder: (_) {
-                          return const SortProductsBottomSheet();
+                          return const SortProductsBottomSheet(forStore: true);
                         },
                       );
                     },

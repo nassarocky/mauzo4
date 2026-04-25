@@ -22,7 +22,9 @@ class _SelectClientScreenState extends State<SelectClientScreen> {
 
   @override
   void dispose() {
-    _clientController.searchClients.value = _clientController.clients;
+    _clientController.searchClients.value =
+        List.from(_clientController.clients);
+    _clientController.sort(_clientController.sortCategory.value);
     super.dispose();
   }
 

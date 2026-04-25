@@ -398,7 +398,8 @@ class _EmployeeDeductionsScreenState extends State<EmployeeDeductionsScreen> wit
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        payment.paymentMethodDisplayName,
+                        _businessController
+                            .paymentMethodLabelForValue(payment.paymentMethod),
                         style: TextStyle(
                           color: Colors.grey.shade700,
                           fontSize: 12,
@@ -607,12 +608,10 @@ class _EmployeeDeductionsScreenState extends State<EmployeeDeductionsScreen> wit
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: selectedMethod,
-                items: EarlyPaymentModel.paymentMethods.map((method) {
-                  return DropdownMenuItem(
-                    value: method,
-                    child: Text(method == 'cash' ? 'Cash' :
-                              method == 'bank_transfer' ? 'Bank Transfer' :
-                              method == 'mobile_money' ? 'Mobile Money' : 'Check'),
+                items: _businessController.effectivePaymentMethods.map((m) {
+                  return DropdownMenuItem<String>(
+                    value: m['value'] as String,
+                    child: Text(m['label'] as String),
                   );
                 }).toList(),
                 onChanged: (value) {

@@ -13,6 +13,7 @@ import '../../../controllers/profile_controller.dart';
 import '../../../models/client_model.dart';
 import '../../../models/sale_model.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/sale_line_quantity.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../../widgets/bottomsheets/discount_bottom_sheet.dart';
@@ -21,6 +22,7 @@ import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/dialogs/add_to_cart_dialog.dart';
 import '../../widgets/dialogs/double_action_dialog.dart';
 import '../../widgets/dialogs/triple_action_button.dart';
+import '../../../services/ledger_service.dart';
 import 'add_sale_screen.dart';
 import 'edit_sale.screen.dart';
 
@@ -963,6 +965,8 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       'discount': _cartController.discount.value,
       'comment': _detailsController.text.trim(),
       'date': Timestamp.fromDate(selectedDate!),
+      'wholesalePricingAudit':
+          _cartController.buildWholesalePricingAuditMap(),
     };
 
     // Call functions separately without `then`
@@ -970,9 +974,28 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
   }
 
   void createSale(DocumentReference saleRef, Map<String, dynamic> saleData, String businessId) {
-    saleRef.update(saleData).then((_) {
-      // After the sale is successfully created, update the sale with its ID
+    saleRef.update(saleData).then((_) async {
       updateSaleId(saleRef);
+      // Ledger update: delete stale entries for old sale data, then post new ones.
+      try {
+        await LedgerService().deleteSaleLedgerEntries(
+          saleId: widget.sale.id,
+          payments: widget.sale.payments,
+          postedAt: widget.sale.date,
+        );
+        final List<dynamic> newPayments = List<dynamic>.from(saleData['payments'] ?? []);
+        final dynamic d = saleData['date'];
+        final Timestamp newPostedAt = d is Timestamp ? d : Timestamp.fromDate(d as DateTime);
+        await LedgerService().postSaleIn(
+          saleId: saleRef.id,
+          payments: newPayments,
+          postedAt: newPostedAt,
+          clientId: _cartController.client?.id,
+          clientName: _cartController.client?.name,
+        );
+      } catch (e) {
+        print('⚠️ Ledger update failed for edited sale ${saleRef.id}: $e');
+      }
     }).catchError((error) {
       errorSnackbar('Failed to create sale: $error');
     });
@@ -1035,11 +1058,15 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
     final updates = <Future>[];
     
     for (var product in widget.sale.products) {
+      final m = Map<String, dynamic>.from(product as Map);
+      final pid = m['id']?.toString() ?? '';
+      final origBase = saleLineBaseQuantity(m);
+      final cartBase = _cartController.singleProductBaseQuantity(pid);
       updates.add(_productController.updateProductCount(
-          _productController.getProduct(product['id']),
-          _productController.getProduct(product['id']).quantity! -
-              _cartController.singleProductQuantity(product['id']) +
-              product['quantity'],
+          _productController.getProduct(pid),
+          _productController.getProduct(pid).quantity! -
+              cartBase +
+              origBase,
           'Edit'));
     }
     

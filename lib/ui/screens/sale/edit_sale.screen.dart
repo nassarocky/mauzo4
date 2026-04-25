@@ -11,6 +11,7 @@ import '../../../controllers/product_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../models/sale_model.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/sale_line_quantity.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../../widgets/bottomsheets/discount_bottom_sheet.dart';
@@ -739,11 +740,15 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
     final updates = <Future>[];
     
     for (var product in widget.sale.products) {
+      final m = Map<String, dynamic>.from(product as Map);
+      final pid = m['id']?.toString() ?? '';
+      final origBase = saleLineBaseQuantity(m);
+      final cartBase = _cartController.singleProductBaseQuantity(pid);
       updates.add(_productController.updateProductCount(
-          _productController.getProduct(product['id']),
-          _productController.getProduct(product['id']).quantity! -
-              _cartController.singleProductQuantity(product['id']) +
-              product['quantity'],
+          _productController.getProduct(pid),
+          _productController.getProduct(pid).quantity! -
+              cartBase +
+              origBase,
           'Edit'));
     }
     

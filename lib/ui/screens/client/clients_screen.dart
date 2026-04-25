@@ -28,8 +28,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
   @override
   void dispose() {
     Timer.run(() {
-      _clientController.searchClients.value = _clientController.clients;
+      _clientController.searchClients.value =
+          List.from(_clientController.clients);
       _clientController.filterType.value = 'all';
+      _clientController.sort(_clientController.sortCategory.value);
     });
     super.dispose();
   }

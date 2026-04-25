@@ -32,7 +32,7 @@ class StoreController extends GetxController {
       _productSubscription = FirestoreDb().getProductInStore().listen((data) {
         products.value = data;
         searchProducts.value = data;
-        filteredProducts.value = data;
+        filterProducts();
       });
     } catch (e) {
       print("Error initializing StoreController: $e");
@@ -74,6 +74,7 @@ class StoreController extends GetxController {
 
   Future<void> updateStoreProductCount(Product product, double count) async {
     final String? business = _businessController.business['owner'];
+    final String? businessshop = _businessController.businessId.value;
 
     if (business == null) {
       print('Owner ID is null, cannot update store product count.');
@@ -82,6 +83,11 @@ class StoreController extends GetxController {
     }
 
     try {
+      final oldQty = (product.quantity is num)
+          ? (product.quantity as num).toDouble()
+          : double.tryParse(product.quantity.toString()) ?? 0.0;
+      final change = (count - oldQty).abs();
+
       final productRef = firestore
           .collection('store')
           .doc(business)
@@ -89,6 +95,27 @@ class StoreController extends GetxController {
           .doc(product.id);
 
       await productRef.update({'quantity': count});
+
+      if (change > 0 && businessshop != null) {
+        final transactionRef = firestore
+            .collection('transactions')
+            .doc(businessshop)
+            .collection('usersTransactions')
+            .doc();
+        final stockTransaction = StockTransaction(
+            transactionId: transactionRef.id,
+            productId: product.id,
+            quantity: change,
+            previousQuantity: oldQty,
+            newQuantity: count,
+            transactionType: count >= oldQty ? 'addition' : 'removal',
+            transactionOrigin: count >= oldQty ? 'Store Stock Added' : 'Store Stock Reduced',
+            timestamp: Timestamp.now(),
+            userId: business,
+            price: product.price);
+        await transactionRef.set(stockTransaction.toMap());
+      }
+
       search(searchText.value);
       Get.snackbar(
         'Success',
@@ -159,7 +186,8 @@ class StoreController extends GetxController {
             .doc(storeProduct.id);
         await storeProductRef.update({'quantity': newStoreQuantity});
 
-        // Log the transaction
+        // Log the transaction in **shop (business)** inventory terms — same collection as
+        // other product history, so previous/new must be shop quantities, not store levels.
         final transactionRef = firestore
             .collection('transactions')
             .doc(businessshop)
@@ -171,11 +199,12 @@ class StoreController extends GetxController {
             productId: storeProduct.id,
             quantity: quantity,
             previousQuantity: currentShopQuantity,
+            newQuantity: newShopQuantity,
             transactionType: 'addition',
             transactionOrigin: 'Added From Store',
             timestamp: Timestamp.now(),
             userId: businessOwner,
-            price: storeProduct.price
+            price: storeProduct.price,
         );
 
         await transactionRef.set(stockTransaction.toMap());
@@ -273,6 +302,7 @@ class StoreController extends GetxController {
             productId: shopProduct.id,
             quantity: quantity,
             previousQuantity: shopProduct.quantity,
+            newQuantity: shopProduct.quantity - quantity,
             transactionType: 'removal',
             transactionOrigin: 'Moved To Store',
             timestamp: Timestamp.now(),
@@ -386,20 +416,43 @@ class StoreController extends GetxController {
 
   final filterCategories = <String>[].obs;
 
+  /// Same pattern as [ProductController]: search text → expire date → categories.
+  DateTime? selectedDate;
+
+  void resetProducts() {
+    filteredProducts.value = products;
+  }
+
   void filterProducts() {
     filteredProducts.value = products;
+
     if (searchText.value.isNotEmpty) {
       filteredProducts.value = products
           .where((product) => product.name
-          .toLowerCase()
-          .contains(searchText.value.toLowerCase()))
+              .toLowerCase()
+              .contains(searchText.value.toLowerCase()))
           .toList();
     }
+
+    if (selectedDate != null) {
+      filteredProducts.value = filteredProducts.where((product) {
+        return product.expireDate?.isBefore(selectedDate!) ?? false;
+      }).toList();
+    }
+
     if (filterCategories.isNotEmpty) {
       filteredProducts.value = filteredProducts.where((product) {
         return filterCategories.contains(product.category);
       }).toList();
     }
+  }
+
+  void filterProductsByExpireDate(DateTime filterDate) {
+    selectedDate = filterDate;
+  }
+
+  void clearSelectedDateRange() {
+    selectedDate = null;
   }
 
   void setFilterCategories(List<String> categories) {

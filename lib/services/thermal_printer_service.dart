@@ -10,6 +10,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../models/sale_model.dart';
 import '../models/client_model.dart';
+import '../utils/sale_line_quantity.dart';
+import '../utils/receipt_footer.dart';
 
 class ThermalPrinterService extends GetxController {
   final RxList<BluetoothInfo> devices = <BluetoothInfo>[].obs;
@@ -213,9 +215,10 @@ class ThermalPrinterService extends GetxController {
       double price = 0;
 
       if (product is Map<String, dynamic>) {
-        productName = product['name']?.toString() ?? '';
-        quantity = double.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
-        price = double.tryParse(product['price']?.toString() ?? '0') ?? 0;
+        final pm = Map<String, dynamic>.from(product);
+        productName = pm['name']?.toString() ?? '';
+        quantity = saleLineDisplayQuantity(pm);
+        price = double.tryParse(pm['price']?.toString() ?? '0') ?? 0;
       } else {
         // Fallback for typed product objects
         try {
@@ -240,7 +243,25 @@ class ThermalPrinterService extends GetxController {
             ),
             pw.Padding(
               padding: const pw.EdgeInsets.symmetric(vertical: 2),
-              child: pw.Text(quantity.toStringAsFixed(0), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 8)),
+              child: pw.Text(
+              () {
+                if (product is Map<String, dynamic>) {
+                  final pm = Map<String, dynamic>.from(product);
+                  final q = saleLineDisplayQuantity(pm);
+                  final lab = saleLineUomLabel(pm);
+                  final qs = q == q.roundToDouble()
+                      ? (q == q.truncateToDouble()
+                          ? q.toInt().toString()
+                          : q.toStringAsFixed(2))
+                      : q.toStringAsFixed(2);
+                  if (lab != null && lab.isNotEmpty) return '$qs $lab';
+                  return qs;
+                }
+                return quantity.toStringAsFixed(0);
+              }(),
+              textAlign: pw.TextAlign.right,
+              style: const pw.TextStyle(fontSize: 8),
+            ),
             ),
             pw.Padding(
               padding: const pw.EdgeInsets.symmetric(vertical: 2),
@@ -338,7 +359,32 @@ class ThermalPrinterService extends GetxController {
                 ),
 
               pw.SizedBox(height: 8),
-              pw.Center(child: pw.Text('Thank you for your business!', style: const pw.TextStyle(fontSize: 9))),
+              pw.Center(
+                child: pw.Text(
+                  receiptFooterMessage(business),
+                  style: const pw.TextStyle(fontSize: 9),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ),
+
+              // Payment details
+              ...() {
+                final List paymentDetails = (business['invoicePaymentDetails'] as List? ?? [])
+                    .where((e) => (e as Map)['showOnInvoice'] == true)
+                    .toList();
+                if (paymentDetails.isEmpty) return <pw.Widget>[];
+                return <pw.Widget>[
+                  pw.SizedBox(height: 6),
+                  pw.Divider(thickness: 0.5),
+                  pw.Center(child: pw.Text('Payment Details', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                  pw.SizedBox(height: 4),
+                  ...paymentDetails.map<pw.Widget>((pd) {
+                    final m = pd as Map;
+                    final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+                    return pw.Text('$label | ${m['provider']}: ${m['number']}', style: const pw.TextStyle(fontSize: 7));
+                  }),
+                ];
+              }(),
             ],
           )
         ],
@@ -545,9 +591,10 @@ class ThermalPrinterService extends GetxController {
         double price = 0;
 
         if (product is Map<String, dynamic>) {
-          productName = product['name']?.toString() ?? '';
-          quantity = double.tryParse(product['quantity']?.toString() ?? '0') ?? 0;
-          price = double.tryParse(product['price']?.toString() ?? '0') ?? 0;
+          final pm = Map<String, dynamic>.from(product);
+          productName = pm['name']?.toString() ?? '';
+          quantity = saleLineDisplayQuantity(pm);
+          price = double.tryParse(pm['price']?.toString() ?? '0') ?? 0;
         } else {
           productName = product.name ?? '';
           quantity = product.quantity ?? 0;
@@ -558,7 +605,21 @@ class ThermalPrinterService extends GetxController {
         subtotal += itemTotal;
 
         String line = productName.padRight(12).substring(0, 12);
-        line += quantity.toString().padLeft(5);
+        final qtyStr = product is Map<String, dynamic>
+            ? () {
+                final pm = Map<String, dynamic>.from(product as Map);
+                final q = saleLineDisplayQuantity(pm);
+                final lab = saleLineUomLabel(pm);
+                final qs = q == q.roundToDouble()
+                    ? (q == q.truncateToDouble()
+                        ? q.toInt().toString()
+                        : q.toStringAsFixed(2))
+                    : q.toStringAsFixed(2);
+                if (lab != null && lab.isNotEmpty) return '$qs $lab';
+                return qs;
+              }()
+            : quantity.toStringAsFixed(0);
+        line += qtyStr.padLeft(5);
         line += itemTotal.toStringAsFixed(0).padLeft(11);
         bytes += Uint8List.fromList('$line\n'.codeUnits);
       }
@@ -578,7 +639,26 @@ class ThermalPrinterService extends GetxController {
 
       bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
       bytes += Uint8List.fromList('\n'.codeUnits);
-      bytes += Uint8List.fromList('Thank you for your business!\n'.codeUnits);
+      final footerText = receiptFooterMessage(business);
+      for (final line in footerText.split('\n')) {
+        bytes += Uint8List.fromList('$line\n'.codeUnits);
+      }
+
+      // Payment details
+      final List paymentDetailsList = (business['invoicePaymentDetails'] as List? ?? [])
+          .where((e) => (e as Map)['showOnInvoice'] == true)
+          .toList();
+      if (paymentDetailsList.isNotEmpty) {
+        bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+        bytes += Uint8List.fromList('Payment Details:\n'.codeUnits);
+        for (final pd in paymentDetailsList) {
+          final m = pd as Map;
+          final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+          bytes += Uint8List.fromList('$label: ${m['provider']}\n'.codeUnits);
+          bytes += Uint8List.fromList('  ${m['number']}\n'.codeUnits);
+        }
+      }
+
       bytes += Uint8List.fromList('\n\n\n'.codeUnits);
       
       // Send to printer - print_bluetooth_thermal expects List<int>

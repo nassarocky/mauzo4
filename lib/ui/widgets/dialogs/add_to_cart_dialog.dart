@@ -32,9 +32,7 @@ class _AddToCartDialogState extends State<AddToCartDialog> {
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
 
-  late final TextEditingController _priceController = TextEditingController(
-    text: formatCurrencyWithoutSymbol(widget.product.price),
-  );
+  late final TextEditingController _priceController;
   late final TextEditingController quantityController = TextEditingController(
     text: widget.itemCounter.toString(),
   );
@@ -42,6 +40,11 @@ class _AddToCartDialogState extends State<AddToCartDialog> {
   @override
   void initState() {
     super.initState();
+    _priceController = TextEditingController(
+      text: formatCurrencyWithoutSymbol(
+        _cartController.defaultUnitSellingPrice(widget.product),
+      ),
+    );
     quantityController.selection = TextSelection.fromPosition(
       TextPosition(offset: quantityController.text.length),
     );
@@ -207,60 +210,57 @@ class _AddToCartDialogState extends State<AddToCartDialog> {
             Expanded(
               child: PrimaryButton(
                 onPressed: () {
-                  double enteredPrice = double.parse(_priceController.text.replaceAll(',', ''));
+                  final enteredPrice =
+                      double.parse(_priceController.text.replaceAll(',', ''));
+                  final minUnit =
+                      _cartController.minAllowedUnitSellingPrice(widget.product);
 
-                  // ✅ Check if quantity is zero or less
                   if (widget.itemCounter <= 0) {
                     errorSnackbar('Please select a quantity greater than zero'.tr);
-                    return; // Exit early to prevent submission
+                    return;
                   }
 
-                  // If service, skip quantity check
+                  if (enteredPrice + 1e-9 < minUnit) {
+                    errorSnackbar(
+                      'sell_below_min'.trParams(
+                        {'min': minUnit.toStringAsFixed(2)},
+                      ),
+                    );
+                    return;
+                  }
+
                   if (widget.product.itemType == 'service') {
+                    final prevTotal = _cartController.productsPrice;
                     _cartController.updateCart(
                       widget.product,
                       widget.itemCounter,
                       enteredPrice,
                     );
+                    if (prevTotal < 0.01) {
+                      _cartController.ensureDefaultPaymentWhenEmpty();
+                    }
+                    _cartController.scalePaymentsAfterLineTotalChange(
+                        previousProductsPrice: prevTotal);
                     Navigator.of(context).pop();
                     return;
                   }
 
-                  // ✅ Continue your existing logic
-                  if (widget.product.discount > 0) {
-                    // Case: Discount is greater than zero
-                    if ((widget.product.price - widget.product.discount) <= enteredPrice) {
-                      if (widget.itemCounter <= widget.product.quantity + widget.addition) {
-                        _cartController.updateCart(
-                          widget.product,
-                          widget.itemCounter,
-                          enteredPrice,
-                        );
-                        Navigator.of(context).pop();
-                      } else {
-                        errorSnackbar('not_enough'.tr);
-                      }
-                    } else {
-                      errorSnackbar(
-                        'You can\'t sell below ${(widget.product.price - widget.product.discount).toStringAsFixed(2)}'.tr,
-                      );
+                  if (widget.itemCounter <=
+                      widget.product.quantity + widget.addition + 1e-9) {
+                    final prevTotal = _cartController.productsPrice;
+                    _cartController.updateCart(
+                      widget.product,
+                      widget.itemCounter,
+                      enteredPrice,
+                    );
+                    if (prevTotal < 0.01) {
+                      _cartController.ensureDefaultPaymentWhenEmpty();
                     }
+                    _cartController.scalePaymentsAfterLineTotalChange(
+                        previousProductsPrice: prevTotal);
+                    Navigator.of(context).pop();
                   } else {
-                    // Case: No discount
-                    if (widget.product.price <= enteredPrice) {
-                      if (widget.itemCounter <= widget.product.quantity + widget.addition) {
-                        _cartController.updateCart(
-                          widget.product,
-                          widget.itemCounter,
-                          enteredPrice,
-                        );
-                        Navigator.of(context).pop();
-                      } else {
-                        errorSnackbar('not_enough'.tr);
-                      }
-                    } else {
-                      errorSnackbar('No Discount'.tr);
-                    }
+                    errorSnackbar('not_enough'.tr);
                   }
                 },
 

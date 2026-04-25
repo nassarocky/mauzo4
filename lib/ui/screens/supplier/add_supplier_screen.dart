@@ -53,6 +53,22 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       });
       return;
     }
+
+    final role = (_profileController.user['role'] ?? '').toString();
+    if (!_businessController.isPurchasesAllowedForRole(role)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+      return;
+    }
   }
 
   Future<String?> uploadFile(String folder, File file) async {

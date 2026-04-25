@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -12,7 +13,20 @@ import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
+import '../services/referral_attribution_service.dart';
 
+/// When the user signs up with phone only, store this placeholder email (matches [AuthController.registerWithPhone]).
+String emailDerivedFromPhoneE164(String phoneE164) {
+  final digits = phoneE164.replaceAll(RegExp(r'[^0-9]'), '');
+  return '$digits@hesabumauzo.app';
+}
+
+String _resolvedSignupEmail({String? explicitEmail, required String phoneE164}) {
+  if (explicitEmail != null && explicitEmail.trim().isNotEmpty) {
+    return explicitEmail.trim();
+  }
+  return emailDerivedFromPhoneE164(phoneE164);
+}
 
 class AuthController extends GetxController {
   static AuthController instance = Get.find();
@@ -27,7 +41,35 @@ class AuthController extends GetxController {
   final RxString mainCurrency = 'TZS'.obs;  // Default value set to TZS
   final RxString secondaryCurrency = ''.obs;
   final GetStorage _storage = GetStorage();
+  final RxBool otpSent = false.obs;
+  final FirebaseFunctions _functions =
+      FirebaseFunctions.instanceFor(region: 'us-central1');
   bool get isUserAuthenticated => FirebaseAuth.instance.currentUser != null;
+
+  /// [signupPromoCode] from the register form wins over silent pending install/deep-link code.
+  Future<Map<String, dynamic>> _installReferrerFieldMap({
+    String? signupPromoCode,
+  }) async {
+    final fromForm =
+        ReferralAttributionService.normalizeReferrerCode(signupPromoCode);
+    if (fromForm != null && fromForm.isNotEmpty) {
+      return {
+        'installReferrerCode': fromForm,
+        'installReferrerAttributedAt': FieldValue.serverTimestamp(),
+      };
+    }
+    final code = await ReferralAttributionService.getPendingCode();
+    if (code == null || code.isEmpty) return {};
+    return {
+      'installReferrerCode': code,
+      'installReferrerAttributedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  Future<void> _clearReferralAfterSuccessfulSignup() async {
+    await ReferralAttributionService.clearPending();
+  }
+
   @override
   void onReady() {
     super.onReady();
@@ -69,7 +111,7 @@ class AuthController extends GetxController {
       print('Error initializing automatic payment generation: $e');
     }
   }
-  // Reset password method
+  // Reset password via email link (email-registered users)
   Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
@@ -86,6 +128,115 @@ class AuthController extends GetxController {
       );
     }
   }
+
+  // Reset password via OTP (phone-registered users).
+  // Verifies the OTP, signs in with custom token, then updates the password.
+  Future<void> resetPasswordWithOtp({
+    required String phone,
+    required String code,
+    required String newPassword,
+  }) async {
+    isLoading.value = true;
+    try {
+      final result = await _functions.httpsCallable('verifyOtp').call({
+        'phone': phone,
+        'code': code,
+      });
+      final customToken = result.data['token'] as String;
+      final userCred = await _auth.signInWithCustomToken(customToken);
+      await userCred.user!.updatePassword(newPassword);
+      Get.snackbar(
+        'Success',
+        'Password reset successfully.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+      Get.offAllNamed('/login');
+    } on FirebaseFunctionsException catch (e) {
+      Get.snackbar('Error', e.message ?? e.code,
+          snackPosition: SnackPosition.BOTTOM);
+    } catch (e) {
+      Get.snackbar('Error', e.toString(), snackPosition: SnackPosition.BOTTOM);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Support-only: sets a user's password via Cloud Function. Caller must be listed in
+  /// Firestore `support_admins/{uid}` or have Auth custom claim `admin: true`.
+  ///
+  /// Prefer [customerPhoneOrEmail]: if it contains `@` it is sent as email, otherwise as phone.
+  /// Or pass [targetUid], [email], and [phone] separately.
+  Future<void> adminResetUserPassword({
+    required String newPassword,
+    String? customerPhoneOrEmail,
+    String? targetUid,
+    String? email,
+    String? phone,
+  }) async {
+    if (newPassword.length < 8) {
+      Get.snackbar('Error', 'Password must be at least 8 characters.',
+          snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+
+    String? outEmail;
+    String? outPhone;
+    String? outUid = targetUid?.trim();
+    final combined = customerPhoneOrEmail?.trim();
+    if (combined != null && combined.isNotEmpty) {
+      if (combined.contains('@')) {
+        outEmail = combined;
+      } else {
+        outPhone = combined;
+      }
+    } else {
+      if (email != null && email.isNotEmpty) outEmail = email.trim();
+      if (phone != null && phone.isNotEmpty) outPhone = phone.trim();
+    }
+
+    if ((outUid == null || outUid.isEmpty) &&
+        (outEmail == null || outEmail.isEmpty) &&
+        (outPhone == null || outPhone.isEmpty)) {
+      Get.snackbar('Error', 'Enter the customer\'s phone number or email.',
+          snackPosition: SnackPosition.BOTTOM);
+      return;
+    }
+    isLoading.value = true;
+    try {
+      final payload = <String, dynamic>{'newPassword': newPassword};
+      if (outUid != null && outUid.isNotEmpty) {
+        payload['targetUid'] = outUid;
+      }
+      if (outEmail != null && outEmail.isNotEmpty) payload['email'] = outEmail;
+      if (outPhone != null && outPhone.isNotEmpty) payload['phone'] = outPhone;
+
+      await _functions.httpsCallable('adminResetUserPassword').call(payload);
+      Get.snackbar(
+        'Done',
+        'Password updated. Tell the user the new temporary password.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    } on FirebaseFunctionsException catch (_) {
+      Get.snackbar(
+        'Error',
+        'You are not authorized.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } catch (_) {
+      Get.snackbar(
+        'Error',
+        'You are not authorized.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   Future<void> register(
       String name,
       String email,
@@ -93,8 +244,9 @@ class AuthController extends GetxController {
       String password,
       String business,
       String mainCurrency,
-      String secondaryCurrency,
-      ) async {
+      String secondaryCurrency, {
+      String? signupPromoCode,
+      }) async {
     phoneNumber.value = phone;
     try {
       isLoading.value = true;
@@ -114,11 +266,14 @@ class AuthController extends GetxController {
       // Generate a unique store ID (e.g., using UUID or a combination)
       String uniqueStoreId = "${businessId}_${DateTime.now().millisecondsSinceEpoch}"; // Use a combination of business ID and timestamp
       await _storage.erase();
+      final Map<String, dynamic> installReferral =
+          await _installReferrerFieldMap(signupPromoCode: signupPromoCode);
       // Save business data to Firestore, including the generated business ID and unique store ID
       await businessDocRef.set({
         'name': business,
         'email': email,
         'phone': phoneNumber.value,
+        ...installReferral,
         'subscriptionStatus': 'subscription_ontrial',
         'trialStart': FieldValue.serverTimestamp(),
         'tin': 'TIN',
@@ -138,7 +293,7 @@ class AuthController extends GetxController {
         'reserve': 0.0,  // Initialize the reserve field with a default value of 0.0
         'additionalDouble1': 0.0,  // Initialize new double fields with default values
         'additionalDouble2': 0.0,
-        'additionalString1': 'true',  // Initialize new string fields with default values
+        'additionalString1': 'false', // Purchases UI off for staff until owner enables
         'additionalString2': uniqueStoreId,  // Store the unique store ID here
         'additionalList1': [],  // Initialize new list fields with default values
         'additionalList2': [],
@@ -151,11 +306,11 @@ class AuthController extends GetxController {
         'role': 'owner',
         'phone': phoneNumber.value,
         'name': name,
-        'password': password,
         'maxBusiness': 2,
         'business': [businessId],  // Store the newly created business ID in the user's document
         'image': '',
         'date': DateTime.now(),
+        ...installReferral,
       });
 
       await firestore
@@ -171,7 +326,6 @@ class AuthController extends GetxController {
         'role': 'owner',
         'phone': phoneNumber.value,
         'name': name,
-        'password':'password',
         'maxBusiness': 2,
         'business': [businessId],
         // Store the newly created business ID in the user's document
@@ -186,7 +340,9 @@ class AuthController extends GetxController {
       await Preferences.setEnabletDebt(true);
       await Preferences.setBusiness(businessId);
       await Preferences.setLoggedIn(true);
+      await Preferences.setEnablePurchases('false');
 
+      await _clearReferralAfterSuccessfulSignup();
 
       // Navigate to the home screen
       print(_auth.currentUser?.uid);
@@ -208,6 +364,320 @@ class AuthController extends GetxController {
   }
 
 
+  Future<void> registerWithPhone({
+    required String name,
+    required String phone,
+    required String password,
+    required String business,
+    required String mainCurrencyVal,
+    required String secondaryCurrencyVal,
+    String? signupPromoCode,
+  }) async {
+    isLoading.value = true;
+    phoneNumber.value = phone;
+    try {
+      // Derive a unique email for Firebase Auth from the phone number.
+      // Firebase Auth enforces uniqueness, so email-already-in-use ≡ phone already registered.
+      final derivedEmail = emailDerivedFromPhoneE164(phone);
+
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: derivedEmail,
+        password: password,
+      );
+
+      final businessDocRef = _firestore.collection('businesses').doc();
+      final businessId = businessDocRef.id;
+      final uniqueStoreId =
+          '${businessId}_${DateTime.now().millisecondsSinceEpoch}';
+      await _storage.erase();
+
+      final Map<String, dynamic> installReferral =
+          await _installReferrerFieldMap(signupPromoCode: signupPromoCode);
+      await businessDocRef.set({
+        'name': business,
+        'email': derivedEmail,
+        'phone': phone,
+        ...installReferral,
+        'subscriptionStatus': 'subscription_ontrial',
+        'trialStart': FieldValue.serverTimestamp(),
+        'tin': 'TIN',
+        'categories': [],
+        'manufacturer': [],
+        'location': [],
+        'debtEnabled': true,
+        'discountPercent': 10,
+        'mainCurrency': mainCurrencyVal,
+        'reset_time': DateTime.now(),
+        'expireWarning': 30,
+        'allowSalesView': true,
+        'secondaryCurrency': secondaryCurrencyVal,
+        'date': DateTime.now(),
+        'id': businessId,
+        'ownerId': userCredential.user!.uid,
+        'reserve': 0.0,
+        'additionalDouble1': 0.0,
+        'additionalDouble2': 0.0,
+        'additionalString1': 'false',
+        'additionalString2': uniqueStoreId,
+        'additionalList1': [],
+        'additionalList2': [],
+      });
+
+      await _firestore
+          .collection('gmanusers')
+          .doc(userCredential.user!.uid)
+          .set({
+        'id': userCredential.user!.uid,
+        'email': derivedEmail,
+        'role': 'owner',
+        'phone': phone,
+        'name': name,
+        'maxBusiness': 2,
+        'business': [businessId],
+        'image': '',
+        'date': DateTime.now(),
+        ...installReferral,
+      });
+
+      await firestore
+          .collection('employees')
+          .doc(businessId)
+          .collection('userEmployees')
+          .doc(userCredential.user!.uid)
+          .set({
+        'id': userCredential.user!.uid,
+        'email': derivedEmail,
+        'role': 'owner',
+        'phone': phone,
+        'name': name,
+        'maxBusiness': 2,
+        'business': [businessId],
+        'image': '',
+        'date': DateTime.now(),
+      }, SetOptions(merge: true));
+
+      await Preferences.setPhone(phone);
+      await Preferences.setEmail(derivedEmail);
+      await Preferences.setEnabletDebt(true);
+      await Preferences.setBusiness(businessId);
+      await Preferences.setLoggedIn(true);
+      await Preferences.setEnablePurchases('false');
+      await _clearReferralAfterSuccessfulSignup();
+      Get.offAllNamed('/home');
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        throw Exception('This phone number is already registered.');
+      } else if (e.code == 'weak-password') {
+        throw Exception('Password is too weak. Use at least 8 characters.');
+      } else {
+        throw Exception(e.message ?? 'Registration failed.');
+      }
+    }
+    // Exception (phone exists) propagates to UI
+    finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> startPhoneVerification(String phoneE164) async {
+    isLoading.value = true;
+    otpSent.value = false;
+    phoneNumber.value = phoneE164;
+    try {
+      await _functions.httpsCallable('sendOtp').call({'phone': phoneE164});
+      otpSent.value = true;
+      Get.snackbar(
+        'OTP Sent',
+        'A verification code was sent to $phoneE164',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      Get.snackbar(
+        'Failed to Send OTP',
+        e.message ?? e.code,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 6),
+      );
+    } catch (e) {
+      Get.snackbar('Error', e.toString(), snackPosition: SnackPosition.BOTTOM);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> confirmOtp({
+    required String smsCode,
+    required String name,
+    required String business,
+    required String mainCurrency,
+    required String secondaryCurrency,
+    String? email,
+    String? password,
+  }) async {
+    isLoading.value = true;
+    try {
+      // Call verifyOtp Cloud Function – returns a Firebase custom token
+      final result = await _functions.httpsCallable('verifyOtp').call({
+        'phone': phoneNumber.value,
+        'code': smsCode,
+      });
+      final customToken = result.data['token'] as String;
+      final userCred = await _auth.signInWithCustomToken(customToken);
+      final user = userCred.user;
+      if (user == null) throw Exception('Sign-in with custom token failed');
+
+      // Determine if user doc exists
+      final userDoc = await _firestore.collection('gmanusers').doc(user.uid).get();
+      if (!userDoc.exists) {
+        final resolvedEmail = _resolvedSignupEmail(
+          explicitEmail: email,
+          phoneE164: phoneNumber.value,
+        );
+        final businessId = await _bootstrapUserAndBusiness(
+          user: user,
+          name: name,
+          phoneE164: phoneNumber.value,
+          businessName: business,
+          mainCurrency: mainCurrency,
+          secondaryCurrency: secondaryCurrency,
+          email: resolvedEmail,
+        );
+
+        // Optionally link email/password if provided
+        if (email != null && email.isNotEmpty && password != null && password.length >= 8) {
+          try {
+            await user.linkWithCredential(EmailAuthProvider.credential(email: email, password: password));
+            await _firestore.collection('gmanusers').doc(user.uid).set({'email': email}, SetOptions(merge: true));
+          } catch (e) {
+            // If linking fails (e.g., already in use), continue silently
+          }
+        }
+
+        await Preferences.setPhone(phoneNumber.value);
+        await Preferences.setEmail(
+          (email != null && email.isNotEmpty)
+              ? email.trim()
+              : resolvedEmail,
+        );
+        await Preferences.setBusiness(businessId);
+        await Preferences.setEnabletDebt(true);
+        await Preferences.setLoggedIn(true);
+        await _profileController.updateUserData();
+        await _businessController.updateBusinessData();
+        Get.offAllNamed('/home');
+        return;
+      }
+
+      // If user already exists (phone login), set prefs and go home
+      await ReferralAttributionService.clearPending();
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final List biz = userData['business'] ?? [];
+      final String firstBusiness = biz.isNotEmpty ? biz[0] : '';
+      await Preferences.setPhone(userData['phone'] ?? phoneNumber.value);
+      if ((userData['email'] ?? '').toString().isNotEmpty) {
+        await Preferences.setEmail(userData['email']);
+      }
+      await Preferences.setBusiness(firstBusiness);
+      await Preferences.setEnabletDebt(true);
+      await Preferences.setLoggedIn(true);
+      await _profileController.updateUserData();
+      await _businessController.updateBusinessData();
+      Get.offAllNamed('/home');
+    } on FirebaseFunctionsException catch (e) {
+      Get.snackbar(
+        'OTP Error',
+        e.message ?? e.code,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 6),
+      );
+    } catch (e) {
+      Get.snackbar('OTP Error', e.toString(), snackPosition: SnackPosition.BOTTOM);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<String> _bootstrapUserAndBusiness({
+    required User user,
+    required String name,
+    required String phoneE164,
+    required String businessName,
+    required String mainCurrency,
+    required String secondaryCurrency,
+    required String email,
+  }) async {
+    // Create business
+    DocumentReference businessDocRef = _firestore.collection('businesses').doc();
+    String businessId = businessDocRef.id;
+    String uniqueStoreId = "${businessId}_${DateTime.now().millisecondsSinceEpoch}";
+
+    final Map<String, dynamic> installReferral = await _installReferrerFieldMap();
+    await businessDocRef.set({
+      'name': businessName,
+      'email': email,
+      'phone': phoneE164,
+      ...installReferral,
+      'subscriptionStatus': 'subscription_ontrial',
+      'trialStart': FieldValue.serverTimestamp(),
+      'tin': 'TIN',
+      'categories': [],
+      'manufacturer': [],
+      'location': [],
+      'debtEnabled': true,
+      'discountPercent':10,
+      'mainCurrency': mainCurrency,
+      'reset_time': DateTime.now(),
+      'expireWarning':30,
+      'allowSalesView':true,
+      'secondaryCurrency': secondaryCurrency,
+      'date': DateTime.now(),
+      'id': businessId,
+      'ownerId': user.uid,
+      'reserve': 0.0,
+      'additionalDouble1': 0.0,
+      'additionalDouble2': 0.0,
+      'additionalString1': 'false',
+      'additionalString2': uniqueStoreId,
+      'additionalList1': [],
+      'additionalList2': [],
+    });
+
+    // gmanusers
+    await _firestore.collection('gmanusers').doc(user.uid).set({
+      'id': user.uid,
+      'email': email,
+      'role': 'owner',
+      'phone': phoneE164,
+      'name': name,
+      'maxBusiness': 2,
+      'business': [businessId],
+      'image': '',
+      'date': DateTime.now(),
+      ...installReferral,
+    });
+
+    // employees
+    await firestore
+        .collection('employees')
+        .doc(businessId)
+        .collection('userEmployees')
+        .doc(user.uid)
+        .set({
+      'id': user.uid,
+      'email': email,
+      'role': 'owner',
+      'phone': phoneE164,
+      'name': name,
+      'maxBusiness': 2,
+      'business': [businessId],
+      'image': '',
+      'date': DateTime.now(),
+    }, SetOptions(merge: true));
+
+    await _clearReferralAfterSuccessfulSignup();
+
+    return businessId;
+  }
   Future<void> login(String email, String password) async {
     isLoading.value = true;
     loginSuccess.value = false;
@@ -246,6 +716,7 @@ class AuthController extends GetxController {
         await Preferences.setLoggedIn(true);
         await _profileController.updateUserData();
         await _businessController.updateBusinessData();
+        await ReferralAttributionService.clearPending();
         // Set login success and navigate to home
         loginSuccess.value = true;
         //  print('UID check: ${_auth.currentUser?.uid}');

@@ -27,7 +27,9 @@ class SupplierInfoBottomSheet extends StatelessWidget {
     final ProfileController profileController = Get.find();
     final SupplierDebtController supplierDebtController = Get.find();
     final bool canManageSuppliers = profileController.hasPermission('manage_suppliers');
-    
+    final bool showPurchasesNav = businessController.isPurchasesAllowedForRole(
+        (profileController.user['role'] ?? '').toString());
+
     // Calculate total debt owed to this supplier
     final supplierDebts = supplierDebtController.supplierDebts
         .where((debt) => debt.supplier == supplier.id && debt.status != 'paid')
@@ -269,20 +271,21 @@ class SupplierInfoBottomSheet extends StatelessWidget {
                         },
                       ),
                     ],
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: PrimaryButton(
-                        text: 'view_purchases'.tr,
-                        onPressed: () {
-                          // Navigate to BoughtScreen with supplier filter
-                          Navigator.pushNamed(
-                            context, 
-                            '/bought',
-                            arguments: {'supplierId': supplier.id, 'supplierName': supplier.name}
-                          );
-                        },
+                    if (showPurchasesNav) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: PrimaryButton(
+                          text: 'view_purchases'.tr,
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/bought',
+                              arguments: {'supplierId': supplier.id, 'supplierName': supplier.name},
+                            );
+                          },
+                        ),
                       ),
-                    ),
+                    ],
                     if (totalDebt > 0) ...[  
                       const SizedBox(width: 8),
                       Expanded(

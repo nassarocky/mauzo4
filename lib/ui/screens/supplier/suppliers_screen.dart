@@ -25,6 +25,26 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
   final BusinessController _businessController = Get.find();
 
   @override
+  void initState() {
+    super.initState();
+    final role = (_profileController.user['role'] ?? '').toString();
+    if (!_businessController.isPurchasesAllowedForRole(role)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        Get.snackbar(
+          'Access Denied',
+          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+      });
+    }
+  }
+
+  @override
   void dispose() {
     Timer.run(() {
       _supplierController.searchSuppliers.value = _supplierController.suppliers;
