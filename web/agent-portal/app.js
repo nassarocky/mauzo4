@@ -87,12 +87,19 @@ function esc(s) {
   return t.innerHTML;
 }
 
+function businessDisplayName(entry) {
+  const nm = entry && entry.businessName != null ? String(entry.businessName).trim() : "";
+  if (nm) return nm;
+  const id = entry && entry.businessId != null ? String(entry.businessId).trim() : "";
+  return id || "—";
+}
+
 function renderCommissionStatsDashboard(box, data, agentHeader) {
   if (!box) return;
   const rows = (data.referrals || [])
     .map(
       (r) =>
-        `<tr><td>${esc(r.businessName)}</td><td><code>${esc(r.businessId)}</code></td><td>${esc(
+        `<tr><td>${esc(businessDisplayName(r))}</td><td>${esc(
           r.installReferrerCode
         )}</td><td>${esc(r.subscriptionStatus)}</td><td>${esc(
           r.paymentStart?.seconds ? new Date(r.paymentStart.seconds * 1000).toISOString().slice(0, 10) : "—"
@@ -103,7 +110,7 @@ function renderCommissionStatsDashboard(box, data, agentHeader) {
     agentHeader && agentHeader.uid
       ? `<p class="stats">Viewing agent: <strong>${esc(agentHeader.displayName || "—")}</strong> · ${esc(
           agentHeader.email || "—"
-        )} · <code>${esc(agentHeader.uid)}</code>${agentHeader.active === false ? " · <em>inactive</em>" : ""}</p>`
+        )}${agentHeader.active === false ? " · <em>inactive</em>" : ""}</p>`
       : "";
   box.innerHTML = `
     ${adminLine}
@@ -120,8 +127,8 @@ function renderCommissionStatsDashboard(box, data, agentHeader) {
     <p class="hint">${esc(data.commissionNote || "")}</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Business</th><th>ID</th><th>Promo</th><th>Subscription</th><th>Last payment start</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="5">No shops with this promo yet.</td></tr>'}</tbody>
+        <thead><tr><th>Business</th><th>Promo</th><th>Subscription</th><th>Last payment start</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4">No shops with this promo yet.</td></tr>'}</tbody>
       </table>
     </div>
     <details class="events">
@@ -133,7 +140,7 @@ function renderCommissionStatsDashboard(box, data, agentHeader) {
             ${(data.paymentEvents || [])
               .map(
                 (e) =>
-                  `<tr><td><code>${esc(e.businessId)}</code></td><td>${esc(
+                  `<tr><td>${esc(businessDisplayName(e))}</td><td>${esc(
                     e.installReferrerCode
                   )}</td><td>${esc(e.periodDays)}</td><td>${Number(
                     e.commissionBasisTzs || 0
@@ -164,27 +171,50 @@ async function loadAgentDashboard() {
   }
 }
 
+const SELECT_AGENT_HINT = "Select a row in the Agents table above.";
+
+function updateSelectedAgentSummaryFromRow(tr) {
+  const sum = $("selectedAgentSummary");
+  if (!sum) return;
+  if (!tr) {
+    sum.textContent = SELECT_AGENT_HINT;
+    return;
+  }
+  const cells = tr.querySelectorAll("td");
+  const name = cells[0]?.textContent?.trim() || "—";
+  const email = cells[1]?.textContent?.trim() || "—";
+  sum.textContent = `${name} · ${email}`;
+}
+
 async function loadAdminAgents() {
   setFeedback("Loading agents…", "info");
   try {
     const fn = httpsCallable(functions, "commissionAdminListAgents");
     const { data } = await fn({});
     const agents = data.agents || [];
+    const keepUid = ($("editAgentUid")?.value || "").trim();
     const tbody = $("adminAgentsBody");
     if (tbody) {
       tbody.innerHTML = agents
         .map(
           (a) =>
             `<tr data-uid="${esc(a.uid)}">
-            <td><code>${esc(a.uid)}</code></td>
+            <td>${esc(a.displayName || "—")}</td>
             <td>${esc(a.email)}</td>
-            <td>${esc(a.displayName)}</td>
             <td>${(a.promoCodes || []).map(esc).join(", ")}</td>
             <td>${a.commissionPercent != null ? esc(a.commissionPercent) : "20"}%</td>
             <td>${a.active === false ? "inactive" : "active"}</td>
           </tr>`
         )
-        .join("") || '<tr><td colspan="6">No agents yet.</td></tr>';
+        .join("") || '<tr><td colspan="5">No agents yet.</td></tr>';
+      if (keepUid) {
+        const row = Array.from(tbody.querySelectorAll("tr[data-uid]")).find((r) => r.dataset.uid === keepUid);
+        if (row) {
+          document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
+          row.classList.add("selected");
+          updateSelectedAgentSummaryFromRow(row);
+        }
+      }
     }
     const sm = $("adminStatsMonth");
     if (sm && !String(sm.value || "").trim()) sm.value = currentYearMonth();
@@ -197,7 +227,7 @@ async function loadAdminAgents() {
 async function loadAdminAgentStats() {
   const agentUid = ($("editAgentUid")?.value || "").trim() || selectedAdminAgentUid();
   if (!agentUid) {
-    setFeedback("Select an agent row or enter UID before loading stats.", "error");
+    setFeedback("Select an agent in the table below before loading stats.", "error");
     return;
   }
   const ym = ($("adminStatsMonth")?.value || "").trim() || currentYearMonth();
@@ -232,6 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tr.classList.add("selected");
     const uid = tr.dataset.uid;
     if ($("editAgentUid")) $("editAgentUid").value = uid;
+    updateSelectedAgentSummaryFromRow(tr);
   });
 
   $("loginForm")?.addEventListener("submit", async (e) => {
@@ -257,7 +288,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("agentRefreshBtn")?.addEventListener("click", () => loadAgentDashboard());
 
-  $("adminRefreshBtn")?.addEventListener("click", () => loadAdminAgents());
+  $("adminRefreshBtn")?.addEventListener("click", () => {
+    document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
+    if ($("editAgentUid")) $("editAgentUid").value = "";
+    updateSelectedAgentSummaryFromRow(null);
+    loadAdminAgents();
+  });
 
   $("adminAgentStatsBtn")?.addEventListener("click", () => loadAdminAgentStats());
 
@@ -290,7 +326,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const agentUid = ($("editAgentUid")?.value || "").trim() || selectedAdminAgentUid();
     if (!agentUid) {
-      setFeedback("Select an agent row or paste UID.", "error");
+      setFeedback("Select an agent in the table below.", "error");
       return;
     }
     setFeedback("Saving…", "info");
@@ -318,6 +354,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const fn = httpsCallable(functions, "commissionAdminUpdateAgent");
       await fn({ agentUid, active: false });
       setFeedback("Agent deactivated.", "ok");
+      if ($("editAgentUid")) $("editAgentUid").value = "";
+      updateSelectedAgentSummaryFromRow(null);
+      document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
       await loadAdminAgents();
     } catch (err) {
       setFeedback(err.message || String(err), "error");
@@ -327,7 +366,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("adminDeleteAgentBtn")?.addEventListener("click", async () => {
     const agentUid = ($("editAgentUid")?.value || "").trim() || selectedAdminAgentUid();
     if (!agentUid) {
-      setFeedback("Select an agent row or paste UID.", "error");
+      setFeedback("Select an agent in the table below.", "error");
       return;
     }
     if (
@@ -344,6 +383,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const warn = data?.authDeleteError ? ` Auth warning: ${data.authDeleteError}` : "";
       setFeedback(`Agent deleted.${warn}`, data?.authDeleteError ? "info" : "ok");
       if ($("editAgentUid")) $("editAgentUid").value = "";
+      updateSelectedAgentSummaryFromRow(null);
       if ($("editPercent")) $("editPercent").value = "";
       if ($("editPromoCodes")) $("editPromoCodes").value = "";
       document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
@@ -364,7 +404,7 @@ onAuthStateChanged(auth, async (user) => {
   const who = $("signedInAs");
   const whoAgent = $("signedInAsAgent");
   const topNav = $("adminTopNav");
-  const label = user?.email || user?.uid || "";
+  const label = user?.email || "Signed in";
   if (who) who.textContent = label;
   if (whoAgent) whoAgent.textContent = label;
   if (user) {

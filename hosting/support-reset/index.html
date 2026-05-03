@@ -62,6 +62,7 @@
     input[type="email"],
     input[type="password"],
     input[type="text"],
+    input[type="number"],
     select {
       width: 100%;
       padding: 10px 12px;
@@ -77,6 +78,10 @@
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    input.readonly-display {
+      opacity: 0.88;
+      cursor: default;
     }
     .row-actions {
       display: flex;
@@ -299,18 +304,18 @@
             <button type="button" class="primary" id="dataLoadUserBtn">Load user</button>
           </div>
           <p id="dataResolvedUidLine" class="sub" hidden style="margin-top:8px;margin-bottom:12px">
-            Resolved UID: <code id="dataResolvedUid"></code>
+            Profile ID: <code id="dataResolvedUid"></code>
           </p>
           <hr class="sep" />
         </div>
 
-        <label for="dataCollection">Collection</label>
-        <select id="dataCollection" aria-label="Firestore collection">
-          <option value="gmanusers">gmanusers (user profile)</option>
-          <option value="businesses">businesses (shop)</option>
+        <label for="dataCollection">Record type</label>
+        <select id="dataCollection" aria-label="Record type">
+          <option value="gmanusers">User profile</option>
+          <option value="businesses">Shop / business</option>
         </select>
         <label for="dataDocId">Document ID</label>
-        <input id="dataDocId" type="text" autocomplete="off" placeholder="User UID or business id" />
+        <input id="dataDocId" type="text" autocomplete="off" placeholder="Profile user ID or shop ID" />
         <div class="row-actions">
           <button type="button" class="primary" id="dataLoadBtn">Load</button>
         </div>
@@ -336,11 +341,22 @@
         <label for="fieldPhone">phone</label>
         <input id="fieldPhone" type="text" autocomplete="off" />
 
+        <div id="wrapUserMaxBusiness">
+          <label for="fieldMaxBusiness">max business</label>
+          <input id="fieldMaxBusiness" type="number" min="0" max="10000" step="1" autocomplete="off" />
+        </div>
+
         <div id="wrapUserImage">
           <label for="fieldImage">image (URL or empty)</label>
           <input id="fieldImage" type="text" autocomplete="off" />
         </div>
         <div id="wrapBizExtra" hidden>
+          <label for="fieldSubscriptionStatus">subscription status</label>
+          <input id="fieldSubscriptionStatus" type="text" readonly class="readonly-display" tabindex="-1" />
+          <label for="fieldPaymentStart">payment start</label>
+          <input id="fieldPaymentStart" type="text" readonly class="readonly-display" tabindex="-1" />
+          <label for="fieldPaymentLast">payment end (last)</label>
+          <input id="fieldPaymentLast" type="text" readonly class="readonly-display" tabindex="-1" />
           <label for="fieldTin">tin</label>
           <input id="fieldTin" type="text" autocomplete="off" />
           <label for="fieldLogo">logo (URL)</label>
@@ -349,6 +365,24 @@
 
         <div class="row-actions">
           <button type="button" class="primary" id="dataSaveBtn" disabled>Save changes</button>
+        </div>
+
+        <div id="wrapBizAdminActions" hidden>
+          <hr class="sep" />
+          <p class="hint-block" style="margin-bottom:10px">
+            Legacy HTTP functions (same as old admin): extends paid period for <strong>all businesses</strong> matching this shop’s email;
+            delete removes the shop and drops its id from the owner’s list.
+          </p>
+          <label for="paymentExtendDays">Extend paid period (days)</label>
+          <input id="paymentExtendDays" type="number" min="1" max="3650" step="1" value="30" autocomplete="off" />
+          <div class="row-actions">
+            <button type="button" class="primary" id="bizPaymentExtendBtn">Update payment</button>
+          </div>
+          <div class="row-actions" style="margin-top:12px">
+            <button type="button" class="ghost" id="bizDeleteBtn" style="border-color:var(--danger);color:var(--danger)">
+              Delete business
+            </button>
+          </div>
         </div>
       </div>
     </div>

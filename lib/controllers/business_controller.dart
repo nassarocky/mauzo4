@@ -4,11 +4,24 @@ import '../models/business_model.dart';
 import '../services/fund_source_service.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
+import '../utils/receipt_footer.dart';
 
 class BusinessController extends GetxController {
   final Rx<Map<String, dynamic>> _business = Rx<Map<String, dynamic>>({});
   Map<String, dynamic> get business => _business.value;
   final Rx<String> businessId = "".obs;
+
+  /// Keeps [business.invoicePaymentDetails] in sync for receipts without waiting for Firestore refetch.
+  /// Call after editing payment methods locally (e.g. invoice payment settings).
+  void syncInvoicePaymentDetails(List<Map<String, dynamic>> rows) {
+    final next = List<Map<String, dynamic>>.from(
+      rows.map((e) => paymentDetailMapFromFirestore(e)),
+    );
+    final b = Map<String, dynamic>.from(_business.value);
+    b['invoicePaymentDetails'] = next;
+    _business.value = b;
+    update();
+  }
 
   @override
   void onInit() {
@@ -281,12 +294,18 @@ class BusinessController extends GetxController {
             'invoicePaymentDetails': rawData['invoicePaymentDetails'] != null
                 ? List<Map<String, dynamic>>.from(
                     (rawData['invoicePaymentDetails'] as List)
-                        .map((e) => Map<String, dynamic>.from(e as Map)),
+                        .map((e) => paymentDetailMapFromFirestore(e)),
                   )
                 : <Map<String, dynamic>>[],
             'installReferrerCode': rawData['installReferrerCode']?.toString() ?? '',
             'receiptFooterMessage':
                 rawData['receiptFooterMessage']?.toString() ?? '',
+            // Optional business-level names (invoices / PDFs) if not on each payment row
+            'paymentAccountName':
+                rawData['paymentAccountName']?.toString() ?? '',
+            'accountsName': rawData['accountsName']?.toString() ?? '',
+            'invoiceAccountName':
+                rawData['invoiceAccountName']?.toString() ?? '',
           };
 
           print('Business data updated: ${_business.value}');

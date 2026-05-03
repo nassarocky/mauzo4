@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/receipt_footer.dart';
 
 class InvoicePaymentSettingsScreen extends StatefulWidget {
   const InvoicePaymentSettingsScreen({Key? key}) : super(key: key);
@@ -17,6 +18,11 @@ class _InvoicePaymentSettingsScreenState
   final BusinessController _businessController = Get.find();
   late List<Map<String, dynamic>> _paymentDetails;
   bool _saving = false;
+
+  /// Receipts read [BusinessController.business]; keep it in sync when this list changes.
+  void _pushPaymentDetailsToController() {
+    _businessController.syncInvoicePaymentDetails(_paymentDetails);
+  }
 
   @override
   void initState() {
@@ -36,6 +42,8 @@ class _InvoicePaymentSettingsScreenState
           .collection('businesses')
           .doc(businessId)
           .update({'invoicePaymentDetails': _paymentDetails});
+      // Receipts read controller memory — update immediately, then refetch from Firestore.
+      _pushPaymentDetailsToController();
       await _businessController.updateBusinessData();
       successSnackbar('Payment details saved');
     } catch (e) {
@@ -56,9 +64,11 @@ class _InvoicePaymentSettingsScreenState
               'type': type,
               'provider': method['provider'],
               'number': method['number'],
+              'accountName': (method['accountName'] ?? '').trim(),
               'showOnInvoice': true,
             });
           });
+          _pushPaymentDetailsToController();
         },
       ),
     );
@@ -66,10 +76,87 @@ class _InvoicePaymentSettingsScreenState
 
   void _deleteAt(int index) {
     setState(() => _paymentDetails.removeAt(index));
+    _pushPaymentDetailsToController();
   }
 
   void _toggleShowAt(int index, bool value) {
     setState(() => _paymentDetails[index]['showOnInvoice'] = value);
+    _pushPaymentDetailsToController();
+  }
+
+  Future<void> _editPaymentMethodAt(int index) async {
+    final m = Map<String, dynamic>.from(_paymentDetails[index]);
+    final acctCtrl = TextEditingController(
+        text: receiptPaymentAccountLine(m));
+    final numCtrl =
+        TextEditingController(text: (m['number'] ?? '').toString());
+    final isBank = m['type'] == 'bank';
+    final accountLabel = isBank
+        ? 'Account name (as on bank records)'
+        : 'Account / business name';
+    final numberLabel = isBank ? 'Account number' : 'Lipa Namba / number';
+
+    try {
+      await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit payment method'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                m['provider']?.toString() ?? '',
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: acctCtrl,
+                decoration: InputDecoration(
+                  labelText: accountLabel,
+                  border: const OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: numCtrl,
+                decoration: InputDecoration(
+                  labelText: numberLabel,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _paymentDetails[index] = {
+                  ...m,
+                  'accountName': acctCtrl.text.trim(),
+                  'number': numCtrl.text.trim(),
+                };
+              });
+              _pushPaymentDetailsToController();
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    } finally {
+      acctCtrl.dispose();
+      numCtrl.dispose();
+    }
   }
 
   @override
@@ -148,6 +235,7 @@ class _InvoicePaymentSettingsScreenState
                 method: m,
                 onDelete: () => _deleteAt(idx),
                 onToggle: (v) => _toggleShowAt(idx, v),
+                onEdit: () => _editPaymentMethodAt(idx),
               );
             }),
 
@@ -171,6 +259,7 @@ class _InvoicePaymentSettingsScreenState
                 method: m,
                 onDelete: () => _deleteAt(idx),
                 onToggle: (v) => _toggleShowAt(idx, v),
+                onEdit: () => _editPaymentMethodAt(idx),
               );
             }),
 
@@ -241,11 +330,14 @@ class _PaymentMethodTile extends StatelessWidget {
   final Map<String, dynamic> method;
   final VoidCallback onDelete;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onEdit;
 
-  const _PaymentMethodTile(
-      {required this.method,
-      required this.onDelete,
-      required this.onToggle});
+  const _PaymentMethodTile({
+    required this.method,
+    required this.onDelete,
+    required this.onToggle,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +356,15 @@ class _PaymentMethodTile extends StatelessWidget {
         ),
         title: Text(method['provider'] ?? '',
             style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(method['number'] ?? ''),
+        subtitle: Text(
+          () {
+            final name = receiptPaymentAccountLine(
+                Map<String, dynamic>.from(method));
+            final num = (method['number'] ?? '').toString();
+            if (name.isEmpty) return num;
+            return '$name\n$num';
+          }(),
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -278,6 +378,11 @@ class _PaymentMethodTile extends StatelessWidget {
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: onEdit,
+              tooltip: 'Edit',
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -309,6 +414,7 @@ class _AddPaymentMethodDialog extends StatefulWidget {
 class _AddPaymentMethodDialogState
     extends State<_AddPaymentMethodDialog> {
   final _formKey = GlobalKey<FormState>();
+  final _accountNameController = TextEditingController();
   final _numberController = TextEditingController();
   String? _selectedProvider;
 
@@ -339,6 +445,7 @@ class _AddPaymentMethodDialogState
 
   @override
   void dispose() {
+    _accountNameController.dispose();
     _numberController.dispose();
     super.dispose();
   }
@@ -348,6 +455,8 @@ class _AddPaymentMethodDialogState
     final isBank = widget.type == 'bank';
     final providers = isBank ? _bankProviders : _mobileProviders;
     final numberLabel = isBank ? 'Account Number' : 'Lipa Namba / Number';
+    final accountNameLabel =
+        isBank ? 'Account name (as on bank records)' : 'Account / business name';
     final title = isBank ? 'Add Bank Account' : 'Add Mobile Money';
 
     return AlertDialog(
@@ -369,6 +478,17 @@ class _AddPaymentMethodDialogState
               validator: (v) =>
                   v == null ? 'Please select a provider' : null,
               onChanged: (v) => setState(() => _selectedProvider = v),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _accountNameController,
+              keyboardType: TextInputType.name,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                labelText: accountNameLabel,
+                hintText: 'Optional',
+                border: const OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -395,6 +515,7 @@ class _AddPaymentMethodDialogState
               widget.onAdd({
                 'provider': _selectedProvider!,
                 'number': _numberController.text.trim(),
+                'accountName': _accountNameController.text.trim(),
               });
               Navigator.pop(context);
             }

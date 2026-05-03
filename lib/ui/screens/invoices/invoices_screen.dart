@@ -621,8 +621,9 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     final List<Map<String, dynamic>> paymentDetails =
         List<Map<String, dynamic>>.from(
       (business['invoicePaymentDetails'] as List? ?? [])
-          .where((e) => (e as Map)['showOnInvoice'] == true)
-          .map((e) => Map<String, dynamic>.from(e as Map)),
+          .where((e) =>
+              paymentDetailShowsOnInvoice(paymentDetailMapFromFirestore(e)))
+          .map((e) => paymentDetailMapFromFirestore(e)),
     );
 
     // Resolve client name
@@ -873,9 +874,10 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
               border: pw.TableBorder.all(
                   color: PdfColors.grey300, width: 0.5),
               columnWidths: const {
-                0: pw.FlexColumnWidth(1),
-                1: pw.FlexColumnWidth(1.5),
-                2: pw.FlexColumnWidth(2),
+                0: pw.FlexColumnWidth(0.85),
+                1: pw.FlexColumnWidth(1.15),
+                2: pw.FlexColumnWidth(1.35),
+                3: pw.FlexColumnWidth(1.35),
               },
               children: [
                 pw.TableRow(
@@ -884,7 +886,8 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                   children: [
                     _tableHeader('Type'),
                     _tableHeader('Provider / Bank'),
-                    _tableHeader('Account / Lipa Namba'),
+                    _tableHeader('Account name'),
+                    _tableHeader('Number'),
                   ],
                 ),
                 ...paymentDetails.map((pd) => pw.TableRow(
@@ -893,6 +896,9 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                             ? 'Bank'
                             : 'Mobile Money'),
                         _tableCell(pd['provider']?.toString() ?? ''),
+                        _tableCell(receiptPaymentAccountLine(pd,
+                            businessForFallback:
+                                Map<String, dynamic>.from(business))),
                         _tableCell(pd['number']?.toString() ?? ''),
                       ],
                     )),

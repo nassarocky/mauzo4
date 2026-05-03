@@ -13,8 +13,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode =  "19"
-def flutterVersionName =  "2.6"
+def flutterVersionCode =  "20"
+def flutterVersionName =  "2.7"
 
 android {
     namespace = "com.hesabu.mauzo"

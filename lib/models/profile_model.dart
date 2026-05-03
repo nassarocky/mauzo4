@@ -30,6 +30,13 @@ class ProfileModel {
     this.installReferrerCode,
   });
 
+  static int _parseMaxBusiness(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.round();
+    return int.tryParse(v.toString()) ?? 0;
+  }
+
   // Factory method to create a ProfileModel from Firestore snapshot
   static ProfileModel fromSnapshot(DocumentSnapshot snapshot) {
     final data = snapshot.data() as Map<String, dynamic>?; // Safely get the document data
@@ -44,7 +51,7 @@ class ProfileModel {
       name: data['name'] ?? 'Unnamed Profile',
       role: data['role'] ?? '',
       password: data['password'] ?? '',
-      maxBusiness: data['maxBusiness'] != null ? int.tryParse(data['maxBusiness'].toString()) ?? 0 : 0,
+      maxBusiness: _parseMaxBusiness(data['maxBusiness']),
       business: data['business'] ?? const [],
       date: data['date'],
       image: data['image'] ?? '',

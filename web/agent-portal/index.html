@@ -179,9 +179,8 @@
         <table>
           <thead>
             <tr>
-              <th>UID</th>
-              <th>Email</th>
               <th>Name</th>
+              <th>Email</th>
               <th>Promo codes</th>
               <th>%</th>
               <th>Status</th>
@@ -205,8 +204,9 @@
 
       <h2>Edit selected agent</h2>
       <form id="adminUpdateForm">
-        <label for="editAgentUid">Agent UID</label>
-        <input id="editAgentUid" type="text" placeholder="Firebase Auth uid" />
+        <label>Selected agent</label>
+        <p id="selectedAgentSummary" class="hint" style="margin-top:0">Select a row in the Agents table above.</p>
+        <input id="editAgentUid" type="hidden" />
         <label for="editPercent">New commission % (0–100)</label>
         <input id="editPercent" type="number" min="0" max="100" step="0.5" placeholder="e.g. 25" />
         <label for="editPromoCodes">Replace promo codes (comma / space)</label>

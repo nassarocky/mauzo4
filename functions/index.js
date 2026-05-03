@@ -420,7 +420,7 @@ exports.adminResetUserPassword = onCall({ region: "us-central1" }, async (reques
 });
 
 const SUPPORT_RECORD_COLLECTIONS = {
-  gmanusers: ["email", "name", "phone", "image"],
+  gmanusers: ["email", "name", "phone", "image", "maxBusiness"],
   businesses: ["email", "name", "phone", "tin", "logo"],
 };
 
@@ -488,7 +488,19 @@ exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (requ
   for (const key of allowed) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
       const v = patch[key];
-      if (v === null) {
+      if (key === "maxBusiness") {
+        const n =
+          typeof v === "number" && Number.isFinite(v)
+            ? Math.trunc(v)
+            : parseInt(String(v).trim(), 10);
+        if (!Number.isFinite(n) || n < 0 || n > 10000) {
+          throw new HttpsError(
+            "invalid-argument",
+            "maxBusiness must be an integer from 0 to 10000."
+          );
+        }
+        sanitized[key] = n;
+      } else if (v === null) {
         sanitized[key] = null;
       } else if (typeof v === "string") {
         sanitized[key] = v.trim();
@@ -520,6 +532,7 @@ exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (requ
     if (sanitized.email !== undefined) empPatch.email = sanitized.email;
     if (sanitized.name !== undefined) empPatch.name = sanitized.name;
     if (sanitized.phone !== undefined) empPatch.phone = sanitized.phone;
+    if (sanitized.maxBusiness !== undefined) empPatch.maxBusiness = sanitized.maxBusiness;
     if (Object.keys(empPatch).length > 0) {
       for (const bid of bizList) {
         const empRef = firestore
@@ -557,7 +570,14 @@ exports.onBusinessResetTimeChangedV2 = aggregates.onBusinessResetTimeChangedV2;
 
 exports.deleteBusiness = onRequest(
   {
-    cors: ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"],
+    cors: [
+      "https://hesabumauzo.co.tz",
+      "https://biashara.hesabumauzo.co.tz",
+      "https://hesabumauzo.web.app",
+      "https://hesabumauzo.firebaseapp.com",
+      "http://localhost:5000",
+      "http://127.0.0.1:5000",
+    ],
     region: "us-central1",
   },
   async (req, res) => {
@@ -746,7 +766,9 @@ exports.makePayment = onRequest(async (req, res) => {
 });
 
 
-// Callable Functionconst allowedOrigins = ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"];
+// Callable Function
+
+
     exports.loginAdmin = onRequest(async (req, res) => {
       // Set CORS headers
       res.set("Access-Control-Allow-Origin", "*");
@@ -832,7 +854,14 @@ exports.makePayment = onRequest(async (req, res) => {
                       }
                     });
 
-                   const allowedOrigins = ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"];
+                   const allowedOrigins = [
+                     "https://hesabumauzo.co.tz",
+                     "https://biashara.hesabumauzo.co.tz",
+                     "https://hesabumauzo.web.app",
+                     "https://hesabumauzo.firebaseapp.com",
+                     "http://localhost:5000",
+                     "http://127.0.0.1:5000",
+                   ];
 
                    exports.getAllUsers = onRequest(
                      {
@@ -1206,7 +1235,15 @@ exports.checkSubscriptionStatusBusiness = onSchedule(
 
 exports.paymentCallbackEmail2 = onRequest(
   {
-    cors: ["https://hesabumauzo.co.tz", "https://biashara.hesabumauzo.co.tz"], // Explicitly allow your domains
+    cors: [
+      "https://hesabumauzo.co.tz",
+      "https://biashara.hesabumauzo.co.tz",
+      "https://hesabumauzo.web.app",
+      "https://hesabumauzo.firebaseapp.com",
+      "http://localhost:5000",
+      "http://127.0.0.1:5000",
+    ],
+    region: "us-central1",
   },
   async (req, res) => {
     // Handle preflight (OPTIONS) request
@@ -3457,6 +3494,32 @@ async function buildCommissionDashboardForAgentData(agentData, yearMonth) {
       err?.message || "Could not load payment events for this month.";
   }
 
+  const businessNameById = new Map();
+  for (const v of referralsMap.values()) {
+    businessNameById.set(v.businessId, String(v.businessName || "").trim());
+  }
+  const uniquePayBizIds = [...new Set(paymentEvents.map((e) => e.businessId).filter(Boolean))];
+  const idsNeedingLookup = uniquePayBizIds.filter((id) => !businessNameById.get(id));
+  for (let i = 0; i < idsNeedingLookup.length; i += 100) {
+    const slice = idsNeedingLookup.slice(i, i + 100);
+    const refs = slice.map((id) => firestore.collection("businesses").doc(id));
+    const snaps = await firestore.getAll(...refs);
+    snaps.forEach((snap, idx) => {
+      const bid = slice[idx];
+      if (snap.exists) {
+        const nm = String((snap.data() || {}).name || "").trim();
+        businessNameById.set(bid, nm);
+      } else if (!businessNameById.has(bid)) {
+        businessNameById.set(bid, "");
+      }
+    });
+  }
+
+  const paymentEventsNamed = paymentEvents.map((pe) => ({
+    ...pe,
+    businessName: businessNameById.get(pe.businessId) || "",
+  }));
+
   const estimatedCommissionTzs = Math.round(totalBasis * (percent / 100) * 100) / 100;
 
   const baseNote = "Commission figures are estimates.";
@@ -3468,10 +3531,10 @@ async function buildCommissionDashboardForAgentData(agentData, yearMonth) {
     promoCodes: codes,
     referrals: [...referralsMap.values()],
     paidInMonthBusinessCount: paidBusinessIds.size,
-    paidInMonthEventCount: paymentEvents.length,
+    paidInMonthEventCount: paymentEventsNamed.length,
     estimatedCommissionTzs,
     commissionNote,
-    paymentEvents: paymentEvents.slice(0, 500),
+    paymentEvents: paymentEventsNamed.slice(0, 500),
   };
 }
 

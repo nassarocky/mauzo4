@@ -369,7 +369,8 @@ class ThermalPrinterService extends GetxController {
             // Payment details
             ...() {
               final List paymentDetails = (business['invoicePaymentDetails'] as List? ?? [])
-                  .where((e) => (e as Map)['showOnInvoice'] == true)
+                  .where((e) => paymentDetailShowsOnInvoice(
+                      paymentDetailMapFromFirestore(e)))
                   .toList();
               if (paymentDetails.isEmpty) return <pw.Widget>[];
               return <pw.Widget>[
@@ -378,11 +379,17 @@ class ThermalPrinterService extends GetxController {
                 pw.Center(child: pw.Text('Payment Details', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
                 pw.SizedBox(height: 4),
                 ...paymentDetails.expand<pw.Widget>((pd) {
-                  final m = pd as Map;
+                  final m = Map<String, dynamic>.from(pd as Map);
                   final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+                  final acct = receiptPaymentAccountLine(m,
+                      businessForFallback: business);
+                  final number = (m['number'] ?? '').toString();
                   return [
-                    pw.Text('$label: ${m['provider']}', style: const pw.TextStyle(fontSize: 7)),
-                    pw.Text('${m['number']}', style: const pw.TextStyle(fontSize: 7)),
+                    pw.Text('$label: ${m['provider']}',
+                        style: const pw.TextStyle(fontSize: 7)),
+                    if (acct.isNotEmpty)
+                      pw.Text(acct, style: const pw.TextStyle(fontSize: 7)),
+                    pw.Text(number, style: const pw.TextStyle(fontSize: 7)),
                   ];
                 }),
               ];
@@ -662,15 +669,21 @@ class ThermalPrinterService extends GetxController {
 
       // Payment details
       final List paymentDetailsList = (business['invoicePaymentDetails'] as List? ?? [])
-          .where((e) => (e as Map)['showOnInvoice'] == true)
+          .where((e) => paymentDetailShowsOnInvoice(
+              paymentDetailMapFromFirestore(e)))
           .toList();
       if (paymentDetailsList.isNotEmpty) {
         bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
         bytes += Uint8List.fromList('Payment Details:\n'.codeUnits);
         for (final pd in paymentDetailsList) {
-          final m = pd as Map;
+          final m = Map<String, dynamic>.from(pd as Map);
           final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+          final acct = receiptPaymentAccountLine(m,
+              businessForFallback: business);
           bytes += Uint8List.fromList('$label: ${m['provider']}\n'.codeUnits);
+          if (acct.isNotEmpty) {
+            bytes += Uint8List.fromList('  $acct\n'.codeUnits);
+          }
           bytes += Uint8List.fromList('  ${m['number']}\n'.codeUnits);
         }
       }
