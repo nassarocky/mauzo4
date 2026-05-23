@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
@@ -8,6 +7,7 @@ import '../models/business_model.dart';
 import '../services/firestore_db.dart';
 import '../utils/preferences.dart';
 import 'business_controller.dart';
+import '../utils/business_shop_location.dart';
 
 class BusinessListController extends GetxController {
   final ProfileController _profileController = Get.find();
@@ -38,7 +38,12 @@ class BusinessListController extends GetxController {
     businesses.clear();
   }
 
-  Future<void> addNewBusiness(String name) async {
+  Future<void> addNewBusiness(
+    String name, {
+    String shopCountry = BusinessShopLocation.defaultCountry,
+    String shopCity = '',
+    String shopStreet = '',
+  }) async {
     try {
       // ✅ Step 1: Get the authenticated user's UID
       String? userId = _profileController.user['id'];
@@ -124,6 +129,11 @@ class BusinessListController extends GetxController {
         'additionalString2': '',
         'additionalList1': [],
         'additionalList2': [],
+        ...BusinessShopLocation.firestoreFields(
+          country: shopCountry,
+          city: shopCity,
+          street: shopStreet,
+        ),
       };
 
       // Copy subscription-related fields from existing business

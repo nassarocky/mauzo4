@@ -14,6 +14,21 @@ import 'package:path_provider/path_provider.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
 import '../services/referral_attribution_service.dart';
+import '../utils/business_shop_location.dart';
+
+/// Firestore shop address fields on new business documents.
+Map<String, dynamic> _shopLocationPatchForCreate({
+  String? shopCountry,
+  String? shopCity,
+  String? shopStreet,
+}) {
+  final co = (shopCountry ?? '').trim();
+  return BusinessShopLocation.firestoreFields(
+    country: co.isEmpty ? BusinessShopLocation.defaultCountry : co,
+    city: (shopCity ?? '').trim(),
+    street: (shopStreet ?? '').trim(),
+  );
+}
 
 /// When the user signs up with phone only, store this placeholder email (matches [AuthController.registerWithPhone]).
 String emailDerivedFromPhoneE164(String phoneE164) {
@@ -246,6 +261,9 @@ class AuthController extends GetxController {
       String mainCurrency,
       String secondaryCurrency, {
       String? signupPromoCode,
+      String? shopCountry,
+      String? shopCity,
+      String? shopStreet,
       }) async {
     phoneNumber.value = phone;
     try {
@@ -297,6 +315,11 @@ class AuthController extends GetxController {
         'additionalString2': uniqueStoreId,  // Store the unique store ID here
         'additionalList1': [],  // Initialize new list fields with default values
         'additionalList2': [],
+        ..._shopLocationPatchForCreate(
+          shopCountry: shopCountry,
+          shopCity: shopCity,
+          shopStreet: shopStreet,
+        ),
       });
 
       // Add user to the 'gmanusers' collection with role 'owner' and the created business
@@ -372,6 +395,9 @@ class AuthController extends GetxController {
     required String mainCurrencyVal,
     required String secondaryCurrencyVal,
     String? signupPromoCode,
+    String? shopCountry,
+    String? shopCity,
+    String? shopStreet,
   }) async {
     isLoading.value = true;
     phoneNumber.value = phone;
@@ -421,6 +447,11 @@ class AuthController extends GetxController {
         'additionalString2': uniqueStoreId,
         'additionalList1': [],
         'additionalList2': [],
+        ..._shopLocationPatchForCreate(
+          shopCountry: shopCountry,
+          shopCity: shopCity,
+          shopStreet: shopStreet,
+        ),
       });
 
       await _firestore
@@ -513,6 +544,9 @@ class AuthController extends GetxController {
     required String secondaryCurrency,
     String? email,
     String? password,
+    String? shopCountry,
+    String? shopCity,
+    String? shopStreet,
   }) async {
     isLoading.value = true;
     try {
@@ -541,6 +575,9 @@ class AuthController extends GetxController {
           mainCurrency: mainCurrency,
           secondaryCurrency: secondaryCurrency,
           email: resolvedEmail,
+          shopCountry: shopCountry,
+          shopCity: shopCity,
+          shopStreet: shopStreet,
         );
 
         // Optionally link email/password if provided
@@ -605,6 +642,9 @@ class AuthController extends GetxController {
     required String mainCurrency,
     required String secondaryCurrency,
     required String email,
+    String? shopCountry,
+    String? shopCity,
+    String? shopStreet,
   }) async {
     // Create business
     DocumentReference businessDocRef = _firestore.collection('businesses').doc();
@@ -640,6 +680,11 @@ class AuthController extends GetxController {
       'additionalString2': uniqueStoreId,
       'additionalList1': [],
       'additionalList2': [],
+      ..._shopLocationPatchForCreate(
+        shopCountry: shopCountry,
+        shopCity: shopCity,
+        shopStreet: shopStreet,
+      ),
     });
 
     // gmanusers

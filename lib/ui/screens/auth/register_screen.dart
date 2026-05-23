@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:mauzo/controllers/auth_controller.dart';
 import 'package:mauzo/services/referral_attribution_service.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/business_shop_location.dart';
 
 import '../../widgets/buttons/primary_button.dart';
 
@@ -47,6 +48,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController      = TextEditingController();
   /// Optional promo / referral code (same rules as settings).
   final _promoCodeController  = TextEditingController();
+
+  final _shopCountryController =
+      TextEditingController(text: BusinessShopLocation.defaultCountry);
+  final _shopCityController = TextEditingController();
+  final _shopStreetController = TextEditingController();
 
   final AuthController _authController = Get.find();
 
@@ -103,7 +109,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return normalized;
   }
 
-  // ── Navigation ──────────────────────────────────────────────────────────
+  Widget _optionalShopLocationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'optional_shop_location'.tr,
+          style: const TextStyle(fontSize: 14, color: textMutedColor),
+        ),
+        const SizedBox(height: 12),
+        _field(
+          controller: _shopCountryController,
+          label: 'shop_country'.tr,
+          textCapitalization: TextCapitalization.words,
+        ),
+        const SizedBox(height: 16),
+        _field(
+          controller: _shopCityController,
+          label: 'shop_city'.tr,
+          textCapitalization: TextCapitalization.words,
+        ),
+        const SizedBox(height: 16),
+        _field(
+          controller: _shopStreetController,
+          label: 'shop_street'.tr,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+      ],
+    );
+  }
 
   void _goBack() {
     if (_regMethod == _RegMethod.none) {
@@ -161,6 +195,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         mainCurrencyVal:     'TZS',
         secondaryCurrencyVal: '',
         signupPromoCode:     signupPromo,
+        shopCountry:         _shopCountryController.text.trim(),
+        shopCity:            _shopCityController.text.trim(),
+        shopStreet:          _shopStreetController.text.trim(),
       );
     } catch (e) {
       errorSnackbar(e.toString().replaceFirst('Exception: ', ''));
@@ -220,6 +257,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'TZS',
         '',
         signupPromoCode: signupPromo,
+        shopCountry: _shopCountryController.text.trim(),
+        shopCity: _shopCityController.text.trim(),
+        shopStreet: _shopStreetController.text.trim(),
       );
     } catch (e) {
       errorSnackbar(e.toString().replaceFirst('Exception: ', ''));
@@ -358,6 +398,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
           // Password
           _passwordField(),
+          const SizedBox(height: 16),
+
+          _optionalShopLocationSection(),
           const SizedBox(height: 28),
 
           SizedBox(
@@ -435,6 +478,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
           // Password
           _passwordField(),
+          const SizedBox(height: 16),
+
+          _optionalShopLocationSection(),
           const SizedBox(height: 28),
 
           SizedBox(
@@ -545,6 +591,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     int? maxLength,
     TextInputType keyboardType = TextInputType.text,
     bool autofocus = false,
+    TextCapitalization textCapitalization = TextCapitalization.none,
     void Function(String)? onChanged,
   }) {
     return SizedBox(
@@ -554,6 +601,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         maxLength: maxLength,
         keyboardType: keyboardType,
         autofocus: autofocus,
+        textCapitalization: textCapitalization,
         onChanged: onChanged,
         decoration: InputDecoration(
           contentPadding: const EdgeInsets.symmetric(horizontal: 10),
@@ -615,6 +663,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phoneController.dispose();
     _emailController.dispose();
     _promoCodeController.dispose();
+    _shopCountryController.dispose();
+    _shopCityController.dispose();
+    _shopStreetController.dispose();
     super.dispose();
   }
 }
