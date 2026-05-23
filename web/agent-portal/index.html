@@ -41,7 +41,7 @@
       margin-bottom: 16px;
     }
     label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-    input[type="email"], input[type="password"], input[type="text"], input[type="number"], textarea {
+    input[type="email"], input[type="password"], input[type="text"], input[type="number"], input[type="tel"], textarea, select {
       width: 100%;
       padding: 10px 12px;
       border-radius: 8px;
@@ -52,7 +52,7 @@
       margin-bottom: 12px;
     }
     textarea { min-height: 64px; font-family: inherit; resize: vertical; }
-    input:focus, textarea:focus {
+    input:focus, textarea:focus, select:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
@@ -141,9 +141,10 @@
     </div>
 
     <div id="loginCard" class="card" hidden>
+      <p class="hint" style="margin-top:0">Same as the business app: one field for email or phone; phone logins use <code>digits@hesabumauzo.app</code> behind the scenes.</p>
       <form id="loginForm">
-        <label for="loginEmail">Email</label>
-        <input id="loginEmail" type="email" autocomplete="username" required />
+        <label for="loginCredential">Email or phone <span style="color:var(--danger)">*</span></label>
+        <input id="loginCredential" type="text" inputmode="email" autocomplete="username" placeholder="e.g. user@email.com or +255712345678" required />
         <label for="loginPassword">Password</label>
         <input id="loginPassword" type="password" autocomplete="current-password" required />
         <button type="submit" class="primary">Sign in</button>
@@ -155,23 +156,62 @@
       <button type="button" class="ghost" id="logoutBtn">Sign out</button>
 
       <h2>Create agent</h2>
+      <p class="hint" style="margin-top:0">Same pattern as business signup: email login or phone login (<code>digits@hesabumauzo.app</code>).</p>
+      <div class="row" style="margin-bottom:12px;gap:18px;">
+        <label><input type="radio" name="agentRegMode" value="email" checked /> Email + password</label>
+        <label><input type="radio" name="agentRegMode" value="phone" /> Phone + password</label>
+      </div>
       <form id="adminCreateForm">
-        <label for="newAgentEmail">Agent email (login)</label>
-        <input id="newAgentEmail" type="email" required />
+        <div id="createAgentEmailBlock">
+          <label for="newAgentEmail">Agent email (login)</label>
+          <input id="newAgentEmail" type="email" />
+        </div>
+        <div id="createAgentPhoneBlock" hidden>
+          <label for="newAgentLoginPhone">Agent phone (login) <span style="color:var(--danger)">*</span></label>
+          <input id="newAgentLoginPhone" type="tel" inputmode="tel" placeholder="+255712345678" />
+        </div>
         <label for="newAgentPassword">Temporary password (min 8)</label>
         <input id="newAgentPassword" type="password" minlength="8" required />
         <label for="newAgentName">Display name</label>
         <input id="newAgentName" type="text" placeholder="e.g. John — Dar zone" />
+        <div id="newAgentContactPhoneWrap">
+          <label for="newAgentPhone">Contact phone <span style="color:var(--danger)">*</span></label>
+          <input id="newAgentPhone" type="tel" inputmode="tel" placeholder="+255712345678" />
+        </div>
         <label for="newPromoCodes">Promo codes (comma or space separated)</label>
         <textarea id="newPromoCodes" placeholder="AGENT01 PARTNER_X" required></textarea>
         <label for="newAgentPercent">Commission % (default 20)</label>
         <input id="newAgentPercent" type="number" min="0" max="100" step="0.5" value="20" />
+        <p class="hint" style="margin-top:0">Bank details (optional — for payouts)</p>
+        <label for="newBankAccountName">Account name</label>
+        <input id="newBankAccountName" type="text" placeholder="Optional" />
+        <label for="newBankAccountNumber">Account number</label>
+        <input id="newBankAccountNumber" type="text" placeholder="Optional" />
+        <label for="newBankType">Bank name</label>
+        <select id="newBankType">
+          <option value="">— Not specified —</option>
+          <option value="CRDB Bank">CRDB Bank</option>
+          <option value="NMB Bank">NMB Bank</option>
+          <option value="NBC Bank">NBC Bank</option>
+          <option value="Stanbic Bank">Stanbic Bank</option>
+          <option value="Equity Bank">Equity Bank</option>
+          <option value="KCB Bank">KCB Bank</option>
+          <option value="Azania Bank">Azania Bank</option>
+          <option value="Diamond Trust Bank">Diamond Trust Bank</option>
+          <option value="Bank of Africa">Bank of Africa</option>
+          <option value="Exim Bank">Exim Bank</option>
+          <option value="Standard Chartered">Standard Chartered</option>
+          <option value="PBZ Bank">PBZ Bank</option>
+          <option value="Other">Other</option>
+        </select>
         <button type="submit" class="primary">Create agent</button>
       </form>
 
       <hr class="sep" />
 
       <h2>Agents</h2>
+      <label for="adminAgentSearch">Search by promo code, phone, or email</label>
+      <input id="adminAgentSearch" type="text" placeholder="e.g. AGENT01 or +255… or name@…" autocomplete="off" />
       <div class="row">
         <button type="button" class="ghost" id="adminRefreshBtn">Refresh list</button>
       </div>
@@ -181,6 +221,7 @@
             <tr>
               <th>Name</th>
               <th>Email</th>
+              <th>Phone</th>
               <th>Promo codes</th>
               <th>%</th>
               <th>Status</th>
@@ -207,10 +248,34 @@
         <label>Selected agent</label>
         <p id="selectedAgentSummary" class="hint" style="margin-top:0">Select a row in the Agents table above.</p>
         <input id="editAgentUid" type="hidden" />
+        <label for="editPhone">Agent phone <span style="color:var(--danger)">*</span></label>
+        <input id="editPhone" type="tel" inputmode="tel" placeholder="+255712345678" />
         <label for="editPercent">New commission % (0–100)</label>
         <input id="editPercent" type="number" min="0" max="100" step="0.5" placeholder="e.g. 25" />
         <label for="editPromoCodes">Replace promo codes (comma / space)</label>
         <textarea id="editPromoCodes" placeholder="Leave empty to keep unchanged"></textarea>
+        <p class="hint" style="margin-top:0">Bank details (optional)</p>
+        <label for="editBankAccountName">Account name</label>
+        <input id="editBankAccountName" type="text" />
+        <label for="editBankAccountNumber">Account number</label>
+        <input id="editBankAccountNumber" type="text" />
+        <label for="editBankType">Bank name</label>
+        <select id="editBankType">
+          <option value="">— Not specified —</option>
+          <option value="CRDB Bank">CRDB Bank</option>
+          <option value="NMB Bank">NMB Bank</option>
+          <option value="NBC Bank">NBC Bank</option>
+          <option value="Stanbic Bank">Stanbic Bank</option>
+          <option value="Equity Bank">Equity Bank</option>
+          <option value="KCB Bank">KCB Bank</option>
+          <option value="Azania Bank">Azania Bank</option>
+          <option value="Diamond Trust Bank">Diamond Trust Bank</option>
+          <option value="Bank of Africa">Bank of Africa</option>
+          <option value="Exim Bank">Exim Bank</option>
+          <option value="Standard Chartered">Standard Chartered</option>
+          <option value="PBZ Bank">PBZ Bank</option>
+          <option value="Other">Other</option>
+        </select>
         <div class="row">
           <button type="submit" class="primary">Save changes</button>
           <button type="button" class="ghost" id="adminDeactivateBtn">Deactivate agent</button>

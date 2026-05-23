@@ -68,6 +68,21 @@ class Languages extends Translations {
       'Amount':'Amount',
       'Please enter details':'Please enter details',
           'business_name': 'Business name',
+          'shop_location_banner_title': 'Add your shop location',
+          'shop_location_banner_subtitle':
+              'City and street help customers find you in future marketplace search.',
+          'shop_location_dialog_title': 'Shop location',
+          'shop_location_dialog_hint':
+              'Shown on your account and in the menu. Customers may see this in future search.',
+          'shop_location_account_label': 'Shop address',
+          'shop_location_not_set': 'Not set — tap to add',
+          'shop_country': 'Country',
+          'shop_city': 'City',
+          'shop_street': 'Street / area',
+          'optional_shop_location': 'Shop location (optional)',
+          'add_business_dialog_hint':
+              'Create another business profile. Location is optional and can be edited anytime.',
+          'shop_location_saved': 'Shop location saved',
           'phone': 'Phone',
           'main_currency': 'Main currency',
           'secondary_currency': 'Secondary currency',
@@ -261,7 +276,7 @@ class Languages extends Translations {
       'manufacturer':'Manufacturer',
       'location':'Where It Is Placed',
       'sellingPrice':'Selling Price per Item',
-      'wholesale_selling_price': 'Wholesale selling price per item',
+      'wholesale_selling_price': 'Wholesale selling price',
       'wholesale_min_quantity_label':
           'Min quantity for wholesale (this line)',
       'wholesale_min_quantity_hint':
@@ -705,6 +720,21 @@ class Languages extends Translations {
       'Your subscription has ended.':'Malipo yako Yameisha, Lipia Tena:  maulizo: +255698720225/+255781282076',
       'name': 'Jina',
       'business_name': 'Jina la biashara',
+      'shop_location_banner_title': 'Ongeza mahali pa duka',
+      'shop_location_banner_subtitle':
+          'Jiji na mtaa huwasaidia wateja kukupata katika utafutaji wa soko baadaye.',
+      'shop_location_dialog_title': 'Mahali pa duka',
+      'shop_location_dialog_hint':
+          'Linaonekana akauntini na menyu. Wateja wanaweza kuona katika utafutaji wa baadaye.',
+      'shop_location_account_label': 'Anwani ya duka',
+      'shop_location_not_set': 'Haijawekwa — gusa kuongeza',
+      'shop_country': 'Nchi',
+      'shop_city': 'Jiji',
+      'shop_street': 'Mtaa / eneo',
+      'optional_shop_location': 'Mahali pa duka (hiari)',
+      'add_business_dialog_hint':
+          'Unda wasifu mwingine wa biashara. Mahali ni hiari na unaweza kubadilisha wakati wowote.',
+      'shop_location_saved': 'Mahali pa duka limehifadhiwa',
       'Subscription status is not set.':'Tatizo la kiufundi limetokea, kwa msaada piga +255698720225/+255781282076',
       'phone': 'Simu',
       'main_currency': 'Sarafu kuu',
@@ -712,7 +742,7 @@ class Languages extends Translations {
       'Add Additional Details':'Ongeza Maelezo ya Ziada',
       'unnamed_client': 'Mteja bila jina',
       'sellingPrice':'Bei ya Kuuza Moja',
-      'wholesale_selling_price': 'Bei ya jumla (wholesale) kwa kipimo kimoja',
+      'wholesale_selling_price': 'Bei ya jumla',
       'wholesale_min_quantity_label':
           'Idadi ya chini kwa bei ya jumla (mstari huu)',
       'wholesale_min_quantity_hint':

@@ -217,7 +217,7 @@ class _PaymentDialogContentState extends State<PaymentDialogContent> {
                   DropdownButtonFormField<String>(
                     decoration: inputDecoration.copyWith(labelText: 'Chagua Mtandao'),
                     value: selectedProvider,
-                    items: ['Tigo', 'Halopesa', 'Airtel', 'Azampesa']
+                    items: ['Mpesa','Tigo', 'Halopesa', 'Airtel', 'Azampesa']
                         .map((provider) => DropdownMenuItem(
                       value: provider,
                       child: Text(provider),

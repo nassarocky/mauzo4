@@ -647,7 +647,6 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     final subtotal = (invoice.price + invoice.discount) as double;
     final discount = (invoice.discount ?? 0.0) as double;
     final total = (invoice.price ?? 0.0) as double;
-    final paid = (invoice.payment ?? 0.0) as double;
     final debt = (invoice.debt ?? 0.0) as double;
 
     pdf.addPage(
@@ -848,9 +847,6 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                     _summaryRow(
                         'TOTAL', formatCurrency(total, currency),
                         bold: true),
-                    if (paid > 0)
-                      _summaryRow('Paid', formatCurrency(paid, currency),
-                          color: PdfColors.green800),
                     if (debt > 0)
                       _summaryRow(
                           'Balance Due', formatCurrency(debt, currency),

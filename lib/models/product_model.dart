@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+/// Product row in inventory. [location] is in-store / shelf placement.
+/// For marketplace-style search UIs, combine with the parent business document's
+/// `shopCity`, `shopStreet`, and `shopCountry` (see [BusinessShopLocation]).
 class Product {
   /// Default minimum line quantity for wholesale when creating products or when Firestore has no valid value.
   static const int defaultWholesaleMinQuantity = 200;

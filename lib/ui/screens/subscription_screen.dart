@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import '../../controllers/business_controller.dart';
 import '../../controllers/profile_controller.dart';
+import '../../utils/business_shop_location.dart';
 import '../../utils/constants.dart';
 import '../../utils/phone_display_utils.dart';
+import '../widgets/dialogs/shop_location_dialog.dart';
 import '../widgets/dialogs/edit_business_dialog.dart';
 import '../widgets/dialogs/edit_tin_dialog.dart';
 import '../widgets/dialogs/edit_user_dialog.dart';
@@ -405,6 +407,54 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ),
               ),
             ),
+          ),
+          const Divider(height: 1),
+          GetBuilder<BusinessController>(
+            builder: (bc) {
+              final line = BusinessShopLocation.displayLine(bc.business);
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: isOwner
+                      ? () {
+                          showShopLocationEditorDialog(context);
+                        }
+                      : null,
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'shop_location_account_label'.tr,
+                            style: bodyText(
+                              Theme.of(context).textTheme.bodyMedium!.color,
+                            ),
+                          ),
+                        ),
+                        Flexible(
+                          child: Text(
+                            line.isEmpty
+                                ? 'shop_location_not_set'.tr
+                                : line,
+                            textAlign: TextAlign.end,
+                            style: bodyText(
+                              Theme.of(context).textTheme.bodyLarge!.color,
+                            ),
+                          ),
+                        ),
+                        if (isOwner) ...[
+                          const SizedBox(width: 8),
+                          const Icon(Icons.edit, size: 20, color: gray400Color),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
           const Divider(height: 1),
           Padding(

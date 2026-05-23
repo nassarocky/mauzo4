@@ -94,38 +94,118 @@ function normalizeCommissionPromoCode(raw) {
   return t;
 }
 
-async function getTier1MonthlyPriceTzs() {
+/** Default TZS prices (tier1 = one business); must stay aligned with subscription_pricing_model / getSubscriptionPricing. */
+const DEFAULT_SUBSCRIPTION_PRICING = {
+  tier1: { week: 5000, month: 15000, sixMonths: 75000, year: 130000 },
+  tier2: { week: 10000, month: 30000, sixMonths: 150000, year: 260000 },
+  tier3: { week: 15000, month: 45000, sixMonths: 225000, year: 390000 },
+  tier4: { week: 20000, month: 60000, sixMonths: 300000, year: 520000 },
+  tier5Plus: { week: 25000, month: 75000, sixMonths: 375000, year: 650000 },
+};
+
+function tierKeyForBusinessCount(count) {
+  const n = typeof count === "number" && count > 0 ? Math.floor(count) : 1;
+  if (n <= 1) return "tier1";
+  if (n === 2) return "tier2";
+  if (n === 3) return "tier3";
+  if (n === 4) return "tier4";
+  return "tier5Plus";
+}
+
+function mergeTierPrices(tierKey, partial) {
+  const fallback = DEFAULT_SUBSCRIPTION_PRICING[tierKey] || DEFAULT_SUBSCRIPTION_PRICING.tier1;
+  const p = partial && typeof partial === "object" ? partial : {};
+  return {
+    week: typeof p.week === "number" && p.week > 0 ? p.week : fallback.week,
+    month: typeof p.month === "number" && p.month > 0 ? p.month : fallback.month,
+    sixMonths:
+      typeof p.sixMonths === "number" && p.sixMonths > 0 ? p.sixMonths : fallback.sixMonths,
+    year: typeof p.year === "number" && p.year > 0 ? p.year : fallback.year,
+  };
+}
+
+async function loadSubscriptionPricingMerged() {
   try {
     const snap = await firestore.collection("subscriptionPricing").doc("config").get();
-    const m = snap.exists ? snap.data()?.tier1?.month : null;
-    const n = typeof m === "number" && m > 0 ? m : 15000;
-    return n;
+    if (!snap.exists) return { ...DEFAULT_SUBSCRIPTION_PRICING };
+    const x = snap.data() || {};
+    return {
+      tier1: mergeTierPrices("tier1", x.tier1),
+      tier2: mergeTierPrices("tier2", x.tier2),
+      tier3: mergeTierPrices("tier3", x.tier3),
+      tier4: mergeTierPrices("tier4", x.tier4),
+      tier5Plus: mergeTierPrices("tier5Plus", x.tier5Plus),
+    };
   } catch (_) {
-    return 15000;
+    return { ...DEFAULT_SUBSCRIPTION_PRICING };
   }
 }
 
 /**
+ * Map paid duration (days) to a known package. Uses float-tolerant matching (seconds/86400).
+ * Year matches 365 or 366 (Firestore durationSeconds year = 366 days).
+ */
+function canonicalSubscriptionPackageFromDays(numberOfDays) {
+  const d = Number(numberOfDays);
+  if (!Number.isFinite(d) || d <= 0) return null;
+  const tol = 1.5;
+  if (Math.abs(d - 7) <= tol) return "week";
+  if (Math.abs(d - 30) <= tol) return "month";
+  if (Math.abs(d - 180) <= tol) return "sixMonths";
+  if (Math.abs(d - 365) <= tol || Math.abs(d - 366) <= tol) return "year";
+  return null;
+}
+
+/**
+ * Total TZS paid for one subscription checkout (commission pool before %), from tier + package.
+ * Unknown durations fall back to (days/30)*monthly (legacy behaviour).
+ */
+function commissionBasisTotalForSubscriptionPayment(pricing, businessCount, numberOfDays) {
+  const tierKey = tierKeyForBusinessCount(businessCount);
+  const tierPrices = pricing[tierKey] || pricing.tier1;
+  const pkg = canonicalSubscriptionPackageFromDays(numberOfDays);
+  if (pkg && typeof tierPrices[pkg] === "number" && tierPrices[pkg] > 0) {
+    return tierPrices[pkg];
+  }
+  const month =
+    typeof tierPrices.month === "number" && tierPrices.month > 0 ? tierPrices.month : 15000;
+  const d = Number(numberOfDays);
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  return Math.round((d / 30) * month * 100) / 100;
+}
+
+/**
  * After a successful subscription payment, log one event per business row (for commission by promo code).
+ * Commission basis = actual package price for the term (week / month / 6 mo / year), not (days/30)×monthly.
+ * When several businesses share one payment, the total basis is split across rows that carry a promo code
+ * so summed basis matches a single subscription charge.
  */
 async function recordReferralPaymentEventsForDocs(docs, paymentStart, numberOfDays) {
   if (!docs || docs.length === 0) return;
-  const monthPrice = await getTier1MonthlyPriceTzs();
-  const basis = (numberOfDays / 30) * monthPrice;
-  const roundedBasis = Math.round(basis * 100) / 100;
+  const pricing = await loadSubscriptionPricingMerged();
+  const bizCount = docs.length;
+  const basisTotal = commissionBasisTotalForSubscriptionPayment(pricing, bizCount, numberOfDays);
+  const eligible = docs.filter((businessDoc) =>
+    normalizeCommissionPromoCode((businessDoc.data() || {}).installReferrerCode)
+  );
+  if (eligible.length === 0) return;
+  const roundedPer = Math.round((basisTotal / eligible.length) * 100) / 100;
+  const pkgLabel = canonicalSubscriptionPackageFromDays(numberOfDays) || "custom";
   let batch = firestore.batch();
   let n = 0;
-  for (const businessDoc of docs) {
+  for (const businessDoc of eligible) {
     const business = businessDoc.data() || {};
     const codeNorm = normalizeCommissionPromoCode(business.installReferrerCode);
-    if (!codeNorm) continue;
     const ref = firestore.collection("referralPaymentEvents").doc();
     batch.set(ref, {
       businessId: businessDoc.id,
       installReferrerCode: codeNorm,
       paidAt: paymentStart,
       periodDays: numberOfDays,
-      commissionBasisTzs: roundedBasis,
+      commissionBasisTzs: roundedPer,
+      commissionBasisTotalTzs: basisTotal,
+      commissionBasisSplitAmong: eligible.length,
+      subscriptionPackage: pkgLabel,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     n++;
@@ -1091,7 +1171,10 @@ exports.registerUserWithBusiness = onCall(async (data, context) => {
       password,
       business,
       mainCurrency,
-      secondaryCurrency
+      secondaryCurrency,
+      shopCountry,
+      shopCity,
+      shopStreet,
     } = data;
 
     if (!name || !email || !password || !business || !mainCurrency) {
@@ -1112,6 +1195,12 @@ exports.registerUserWithBusiness = onCall(async (data, context) => {
     const businessRef = admin.firestore().collection('businesses').doc();
     const businessId = businessRef.id;
     const uniqueStoreId = `${businessId}_${Date.now()}`;
+    const co = (shopCountry || "").toString().trim();
+    const shopLoc = {
+      shopCountry: co || "Tanzania",
+      shopCity: (shopCity || "").toString().trim(),
+      shopStreet: (shopStreet || "").toString().trim(),
+    };
 
     await businessRef.set({
       name: business,
@@ -1139,6 +1228,7 @@ exports.registerUserWithBusiness = onCall(async (data, context) => {
       additionalString2: uniqueStoreId,
       additionalList1: [],
       additionalList2: [],
+      ...shopLoc,
     });
 
     // ✅ Add user to 'gmanusers'
@@ -1258,10 +1348,10 @@ exports.paymentCallbackEmail2 = onRequest(
       res.set("Access-Control-Allow-Origin", req.headers.origin || "https://hesabumauzo.co.tz");
 
       const email = req.query.email;
-      const numberOfDays = parseInt(req.query.numberOfDays, 10);
+      const numberOfDays = parseFloat(String(req.query.numberOfDays));
 
       // Validate inputs
-      if (!email || isNaN(numberOfDays)) {
+      if (!email || !Number.isFinite(numberOfDays)) {
         console.error("Missing or invalid parameters", { email, numberOfDays });
         return res.status(400).json({
           error: "Missing or invalid email or numberOfDays parameter.",
@@ -1346,7 +1436,7 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
   const callbackData = req.body; // ✅ FIXED: use `req`, not `request`
   const additionalProps = callbackData.additionalProperties || {};
 
-  const numberOfDays = parseInt(additionalProps.numberOfDays, 10);
+  const numberOfDays = parseFloat(String(additionalProps.numberOfDays));
   const email = additionalProps.email;
   const status = (callbackData.transactionstatus || '').toLowerCase();
 
@@ -1356,7 +1446,7 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
     return;
   }
 
-  if (!email || isNaN(numberOfDays)) {
+  if (!email || !Number.isFinite(numberOfDays)) {
     console.log("Missing email or numberOfDays");
     res.status(400).send('Missing required fields.');
     return;
@@ -3301,12 +3391,46 @@ exports.commissionAdminListAgents = onCall({ region: "us-central1" }, async (req
   return { agents };
 });
 
+/**
+ * Agent phone → E.164 (+digits). Must match Flutter [normalizePhoneToE164] defaultCountryCode 255
+ * so phone-only Auth emails match login (digits@hesabumauzo.app).
+ * Example: 0712345678 → +255712345678 (not +0712345678).
+ */
+function normalizeAgentPhone(raw, defaultCountryCode = "255") {
+  let digits = String(raw ?? "").trim().replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("0") && digits.length === 10) {
+    digits = `${defaultCountryCode}${digits.slice(1)}`;
+  }
+  if (!/^[0-9]{8,20}$/.test(digits)) return null;
+  return `+${digits}`;
+}
+
+/** Same as Flutter [emailDerivedFromPhoneE164] — phone-only accounts use this Auth email. */
+function emailDerivedFromPhoneE164(phoneE164) {
+  const digits = String(phoneE164 || "").replace(/\D/g, "");
+  if (!digits) return null;
+  return `${digits}@hesabumauzo.app`;
+}
+
 exports.commissionAdminCreateAgent = onCall({ region: "us-central1" }, async (request) => {
   await assertCommissionAdmin(request);
-  const { email, password, displayName, promoCodes, commissionPercent } = request.data || {};
-  if (!email || typeof email !== "string" || !email.includes("@")) {
-    throw new HttpsError("invalid-argument", "Valid email is required.");
-  }
+  const registrationMode =
+    String(request.data?.registrationMode || "email").toLowerCase() === "phone"
+      ? "phone"
+      : "email";
+  const {
+    email,
+    password,
+    displayName,
+    promoCodes,
+    commissionPercent,
+    phone,
+    loginPhone,
+    bankAccountName,
+    bankAccountNumber,
+    bankType,
+  } = request.data || {};
   if (!password || String(password).length < 8) {
     throw new HttpsError("invalid-argument", "Password must be at least 8 characters.");
   }
@@ -3322,35 +3446,96 @@ exports.commissionAdminCreateAgent = onCall({ region: "us-central1" }, async (re
     typeof commissionPercent === "number" && commissionPercent >= 0 && commissionPercent <= 100
       ? commissionPercent
       : 20;
+
+  let authEmail = "";
+  let phoneNorm = "";
+  let display = (displayName || "").toString().trim();
+
+  if (registrationMode === "phone") {
+    phoneNorm = normalizeAgentPhone(loginPhone ?? phone);
+    if (!phoneNorm) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Agent phone is required (8–20 digits, optional leading +)."
+      );
+    }
+    const derived = emailDerivedFromPhoneE164(phoneNorm);
+    if (!derived) {
+      throw new HttpsError("invalid-argument", "Could not derive login email from phone.");
+    }
+    authEmail = derived;
+    if (!display) display = phoneNorm;
+  } else {
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      throw new HttpsError("invalid-argument", "Valid email is required.");
+    }
+    authEmail = email.trim();
+    phoneNorm = normalizeAgentPhone(phone);
+    if (!phoneNorm) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Agent contact phone is required (8–20 digits, optional leading +)."
+      );
+    }
+    if (!display) display = authEmail;
+  }
+
   let uid;
   try {
     const rec = await auth.createUser({
-      email: email.trim(),
+      email: authEmail,
       password: String(password),
-      displayName: (displayName || email).toString().trim(),
+      displayName: display,
     });
     uid = rec.uid;
   } catch (e) {
-    if (e.code === "auth/email-already-exists") {
-      throw new HttpsError("already-exists", "That email is already registered in Firebase Auth.");
+    if (e.code === "auth/email-already-in-use") {
+      throw new HttpsError(
+        "already-exists",
+        registrationMode === "phone"
+          ? "That phone is already registered (Firebase Auth)."
+          : "That email is already registered in Firebase Auth."
+      );
     }
     throw new HttpsError("internal", e.message || "Failed to create agent user.");
   }
+  const ban = (bankAccountName != null ? String(bankAccountName) : "").trim();
+  const bnum = (bankAccountNumber != null ? String(bankAccountNumber) : "").trim();
+  const btype = (bankType != null ? String(bankType) : "").trim();
+
   await firestore.collection("commission_agents").doc(uid).set({
-    email: email.trim(),
-    displayName: (displayName || "").toString().trim() || email.trim(),
+    email: authEmail,
+    displayName: display || authEmail,
+    phone: phoneNorm,
+    registrationMode,
+    bankAccountName: ban,
+    bankAccountNumber: bnum,
+    bankType: btype,
     promoCodes: codes,
     commissionPercent: pct,
     active: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
-  return { uid, email: email.trim(), promoCodes: codes, commissionPercent: pct };
+  return {
+    uid,
+    email: authEmail,
+    phone: phoneNorm,
+    registrationMode,
+    promoCodes: codes,
+    commissionPercent: pct,
+  };
 });
 
 exports.commissionAdminUpdateAgent = onCall({ region: "us-central1" }, async (request) => {
   await assertCommissionAdmin(request);
-  const { agentUid, displayName, promoCodes, commissionPercent, active } = request.data || {};
+  const {
+    agentUid,
+    displayName,
+    promoCodes,
+    commissionPercent,
+    active,
+  } = request.data || {};
   if (!agentUid || typeof agentUid !== "string") {
     throw new HttpsError("invalid-argument", "agentUid is required.");
   }
@@ -3360,7 +3545,27 @@ exports.commissionAdminUpdateAgent = onCall({ region: "us-central1" }, async (re
     throw new HttpsError("not-found", "Agent not found.");
   }
   const patch = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+  const dataIn = request.data || {};
   if (displayName != null) patch.displayName = String(displayName).trim();
+  if (typeof dataIn.phone === "string") {
+    const phoneNorm = normalizeAgentPhone(dataIn.phone);
+    if (!phoneNorm) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Valid agent phone is required (8–20 digits, optional leading +)."
+      );
+    }
+    patch.phone = phoneNorm;
+  }
+  if ("bankAccountName" in dataIn) {
+    patch.bankAccountName = String(dataIn.bankAccountName ?? "").trim();
+  }
+  if ("bankAccountNumber" in dataIn) {
+    patch.bankAccountNumber = String(dataIn.bankAccountNumber ?? "").trim();
+  }
+  if ("bankType" in dataIn) {
+    patch.bankType = String(dataIn.bankType ?? "").trim();
+  }
   if (typeof commissionPercent === "number" && commissionPercent >= 0 && commissionPercent <= 100) {
     patch.commissionPercent = commissionPercent;
   }
@@ -3561,6 +3766,7 @@ exports.commissionAdminGetAgentDashboard = onCall({ region: "us-central1" }, asy
     agentUid,
     agentEmail: typeof agentRow.email === "string" ? agentRow.email : "",
     agentDisplayName: typeof agentRow.displayName === "string" ? agentRow.displayName : "",
+    agentPhone: typeof agentRow.phone === "string" ? agentRow.phone : "",
     agentActive: agentRow.active !== false,
   };
 });

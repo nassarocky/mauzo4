@@ -17,12 +17,13 @@ import 'package:mauzo/controllers/invoice_controller.dart';
 import 'package:mauzo/controllers/transaction_controller.dart';
 import 'package:mauzo/controllers/closed_books_controller.dart';
 import 'package:mauzo/controllers/inventory_loss_controller.dart';
-import 'package:mauzo/controllers/auth_controller.dart';
-import 'package:mauzo/controllers/pay_role_controller.dart';
-import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:mauzo/models/business_model.dart';
 import 'package:mauzo/ui/widgets/tiles/drawer_tile.dart';
 import 'package:mauzo/ui/widgets/drawer/expandable_drawer_section.dart';
+import 'package:mauzo/ui/widgets/drawer/shop_location_drawer_banner.dart';
+import 'package:mauzo/ui/widgets/dialogs/add_business_dialog.dart';
+import 'package:mauzo/ui/widgets/dialogs/shop_location_dialog.dart';
+import 'package:mauzo/utils/business_shop_location.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -975,74 +976,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
         _businessController.business['categories'].sort();
         void showAddBusinessDialog(BuildContext context) {
-          final TextEditingController businessNameController = TextEditingController();
-          bool isLoading = false; // Loading state
-
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return StatefulBuilder(
-                builder: (context, setState) {
-                  return AlertDialog(
-                    title: Text('add_new_business'.tr),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isLoading)
-                          Center(
-                            child: CircularProgressIndicator(), // Show loading spinner
-                          )
-                        else
-                          TextField(
-                            controller: businessNameController,
-                            decoration: InputDecoration(
-                              hintText: 'business_name'.tr,
-                              counterText: '', // Hides the character counter at the bottom
-                            ),
-                            maxLength: 25, // Set the maximum length to 25 characters
-                          ),
-                      ],
-                    ),
-                    actions: [
-                      if (!isLoading) // Hide actions when loading
-                        TextButton(
-                          child: Text('cancel'.tr),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                      if (!isLoading)
-                        TextButton(
-                          child: Text('save'.tr),
-                          onPressed: () async {
-                            if (businessNameController.text.isNotEmpty) {
-                              setState(() {
-                                isLoading = true; // Show loading spinner
-                              });
-                              try {
-                                // Simulate business creation logic
-                                await businessListController.addNewBusiness(businessNameController.text);
-                                await _profileController.updateUserData();
-                                restartAllControllers();
-
-                              } catch (e) {
-                                // Handle error here
-                                print("Error: $e");
-                              } finally {
-                                setState(() {
-                                  Navigator.of(context).pop();
-                                  isLoading = false; // Hide loading spinner
-                                });
-                              }
-                            } else {
-                              print("Business name is empty");
-                            }
-                          },
-                        ),
-                    ],
-                  );
-                },
+          showAddBusinessEditorDialog(
+            context,
+            onCreate: ({
+              required String name,
+              required String shopCountry,
+              required String shopCity,
+              required String shopStreet,
+            }) async {
+              await businessListController.addNewBusiness(
+                name,
+                shopCountry: shopCountry,
+                shopCity: shopCity,
+                shopStreet: shopStreet,
               );
+              await _profileController.updateUserData();
+              restartAllControllers();
             },
           );
         }
@@ -1179,6 +1128,71 @@ class _HomeScreenState extends State<HomeScreen> {
                           fontSize: getFontSize(context, 10), // You can adjust the font size as needed
                         ),
                       ),
+                    ),
+
+                    GetBuilder<BusinessController>(
+                      builder: (bc) {
+                        final role =
+                            (_profileController.user['role'] ?? '').toString();
+                        final line =
+                            BusinessShopLocation.displayLine(bc.business);
+                        final children = <Widget>[];
+
+                        if (line.isNotEmpty) {
+                          children.add(
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.place_outlined,
+                                    size: 18,
+                                    color: Colors.grey[700],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      line,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.25,
+                                        color: Colors.grey[800],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (role == 'owner' &&
+                            !BusinessShopLocation.isComplete(bc.business)) {
+                          children.add(
+                            ShopLocationDrawerBanner(
+                              onTap: () {
+                                Navigator.pop(context);
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (!context.mounted) return;
+                                  showShopLocationEditorDialog(context);
+                                });
+                              },
+                            ),
+                          );
+                        }
+
+                        if (children.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: children,
+                        );
+                      },
                     ),
 
                     // GENERATE REPORTS - Independent item at the top

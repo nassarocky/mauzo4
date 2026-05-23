@@ -5,6 +5,7 @@ import '../services/fund_source_service.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
 import '../utils/receipt_footer.dart';
+import '../utils/business_shop_location.dart';
 
 class BusinessController extends GetxController {
   final Rx<Map<String, dynamic>> _business = Rx<Map<String, dynamic>>({});
@@ -19,6 +20,22 @@ class BusinessController extends GetxController {
     );
     final b = Map<String, dynamic>.from(_business.value);
     b['invoicePaymentDetails'] = next;
+    _business.value = b;
+    update();
+  }
+
+  /// Merge shop address keys after Firestore write so the drawer banner updates immediately.
+  void mergeShopLocationPatch(Map<String, dynamic> patch) {
+    final b = Map<String, dynamic>.from(_business.value);
+    for (final key in [
+      BusinessShopLocation.firestoreCountryKey,
+      BusinessShopLocation.firestoreCityKey,
+      BusinessShopLocation.firestoreStreetKey,
+    ]) {
+      if (patch.containsKey(key)) {
+        b[key] = patch[key];
+      }
+    }
     _business.value = b;
     update();
   }
@@ -306,6 +323,16 @@ class BusinessController extends GetxController {
             'accountsName': rawData['accountsName']?.toString() ?? '',
             'invoiceAccountName':
                 rawData['invoiceAccountName']?.toString() ?? '',
+            BusinessShopLocation.firestoreCountryKey:
+                rawData[BusinessShopLocation.firestoreCountryKey]
+                        ?.toString() ??
+                    BusinessShopLocation.defaultCountry,
+            BusinessShopLocation.firestoreCityKey:
+                rawData[BusinessShopLocation.firestoreCityKey]?.toString() ??
+                    '',
+            BusinessShopLocation.firestoreStreetKey:
+                rawData[BusinessShopLocation.firestoreStreetKey]?.toString() ??
+                    '',
           };
 
           print('Business data updated: ${_business.value}');

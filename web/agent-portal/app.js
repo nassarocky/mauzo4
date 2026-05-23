@@ -44,6 +44,77 @@ if (
 
 const $ = (id) => document.getElementById(id);
 
+/** Matches Flutter [normalizePhoneToE164] (default TZ 255). */
+function normalizePhoneToE164(input, defaultCountryCode = "255") {
+  let digits = String(input || "").replace(/[^0-9]/g, "");
+  if (digits.startsWith("0") && digits.length === 10) {
+    digits = `${defaultCountryCode}${digits.slice(1)}`;
+  }
+  return `+${digits}`;
+}
+
+/** Same heuristic as Flutter [LoginScreen] (spaces only stripped for the digit-length test). */
+function looksLikePhoneForLogin(credential) {
+  const t = String(credential || "").trim();
+  const digitsOnly = t.replace(/[^0-9]/g, "");
+  const forPhoneTest = t.replace(/\s/g, "");
+  return /^\+?[0-9]{9,15}$/.test(forPhoneTest) && digitsOnly.length > 0;
+}
+
+/**
+ * Resolves the Firebase Auth email/username — mirrors Flutter login_screen.dart
+ * (normalizePhoneToE164 then digits@hesabumauzo.app when it looks like a phone).
+ */
+function resolveLoginCredentialForAuth(credential) {
+  const t = String(credential || "").trim();
+  if (!t) return "";
+  if (looksLikePhoneForLogin(t)) {
+    const e164 = normalizePhoneToE164(t);
+    const normalized = e164.replace(/[^0-9]/g, "");
+    return `${normalized}@hesabumauzo.app`;
+  }
+  return t;
+}
+
+/**
+ * Legacy agents created before server phone normalization matched Flutter:
+ * Auth email was built from digits after stripping only + / spaces / hyphens (e.g. 0712…@… not 255712…@…).
+ */
+function legacyPhoneOnlyAuthEmailFromRaw(raw) {
+  let s = String(raw ?? "")
+    .trim()
+    .replace(/[\s-]/g, "");
+  if (!s) return "";
+  s = s.replace(/^\+/, "");
+  if (!/^[0-9]{8,20}$/.test(s)) return "";
+  return `${s}@hesabumauzo.app`;
+}
+
+function syncCreateAgentFormMode() {
+  const mode = document.querySelector('input[name="agentRegMode"]:checked')?.value || "email";
+  const emailBlock = $("createAgentEmailBlock");
+  const phoneBlock = $("createAgentPhoneBlock");
+  const contactWrap = $("newAgentContactPhoneWrap");
+  const em = $("newAgentEmail");
+  const lp = $("newAgentLoginPhone");
+  const cp = $("newAgentPhone");
+  if (mode === "phone") {
+    if (emailBlock) emailBlock.hidden = true;
+    if (phoneBlock) phoneBlock.hidden = false;
+    if (contactWrap) contactWrap.hidden = true;
+    if (em) em.removeAttribute("required");
+    if (lp) lp.setAttribute("required", "required");
+    if (cp) cp.removeAttribute("required");
+  } else {
+    if (emailBlock) emailBlock.hidden = false;
+    if (phoneBlock) phoneBlock.hidden = true;
+    if (contactWrap) contactWrap.hidden = false;
+    if (em) em.setAttribute("required", "required");
+    if (lp) lp.removeAttribute("required");
+    if (cp) cp.setAttribute("required", "required");
+  }
+}
+
 function setFeedback(msg, type) {
   const el = $("feedback");
   if (!el) return;
@@ -57,6 +128,99 @@ function setFeedback(msg, type) {
 }
 
 let portalRole = null; // 'admin' | 'agent'
+/** Full agent list from commissionAdminListAgents (for search + row edit). */
+let allAgents = [];
+
+function adminAgentSearchQuery() {
+  return ($("adminAgentSearch")?.value || "").trim().toLowerCase();
+}
+
+function agentMatchesSearch(a, q) {
+  if (!q) return true;
+  const email = (a.email || "").toLowerCase();
+  const phone = String(a.phone || "")
+    .toLowerCase()
+    .replace(/\s/g, "");
+  const codes = (a.promoCodes || []).join(" ").toLowerCase();
+  const name = (a.displayName || "").toLowerCase();
+  const qCompact = q.replace(/\s/g, "");
+  if (email.includes(q)) return true;
+  const emailLocal = (a.email || "").split("@")[0] || "";
+  const qDigits = q.replace(/\D/g, "");
+  if (emailLocal && /^[0-9]+$/.test(emailLocal) && qDigits && emailLocal.includes(qDigits)) return true;
+  if (name.includes(q)) return true;
+  if (phone && (phone.includes(qCompact) || qCompact.includes(phone.replace(/^\+/, "")))) return true;
+  for (const c of a.promoCodes || []) {
+    if (String(c).toLowerCase().includes(q)) return true;
+  }
+  if (codes.includes(q)) return true;
+  return false;
+}
+
+function renderAdminAgentsTableBody() {
+  const tbody = $("adminAgentsBody");
+  if (!tbody) return;
+  if (allAgents.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6">No agents yet.</td></tr>';
+    return;
+  }
+  const q = adminAgentSearchQuery();
+  const agents = allAgents.filter((a) => agentMatchesSearch(a, q));
+  const keepUid = ($("editAgentUid")?.value || "").trim();
+  tbody.innerHTML = agents
+    .map(
+      (a) =>
+        `<tr data-uid="${esc(a.uid)}">
+            <td>${esc(a.displayName || "—")}</td>
+            <td>${esc(a.email)}</td>
+            <td>${esc(a.phone || "—")}</td>
+            <td>${(a.promoCodes || []).map(esc).join(", ")}</td>
+            <td>${a.commissionPercent != null ? esc(a.commissionPercent) : "20"}%</td>
+            <td>${a.active === false ? "inactive" : "active"}</td>
+          </tr>`
+    )
+    .join("") || '<tr><td colspan="6">No agents match this search.</td></tr>';
+  if (keepUid) {
+    const row = Array.from(tbody.querySelectorAll("tr[data-uid]")).find((r) => r.dataset.uid === keepUid);
+    if (row) {
+      document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
+      row.classList.add("selected");
+      updateSelectedAgentSummaryFromRow(row);
+    } else {
+      document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
+    }
+  }
+}
+
+function fillEditAgentForm(agent) {
+  const ph = $("editPhone");
+  const ban = $("editBankAccountName");
+  const bnum = $("editBankAccountNumber");
+  const btype = $("editBankType");
+  if (!ph) return;
+  if (!agent) {
+    ph.value = "";
+    if (ban) ban.value = "";
+    if (bnum) bnum.value = "";
+    if (btype) btype.value = "";
+    return;
+  }
+  ph.value = agent.phone != null ? String(agent.phone) : "";
+  if (ban) ban.value = agent.bankAccountName != null ? String(agent.bankAccountName) : "";
+  if (bnum) bnum.value = agent.bankAccountNumber != null ? String(agent.bankAccountNumber) : "";
+  if (btype) {
+    const v = agent.bankType != null ? String(agent.bankType).trim() : "";
+    btype.querySelectorAll("option[data-legacy-extra]").forEach((o) => o.remove());
+    if (v && ![...btype.options].some((o) => o.value === v)) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = `${v} (legacy)`;
+      o.setAttribute("data-legacy-extra", "1");
+      btype.appendChild(o);
+    }
+    btype.value = v;
+  }
+}
 
 async function detectPortalRole() {
   try {
@@ -110,7 +274,7 @@ function renderCommissionStatsDashboard(box, data, agentHeader) {
     agentHeader && agentHeader.uid
       ? `<p class="stats">Viewing agent: <strong>${esc(agentHeader.displayName || "—")}</strong> · ${esc(
           agentHeader.email || "—"
-        )}${agentHeader.active === false ? " · <em>inactive</em>" : ""}</p>`
+        )} · ${esc(agentHeader.phone || "—")}${agentHeader.active === false ? " · <em>inactive</em>" : ""}</p>`
       : "";
   box.innerHTML = `
     ${adminLine}
@@ -178,12 +342,17 @@ function updateSelectedAgentSummaryFromRow(tr) {
   if (!sum) return;
   if (!tr) {
     sum.textContent = SELECT_AGENT_HINT;
+    fillEditAgentForm(null);
     return;
   }
   const cells = tr.querySelectorAll("td");
   const name = cells[0]?.textContent?.trim() || "—";
   const email = cells[1]?.textContent?.trim() || "—";
-  sum.textContent = `${name} · ${email}`;
+  const phone = cells[2]?.textContent?.trim() || "—";
+  sum.textContent = `${name} · ${email} · ${phone}`;
+  const uid = tr.dataset.uid;
+  const agent = allAgents.find((a) => a.uid === uid);
+  fillEditAgentForm(agent || null);
 }
 
 async function loadAdminAgents() {
@@ -191,30 +360,10 @@ async function loadAdminAgents() {
   try {
     const fn = httpsCallable(functions, "commissionAdminListAgents");
     const { data } = await fn({});
-    const agents = data.agents || [];
-    const keepUid = ($("editAgentUid")?.value || "").trim();
+    allAgents = data.agents || [];
     const tbody = $("adminAgentsBody");
     if (tbody) {
-      tbody.innerHTML = agents
-        .map(
-          (a) =>
-            `<tr data-uid="${esc(a.uid)}">
-            <td>${esc(a.displayName || "—")}</td>
-            <td>${esc(a.email)}</td>
-            <td>${(a.promoCodes || []).map(esc).join(", ")}</td>
-            <td>${a.commissionPercent != null ? esc(a.commissionPercent) : "20"}%</td>
-            <td>${a.active === false ? "inactive" : "active"}</td>
-          </tr>`
-        )
-        .join("") || '<tr><td colspan="5">No agents yet.</td></tr>';
-      if (keepUid) {
-        const row = Array.from(tbody.querySelectorAll("tr[data-uid]")).find((r) => r.dataset.uid === keepUid);
-        if (row) {
-          document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
-          row.classList.add("selected");
-          updateSelectedAgentSummaryFromRow(row);
-        }
-      }
+      renderAdminAgentsTableBody();
     }
     const sm = $("adminStatsMonth");
     if (sm && !String(sm.value || "").trim()) sm.value = currentYearMonth();
@@ -240,6 +389,7 @@ async function loadAdminAgentStats() {
       uid: data.agentUid || agentUid,
       email: data.agentEmail,
       displayName: data.agentDisplayName,
+      phone: data.agentPhone,
       active: data.agentActive,
     });
   } catch (e) {
@@ -267,14 +417,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = $("loginEmail").value.trim();
+    const raw = ($("loginCredential")?.value || "").trim();
     const password = $("loginPassword").value;
+    if (!raw) {
+      setFeedback("Email or phone cannot be empty.", "error");
+      return;
+    }
+    if (!password) {
+      setFeedback("Password cannot be empty.", "error");
+      return;
+    }
+    let email = resolveLoginCredentialForAuth(raw);
     setFeedback("Signing in…", "info");
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setFeedback("Signed in.", "ok");
     } catch {
-      setFeedback("Invalid email or password.", "error");
+      let legacy = "";
+      if (looksLikePhoneForLogin(raw)) {
+        const leg = legacyPhoneOnlyAuthEmailFromRaw(raw);
+        if (leg && leg !== email) legacy = leg;
+      }
+      if (legacy) {
+        try {
+          await signInWithEmailAndPassword(auth, legacy, password);
+          setFeedback("Signed in.", "ok");
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
+      setFeedback("Invalid credentials.", "error");
     }
   });
 
@@ -292,30 +465,70 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
     if ($("editAgentUid")) $("editAgentUid").value = "";
     updateSelectedAgentSummaryFromRow(null);
+    if ($("adminAgentSearch")) $("adminAgentSearch").value = "";
     loadAdminAgents();
+  });
+
+  $("adminAgentSearch")?.addEventListener("input", () => {
+    renderAdminAgentsTableBody();
   });
 
   $("adminAgentStatsBtn")?.addEventListener("click", () => loadAdminAgentStats());
 
   $("adminCreateForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const mode = document.querySelector('input[name="agentRegMode"]:checked')?.value || "email";
     setFeedback("Creating agent…", "info");
     try {
       const promoCodes = $("newPromoCodes")
         .value.split(/[\s,]+/)
         .map((s) => s.trim())
         .filter(Boolean);
-      const fn = httpsCallable(functions, "commissionAdminCreateAgent");
-      await fn({
-        email: $("newAgentEmail").value.trim(),
+      const payload = {
+        registrationMode: mode,
         password: $("newAgentPassword").value,
         displayName: $("newAgentName").value.trim(),
+        bankAccountName: $("newBankAccountName").value.trim(),
+        bankAccountNumber: $("newBankAccountNumber").value.trim(),
+        bankType: $("newBankType").value.trim(),
         promoCodes,
         commissionPercent: parseFloat($("newAgentPercent").value) || 20,
-      });
-      setFeedback("Agent created. They can sign in here with that email and password.", "ok");
+      };
+      if (mode === "email") {
+        const em = $("newAgentEmail").value.trim();
+        const ph = $("newAgentPhone").value.trim();
+        if (!em) {
+          setFeedback("Agent email is required.", "error");
+          return;
+        }
+        if (!ph) {
+          setFeedback("Contact phone is required.", "error");
+          return;
+        }
+        payload.email = em;
+        payload.phone = ph;
+      } else {
+        const lp = ($("newAgentLoginPhone")?.value || "").trim();
+        if (!lp) {
+          setFeedback("Agent phone (login) is required.", "error");
+          return;
+        }
+        payload.loginPhone = lp;
+      }
+      const fn = httpsCallable(functions, "commissionAdminCreateAgent");
+      await fn(payload);
+      setFeedback(
+        mode === "phone"
+          ? "Agent created. They sign in with Phone + password (same as the app; Auth email is digits@hesabumauzo.app)."
+          : "Agent created. They can sign in with email and password.",
+        "ok"
+      );
       $("adminCreateForm").reset();
+      const emailRadio = document.querySelector('input[name="agentRegMode"][value="email"]');
+      if (emailRadio) emailRadio.checked = true;
+      syncCreateAgentFormMode();
       if ($("newAgentPercent")) $("newAgentPercent").value = "20";
+      if ($("newBankType")) $("newBankType").value = "";
       await loadAdminAgents();
     } catch (err) {
       setFeedback(err.message || String(err), "error");
@@ -338,6 +551,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (codesRaw !== "") {
         payload.promoCodes = codesRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
       }
+      const phoneRaw = ($("editPhone")?.value || "").trim();
+      if (!phoneRaw) {
+        setFeedback("Agent phone is required.", "error");
+        return;
+      }
+      payload.phone = phoneRaw;
+      payload.bankAccountName = ($("editBankAccountName")?.value || "").trim();
+      payload.bankAccountNumber = ($("editBankAccountNumber")?.value || "").trim();
+      payload.bankType = ($("editBankType")?.value || "").trim();
       const fn = httpsCallable(functions, "commissionAdminUpdateAgent");
       await fn(payload);
       setFeedback("Agent updated.", "ok");
@@ -386,6 +608,10 @@ document.addEventListener("DOMContentLoaded", () => {
       updateSelectedAgentSummaryFromRow(null);
       if ($("editPercent")) $("editPercent").value = "";
       if ($("editPromoCodes")) $("editPromoCodes").value = "";
+      if ($("editPhone")) $("editPhone").value = "";
+      if ($("editBankAccountName")) $("editBankAccountName").value = "";
+      if ($("editBankAccountNumber")) $("editBankAccountNumber").value = "";
+      if ($("editBankType")) $("editBankType").value = "";
       document.querySelectorAll("#adminAgentsTable tbody tr").forEach((r) => r.classList.remove("selected"));
       const dash = $("adminAgentDashboard");
       if (dash) dash.innerHTML = "";
@@ -394,6 +620,11 @@ document.addEventListener("DOMContentLoaded", () => {
       setFeedback(err.message || String(err), "error");
     }
   });
+
+  document.querySelectorAll('input[name="agentRegMode"]').forEach((r) => {
+    r.addEventListener("change", syncCreateAgentFormMode);
+  });
+  syncCreateAgentFormMode();
 });
 
 onAuthStateChanged(auth, async (user) => {
