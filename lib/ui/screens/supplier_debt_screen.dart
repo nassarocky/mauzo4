@@ -358,18 +358,27 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final amount = double.tryParse(amountController.text);
-              if (amount != null && amount > 0) {
-                _supplierDebtController.makePayment(
-                  debtId: debt.id,
-                  paymentAmount: amount,
-                  paymentMethod: selectedMethod,
-                  paymentNote: noteController.text.trim().isEmpty ? null : noteController.text.trim(),
-                );
-                Navigator.pop(context);
-              } else {
+              final amount = double.tryParse(
+                amountController.text.trim().replaceAll(',', ''),
+              );
+              if (amount == null || amount <= 0) {
                 errorSnackbar('Please enter a valid payment amount'.tr);
+                return;
               }
+              const double tolerance = 0.01;
+              if (amount > debt.remainingDebtAmount + tolerance) {
+                errorSnackbar('Payment amount exceeds the remaining debt.'.tr);
+                return;
+              }
+              _supplierDebtController.makePayment(
+                debtId: debt.id,
+                paymentAmount: amount,
+                paymentMethod: selectedMethod,
+                paymentNote: noteController.text.trim().isEmpty
+                    ? null
+                    : noteController.text.trim(),
+              );
+              Navigator.pop(context);
             },
             child: const Text('Pay'),
           ),

@@ -210,7 +210,6 @@ class SupplierDebtController extends GetxController {
     String? paymentNote,
   }) async {
     try {
-      isLoading.value = true;
       final bc = Get.find<BusinessController>();
       final String businessId = (bc.business['id'] ?? '').toString().isNotEmpty
           ? bc.business['id']
@@ -221,6 +220,19 @@ class SupplierDebtController extends GetxController {
         errorSnackbar('Supplier debt not found');
         return;
       }
+
+      if (paymentAmount <= 0) {
+        errorSnackbar('Please enter a valid payment amount'.tr);
+        return;
+      }
+
+      const double tolerance = 0.01;
+      if (paymentAmount > debt.remainingDebtAmount + tolerance) {
+        errorSnackbar('Payment amount exceeds the remaining debt.'.tr);
+        return;
+      }
+
+      isLoading.value = true;
 
       final newRemainingAmount = debt.remainingDebtAmount - paymentAmount;
       final paymentRecord = {

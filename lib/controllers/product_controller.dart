@@ -1020,6 +1020,59 @@ void clearProducts(){
     }
 
   }
+
+  /// Keeps store catalog (Bidhaa zilizo store) in sync when main inventory product is edited.
+  /// Does not change store [quantity] — only shared product metadata.
+  Future<void> syncProductMetadataToStore({
+    required String productId,
+    required Map<String, dynamic> metadata,
+  }) async {
+    final String? storeOwner = _businessController.business['owner'];
+    if (storeOwner == null || storeOwner.isEmpty) return;
+
+    const allowedKeys = {
+      'name',
+      'code',
+      'price',
+      'wholesalePrice',
+      'wholesaleMinQuantity',
+      'category',
+      'image',
+      'buyingPrice',
+      'understock',
+      'discount',
+      'details',
+      'location',
+      'manufacturer',
+      'reserveString1',
+      'expireDate',
+      'itemType',
+      'uomConversions',
+    };
+
+    final Map<String, dynamic> updateData = {};
+    for (final key in allowedKeys) {
+      if (metadata.containsKey(key)) {
+        updateData[key] = metadata[key];
+      }
+    }
+    if (updateData.isEmpty) return;
+
+    try {
+      final DocumentReference storeRef = firestore
+          .collection('store')
+          .doc(storeOwner)
+          .collection('userStore')
+          .doc(productId);
+
+      final DocumentSnapshot storeSnap = await storeRef.get();
+      if (!storeSnap.exists) return;
+
+      await storeRef.update(updateData);
+    } catch (e) {
+      print('syncProductMetadataToStore error for $productId: $e');
+    }
+  }
   
   /// Helper method to create enhanced stock transactions with full context
   /// Use this for sales, purchases, and other operations that need reference linking

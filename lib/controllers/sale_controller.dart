@@ -170,15 +170,21 @@ class SaleController extends GetxController {
   }
 
   double getTodaySales() {
-    double todaysSales = 0;
-    DateTime date = DateUtils.dateOnly(DateTime.now());
-    for (var i = 0; i < sales.length; i++) {
-      DateTime saleDate = DateUtils.dateOnly(sales[i].date.toDate());
-      if (saleDate == date) {
-        todaysSales += sales[i].payment;
+    return getTotalPaymentsByDate(DateUtils.dateOnly(DateTime.now()), sales);
+  }
+
+  /// Paid amount for one calendar day (same logic as dashboard [getTodaySales] / Mauzo ya leo).
+  double getTotalPaymentsByDate(DateTime date, [List<Sale>? source]) {
+    final List<Sale> list = source ?? filteredSales;
+    double total = 0;
+    final DateTime day = DateUtils.dateOnly(date);
+    for (final sale in list) {
+      final DateTime saleDate = DateUtils.dateOnly(sale.date.toDate());
+      if (saleDate == day) {
+        total += _toDouble(sale.payment);
       }
     }
-    return todaysSales;
+    return total;
   }
 
   double getTotalSales() {
@@ -252,16 +258,9 @@ class SaleController extends GetxController {
     return salesByDate;
   }
 
+  /// Daily header total in Mauzo yote — paid amount that day (not full invoice [price]).
   double getTotalSalesByDate(DateTime date) {
-    double totalSalesByDate = 0;
-    date = DateUtils.dateOnly(date);
-    for (var i = 0; i < filteredSales.length; i++) {
-      DateTime saleDate = DateUtils.dateOnly(filteredSales[i].date.toDate());
-      if (saleDate == date) {
-        totalSalesByDate += filteredSales[i].price;
-      }
-    }
-    return totalSalesByDate;
+    return getTotalPaymentsByDate(date, filteredSales);
   }
 
   double _toDouble(dynamic value) {
@@ -271,21 +270,40 @@ class SaleController extends GetxController {
     return double.tryParse(value?.toString() ?? '0') ?? 0.0;
   }
 
-  /// Sum of sale prices for the current filtered list (excludes debt repayments).
+  /// Net invoice total in filter: full [price] minus [discount] (excludes debt-repayment rows).
+  /// Shown as MAUZO YOTE / TOTAL SALES in the Mauzo yote summary bar.
   double getFilteredTotalSalesAmount() {
     double total = 0;
     for (final sale in filteredSales) {
       if (sale.saleType == 'debt_repayment') continue;
-      total += _toDouble(sale.price);
+      total += getSaleInvoiceNet(sale);
     }
     return total;
   }
 
-  /// Sum of all payments collected for the current filtered list (includes debt repayments).
+  /// Full invoice amount after discount (before payment/debt split).
+  double getSaleInvoiceNet(Sale sale) {
+    final double price = _toDouble(sale.price);
+    final double discount = _toDouble(sale.discount);
+    final double net = price - discount;
+    return net > 0 ? net : 0;
+  }
+
+  /// All cash collected in filter (includes debt repayments) — full payments picture.
   double getFilteredTotalPaymentsAmount() {
     double total = 0;
     for (final sale in filteredSales) {
       total += _toDouble(sale.payment);
+    }
+    return total;
+  }
+
+  /// Invoice value still outstanding (credit) in the current filtered list.
+  double getFilteredTotalUnpaidAmount() {
+    double total = 0;
+    for (final sale in filteredSales) {
+      if (sale.saleType == 'debt_repayment') continue;
+      total += _toDouble(sale.debt);
     }
     return total;
   }

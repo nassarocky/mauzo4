@@ -139,6 +139,43 @@ class _CartScreenState extends State<CartScreen> {
     return 'new_sale';
   }
 
+  double _netDueMain() {
+    final double net =
+        _cartController.productsPrice - _cartController.discount.value;
+    return net < 0 ? 0 : net;
+  }
+
+  /// Keep Imelipwa (paid) field aligned with net due after discount / cart changes.
+  void _syncImelipwaToNetDue() {
+    if (_userEditedPaid || _paidFocusNode.hasFocus) return;
+
+    final double calcAmount = _netDueMain();
+    if (calcAmount < 0.01) {
+      _paidController.text = '';
+      _cartController.clearPayments();
+      return;
+    }
+
+    if (_cartController.payments.isEmpty) {
+      _cartController.addPayment(calcAmount, chosenCurrency, method: _paymentMethod);
+    } else if (_cartController.payments.length == 1) {
+      final existing = _cartController.payments[0];
+      if ((existing.amount - calcAmount).abs() > 0.0001) {
+        _cartController.clearPayments();
+        _cartController.addPayment(
+          calcAmount,
+          existing.currency,
+          method: _paymentMethod,
+        );
+      }
+    }
+
+    final double displayAmount = _cartController.payments.isNotEmpty
+        ? _cartController.payments.first.amount
+        : calcAmount;
+    _paidController.text = formatCurrencyWithoutSymbol(displayAmount);
+  }
+
   /// Sync selected fund source into [CartController.payments] before Firestore / ledger.
   void _flushFundSourceIntoPaymentsBeforePersist() {
     if (_cartScreenFrom() == 'transfer') return;
@@ -215,6 +252,7 @@ class _CartScreenState extends State<CartScreen> {
                           calcAmount >= 0.01 && paidMain + 1e-6 < calcAmount;
                       if (!partialPay) {
                         _userEditedPaid = false;
+                        _syncImelipwaToNetDue();
                       }
                     }
                     
@@ -235,7 +273,12 @@ class _CartScreenState extends State<CartScreen> {
                       final existing = _cartController.payments[0];
                       final double diff = existing.amount - calcAmount;
                       if (diff.abs() <= 0.0001) {
-                        if (_paidController.text.trim().isEmpty) {
+                        final double shownPaid = double.tryParse(
+                              _paidController.text.trim().replaceAll(',', ''),
+                            ) ??
+                            -1;
+                        if (_paidController.text.trim().isEmpty ||
+                            (shownPaid - calcAmount).abs() > 0.0001) {
                           _paidController.text =
                               formatCurrencyWithoutSymbol(existing.amount);
                         }
@@ -745,8 +788,8 @@ class _CartScreenState extends State<CartScreen> {
                           height: 36,
                           width: double.infinity,
                           child: TextButton(
-                            onPressed: () {
-                              showModalBottomSheet(
+                            onPressed: () async {
+                              await showModalBottomSheet(
                                 isScrollControlled: true,
                                 shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
@@ -761,6 +804,15 @@ class _CartScreenState extends State<CartScreen> {
                                   );
                                 },
                               );
+                              if (!mounted) return;
+                              final double paidMain = _cartController.payment;
+                              final double netDue = _netDueMain();
+                              final bool partialPay =
+                                  netDue >= 0.01 && paidMain + 1e-6 < netDue;
+                              if (!partialPay) {
+                                _userEditedPaid = false;
+                              }
+                              _syncImelipwaToNetDue();
                             },
                             child: Text(
                               _cartController.discount > 0

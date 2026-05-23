@@ -1135,6 +1135,34 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       'expireDate':expireDate
     });
 
+    await _productController.syncProductMetadataToStore(
+      productId: widget.product.id,
+      metadata: {
+        'name': nameController.text.trim(),
+        'code': codeController.text.trim(),
+        'price': price,
+        'wholesalePrice': wholesalePrice,
+        'wholesaleMinQuantity': wholesaleMinQuantity,
+        'uomConversions': <Map<String, dynamic>>[],
+        'category': categoryController.text.trim(),
+        'image': url,
+        'buyingPrice': double.parse(
+            buyingPriceController.text.replaceAll(',', '')),
+        'understock': underStockController.text.isEmpty
+            ? 10.0
+            : double.parse(underStockController.text.replaceAll(',', '')),
+        'discount': discountController.text.isEmpty
+            ? 0.00
+            : double.parse(discountController.text.replaceAll(',', '')),
+        'details': detailsController.text.trim(),
+        'location': locationController.text.trim(),
+        'reserveString1': _selectedUnit,
+        'manufacturer': manufacturerController.text.trim(),
+        'expireDate': expireDate != null ? Timestamp.fromDate(expireDate) : null,
+        'itemType': widget.product.itemType,
+      },
+    );
+
     if (newQuantity != oldQuantity) {
       final double change = (newQuantity - oldQuantity).abs();
       await _productController.createStockTransaction(
