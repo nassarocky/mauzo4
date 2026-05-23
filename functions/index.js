@@ -3384,11 +3384,66 @@ exports.updateSubscriptionPricing = onRequest(async (req, res) => {
 
 // ─── Commission agent portal (callable from web/agent-portal) ─────────────
 
+/**
+ * Count shop/business registrations per normalized installReferrerCode.
+ * @param {string[]} normalizedCodes
+ * @returns {Promise<Map<string, number>>}
+ */
+async function countBusinessesByInstallReferrerCodes(normalizedCodes) {
+  const unique = [...new Set(normalizedCodes.filter(Boolean))];
+  const counts = new Map();
+  for (const c of unique) counts.set(c, 0);
+  for (let i = 0; i < unique.length; i += 10) {
+    const chunk = unique.slice(i, i + 10);
+    if (chunk.length === 0) continue;
+    const bs = await firestore
+      .collection("businesses")
+      .where("installReferrerCode", "in", chunk)
+      .get();
+    for (const doc of bs.docs) {
+      const code = normalizeCommissionPromoCode((doc.data() || {}).installReferrerCode);
+      if (code && counts.has(code)) {
+        counts.set(code, (counts.get(code) || 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
 exports.commissionAdminListAgents = onCall({ region: "us-central1" }, async (request) => {
   await assertCommissionAdmin(request);
   const snap = await firestore.collection("commission_agents").get();
   const agents = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
-  return { agents };
+
+  const allCodes = [];
+  for (const a of agents) {
+    for (const c of a.promoCodes || []) {
+      const n = normalizeCommissionPromoCode(c);
+      if (n) allCodes.push(n);
+    }
+  }
+  const codeCountsMap = await countBusinessesByInstallReferrerCodes(allCodes);
+
+  const enriched = agents.map((a) => {
+    const codes = [...new Set((a.promoCodes || []).map(normalizeCommissionPromoCode).filter(Boolean))];
+    const promoCodeCounts = {};
+    let registrationCount = 0;
+    for (const c of codes) {
+      const n = codeCountsMap.get(c) || 0;
+      promoCodeCounts[c] = n;
+      registrationCount += n;
+    }
+    return {
+      ...a,
+      promoCodes: codes.length ? codes : a.promoCodes,
+      promoCodeCounts,
+      registrationCount,
+    };
+  });
+
+  enriched.sort((x, y) => (y.registrationCount || 0) - (x.registrationCount || 0));
+
+  return { agents: enriched };
 });
 
 /**

@@ -157,11 +157,22 @@ function agentMatchesSearch(a, q) {
   return false;
 }
 
+function formatAgentPromoCodesCell(a) {
+  const counts = a.promoCodeCounts && typeof a.promoCodeCounts === "object" ? a.promoCodeCounts : {};
+  return (a.promoCodes || [])
+    .map((c) => {
+      const key = String(c).trim().toUpperCase();
+      const n = counts[c] ?? counts[key] ?? 0;
+      return `${esc(c)} (${Number(n).toLocaleString()})`;
+    })
+    .join(", ");
+}
+
 function renderAdminAgentsTableBody() {
   const tbody = $("adminAgentsBody");
   if (!tbody) return;
   if (allAgents.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6">No agents yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7">No agents yet.</td></tr>';
     return;
   }
   const q = adminAgentSearchQuery();
@@ -174,12 +185,13 @@ function renderAdminAgentsTableBody() {
             <td>${esc(a.displayName || "—")}</td>
             <td>${esc(a.email)}</td>
             <td>${esc(a.phone || "—")}</td>
-            <td>${(a.promoCodes || []).map(esc).join(", ")}</td>
+            <td>${formatAgentPromoCodesCell(a) || "—"}</td>
+            <td>${Number(a.registrationCount || 0).toLocaleString()}</td>
             <td>${a.commissionPercent != null ? esc(a.commissionPercent) : "20"}%</td>
             <td>${a.active === false ? "inactive" : "active"}</td>
           </tr>`
     )
-    .join("") || '<tr><td colspan="6">No agents match this search.</td></tr>';
+    .join("") || '<tr><td colspan="7">No agents match this search.</td></tr>';
   if (keepUid) {
     const row = Array.from(tbody.querySelectorAll("tr[data-uid]")).find((r) => r.dataset.uid === keepUid);
     if (row) {
