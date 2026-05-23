@@ -19,6 +19,7 @@ import '../../controllers/profile_controller.dart';
 import '../../controllers/sale_controller.dart';
 import '../../models/close_book_model.dart';
 import '../../utils/constants.dart';
+import '../../utils/report_date_range.dart';
 
 class CloseBookScreen extends StatefulWidget {
   @override
@@ -198,15 +199,20 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
   Future<CloseBook?> generateNewReport({DateTime? customStart, DateTime? customEnd}) async {
     // Determine the start timestamp: customStart if provided, else business reset_time.
     Timestamp startTimestamp;
+    DateTime startDate;
     if (customStart != null) {
-      startTimestamp = Timestamp.fromDate(customStart);
+      startDate = ReportDateRange.periodStart(customStart);
+      startTimestamp = Timestamp.fromDate(startDate);
     } else {
       startTimestamp = _businessController.business['reset_time'];
+      startDate = startTimestamp.toDate();
     }
 
-    // Determine end date: customEnd if provided, else current time.
-    DateTime endDate = customEnd ?? DateTime.now();
-    Timestamp endTimestamp = Timestamp.fromDate(endDate);
+    // End: full last day (23:59:59) for past dates; up to now when end day is today.
+    final DateTime endDate = customEnd != null
+        ? ReportDateRange.periodEnd(customEnd)
+        : DateTime.now();
+    final Timestamp endTimestamp = Timestamp.fromDate(endDate);
 
     // For custom date ranges, fetch data directly from Firestore
     // For default reports, use already loaded data from controllers
@@ -261,8 +267,6 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     // - Credit sales (debt) 
     // - Discounts are automatically excluded (not in payment or debt)
     double netProfit = (totalPayment + debt) - totalSalesBuying - expenses;
-
-    DateTime startDate = startTimestamp.toDate();
 
     CloseBook newReport = CloseBook(
       id: '',
@@ -1019,7 +1023,7 @@ class ReportCard extends StatelessWidget {
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        leading: Icon(FontAwesomeIcons.filePdf, color: Colors.red),
+        leading: FaIcon(FontAwesomeIcons.filePdf, color: Colors.red),
         title: Text(
           '${'Report:'.tr}${formatter.format(book.startDate)} - ${formatter.format(book.endDate)}',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent),

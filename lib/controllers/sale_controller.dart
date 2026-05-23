@@ -264,6 +264,32 @@ class SaleController extends GetxController {
     return totalSalesByDate;
   }
 
+  double _toDouble(dynamic value) {
+    if (value is int) return value.toDouble();
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '0') ?? 0.0;
+  }
+
+  /// Sum of sale prices for the current filtered list (excludes debt repayments).
+  double getFilteredTotalSalesAmount() {
+    double total = 0;
+    for (final sale in filteredSales) {
+      if (sale.saleType == 'debt_repayment') continue;
+      total += _toDouble(sale.price);
+    }
+    return total;
+  }
+
+  /// Sum of all payments collected for the current filtered list (includes debt repayments).
+  double getFilteredTotalPaymentsAmount() {
+    double total = 0;
+    for (final sale in filteredSales) {
+      total += _toDouble(sale.payment);
+    }
+    return total;
+  }
+
 
   double getTotalSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
     double totalSales = 0;
@@ -611,7 +637,10 @@ class SaleController extends GetxController {
   }
 
   void setSelectedDateRange(DateTimeRange dateRange) {
-    selectedDateRange = dateRange;
+    selectedDateRange = DateTimeRange(
+      start: DateUtils.dateOnly(dateRange.start),
+      end: DateUtils.dateOnly(dateRange.end),
+    );
     filterSales();
   }
 

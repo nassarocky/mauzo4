@@ -49,7 +49,7 @@ android {
         release {
             keyAlias 'key-alias'
             keyPassword 'hesabumauzo'
-            storeFile file('C:/Users/LITtech/AndroidStudioProjects/mauzo/hesabumauzo.jks')
+            storeFile file('../../hesabumauzo.jks')
             storePassword 'hesabumauzo'
         }
     }

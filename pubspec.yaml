@@ -31,7 +31,7 @@ dependencies:
   intl: ^0.18.1
   timeago: ^3.7.0
   package_info_plus: ^4.0.2
-  font_awesome_flutter: ^10.1.0
+  font_awesome_flutter: ^11.0.0
   pattern_formatter: ^3.0.0
   pinput: ^2.2.31
   shared_preferences: ^2.2.0
