@@ -117,11 +117,34 @@ class CartController extends GetxController {
         : product.effectiveRetailPrice;
   }
 
-  /// Minimum allowed unit price for the active price tier (retail or wholesale), after product discount.
-  double minAllowedUnitSellingPrice(Product product) {
-    final base = defaultUnitSellingPrice(product);
-    if (product.discount > 0) return base - product.discount;
-    return base;
+  /// Net amount due after discount (what Imelipwa targets when changing selling total).
+  double get netSaleTotal {
+    final n = productsPrice - discount.value;
+    return n < 0 ? 0 : n;
+  }
+
+  /// Label for net total row: markup (Imelipwa above catalog) → BEI MPYA; reduction → discounted price.
+  String get netSaleSummaryLabelKey =>
+      discount.value < -0.01 ? 'new_sale_price' : 'discounted_price';
+
+  /// Imelipwa edits the sale total: above catalog uses negative discount; below catalog is partial pay.
+  void applySellingTotalFromImelipwa(double amountMainCurrency) {
+    if (!amountMainCurrency.isFinite || amountMainCurrency < 0) return;
+    final double catalog = productsPrice;
+    if (amountMainCurrency + 1e-9 >= catalog) {
+      setDiscount(catalog - amountMainCurrency);
+    } else {
+      setDiscount(0);
+    }
+  }
+
+  bool _isCustomUnitPrice(
+    double enteredPrice,
+    double retailBase,
+    double wholesaleBase,
+  ) {
+    return (enteredPrice - retailBase).abs() > 1e-9 &&
+        (enteredPrice - wholesaleBase).abs() > 1e-9;
   }
 
   double _asDouble(dynamic v) {
@@ -187,6 +210,8 @@ class CartController extends GetxController {
         'wholesalePrice': wholesale,
         'buyingPrice': raw['buyingPrice'] ?? prod.buyingPrice,
         'originalPrice': raw['originalPrice'] ?? retail,
+        'customUnitPrice': raw['customUnitPrice'] == true ||
+            _isCustomUnitPrice(linePrice, retail, wholesale),
       });
       // Cart line totals use [Product.count] (display qty), not shop [quantity].
       if (raw['quantity'] != null) {
@@ -232,6 +257,7 @@ class CartController extends GetxController {
       'wholesalePrice': wholesale,
       'originalPrice': retail,
       'buyingPrice': product.buyingPrice,
+      'customUnitPrice': _isCustomUnitPrice(price, retail, wholesale),
     });
 
     product.count = count;
@@ -256,6 +282,10 @@ class CartController extends GetxController {
   void _reapplyPricingModeToCartLines() {
     for (var i = 0; i < productsPriceMap.length; i++) {
       final e = Map<String, dynamic>.from(productsPriceMap[i] as Map);
+      if (e['customUnitPrice'] == true) {
+        productsPriceMap[i] = e;
+        continue;
+      }
       final retailBase = (e['retailPrice'] as num?)?.toDouble() ??
           (e['originalPrice'] as num?)?.toDouble() ??
           0.0;
@@ -376,10 +406,10 @@ class CartController extends GetxController {
     return sum;
   }
 
-  /// Amount still owed (positive), or overpayment (negative). Near-zero treated as settled.
+  /// Amount still owed (debt). Never negative — overpayment / higher Imelipwa shows as 0 in Inayobaki.
   double get remaining {
     final double result = productsPrice - payment - discount.value;
-    if (result.abs() < 0.01) return 0;
+    if (result < 0.01) return 0;
     return result;
   }
 

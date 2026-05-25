@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:pattern_formatter/pattern_formatter.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
-import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/utils/preferences.dart';
 import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/buttons/secondary_button.dart';
@@ -30,33 +28,52 @@ class AddToCartDialogEdit extends StatefulWidget {
 
 class _AddToCartDialogState extends State<AddToCartDialogEdit> {
   final CartController _cartController = Get.find();
-  final BusinessController _businessController = Get.find();
 
-  late final TextEditingController _priceController;
   late final TextEditingController quantityController = TextEditingController(
     text: widget.itemCounter.toString(),
   );
 
   @override
-  void initState() {
-    super.initState();
-    final line = _cartController.getPrice(widget.product.id);
-    final initial = line > 0
-        ? line
-        : _cartController.defaultUnitSellingPrice(widget.product);
-    _priceController = TextEditingController(
-      text: formatCurrencyWithoutSymbol(initial),
-    );
-    quantityController.selection = TextSelection.fromPosition(
-      TextPosition(offset: quantityController.text.length),
-    );
-  }
-
-  @override
   void dispose() {
-    _priceController.dispose();
     quantityController.dispose();
     super.dispose();
+  }
+
+  void _confirmAdd() {
+    if (widget.itemCounter <= 0) {
+      errorSnackbar('Please select a quantity greater than zero'.tr);
+      return;
+    }
+
+    final unitPrice =
+        _cartController.defaultUnitSellingPrice(widget.product);
+    final prevTotal = _cartController.productsPrice;
+
+    if (widget.product.itemType == 'service') {
+      _cartController.updateCart(
+        widget.product,
+        widget.itemCounter,
+        unitPrice,
+      );
+      _cartController.scalePaymentsAfterLineTotalChange(
+          previousProductsPrice: prevTotal);
+      Navigator.of(context).pop();
+      return;
+    }
+
+    if (widget.itemCounter <=
+        widget.product.quantity + widget.addition + 1e-9) {
+      _cartController.updateCart(
+        widget.product,
+        widget.itemCounter,
+        unitPrice,
+      );
+      _cartController.scalePaymentsAfterLineTotalChange(
+          previousProductsPrice: prevTotal);
+      Navigator.of(context).pop();
+    } else {
+      errorSnackbar('not_enough'.tr);
+    }
   }
 
   @override
@@ -151,50 +168,6 @@ class _AddToCartDialogState extends State<AddToCartDialogEdit> {
               ),
             ],
           ),
-          const SizedBox(height: 36),
-          SizedBox(
-            height: 44,
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color:
-                    Preferences.getTheme() ? lightGrayColor : gray200Color,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(4),
-                      bottomLeft: Radius.circular(4),
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '1x = ',
-                      style: bodyText(
-                          Theme.of(context).textTheme.bodyMedium!.color),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: TextField(
-                    inputFormatters: [ThousandsFormatter(allowFraction: true)],
-                    controller: _priceController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 0),
-                      border: const OutlineInputBorder(
-                          borderRadius: BorderRadius.only(
-                            topRight: Radius.circular(4),
-                            bottomRight: Radius.circular(4),
-                          )),
-                      suffixText: _businessController.business['mainCurrency'],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
       actions: [
@@ -211,55 +184,7 @@ class _AddToCartDialogState extends State<AddToCartDialogEdit> {
             const SizedBox(width: 8),
             Expanded(
               child: PrimaryButton(
-                onPressed: () {
-                  final enteredPrice =
-                      double.parse(_priceController.text.replaceAll(',', ''));
-                  final minUnit =
-                      _cartController.minAllowedUnitSellingPrice(widget.product);
-
-                  if (widget.itemCounter <= 0) {
-                    errorSnackbar('Please select a quantity greater than zero'.tr);
-                    return;
-                  }
-
-                  if (enteredPrice + 1e-9 < minUnit) {
-                    errorSnackbar(
-                      'sell_below_min'.trParams(
-                        {'min': minUnit.toStringAsFixed(2)},
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (widget.product.itemType == 'service') {
-                    final prevTotal = _cartController.productsPrice;
-                    _cartController.updateCart(
-                      widget.product,
-                      widget.itemCounter,
-                      enteredPrice,
-                    );
-                    _cartController.scalePaymentsAfterLineTotalChange(
-                        previousProductsPrice: prevTotal);
-                    Navigator.of(context).pop();
-                    return;
-                  }
-
-                  if (widget.itemCounter <=
-                      widget.product.quantity + widget.addition + 1e-9) {
-                    final prevTotal = _cartController.productsPrice;
-                    _cartController.updateCart(
-                      widget.product,
-                      widget.itemCounter,
-                      enteredPrice,
-                    );
-                    _cartController.scalePaymentsAfterLineTotalChange(
-                        previousProductsPrice: prevTotal);
-                    Navigator.of(context).pop();
-                  } else {
-                    errorSnackbar('not_enough'.tr);
-                  }
-                },
-
+                onPressed: _confirmAdd,
                 text: 'confirm'.tr,
               ),
             ),

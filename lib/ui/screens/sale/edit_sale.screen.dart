@@ -388,7 +388,7 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
                       ),
                       const SizedBox(height: 12),
                       const DashedSeperator(width: 2),
-                      _cartController.discount > 0
+                      _cartController.discount.value.abs() > 0.01
                           ? Column(
                         children: [
                           const SizedBox(height: 12),
@@ -399,7 +399,7 @@ class _EditSaleScreenState extends State<EditSaleScreen> {
                             CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${'discounted_price'.tr}:',
+                                '${_cartController.netSaleSummaryLabelKey.tr}:',
                                 style: bodyText(
                                     Theme.of(context)
                                         .textTheme

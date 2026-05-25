@@ -721,7 +721,7 @@ class _CartScreenState extends State<CartScreen> {
                       ),
                       const SizedBox(height: 12),
                       const DashedSeperator(width: 2),
-                      _cartController.discount > 0
+                      _cartController.discount.value.abs() > 0.01
                           ? Column(
                         children: [
                           const SizedBox(height: 12),
@@ -732,7 +732,7 @@ class _CartScreenState extends State<CartScreen> {
                             CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${'discounted_price'.tr}:',
+                                '${_cartController.netSaleSummaryLabelKey.tr}:',
                                 style: bodyText(
                                   Theme.of(context)
                                       .textTheme
@@ -841,7 +841,6 @@ class _CartScreenState extends State<CartScreen> {
                             focusNode: _paidFocusNode,
                             keyboardType: TextInputType.number,
                             onChanged: (value) {
-                              // Mark that user has manually edited the paid field
                               _userEditedPaid = true;
                               final String v = value.trim();
                               double amt = 0.0;
@@ -853,12 +852,22 @@ class _CartScreenState extends State<CartScreen> {
                                 }
                               }
                               if (_cartController.payments.length == 0) {
-                                _cartController.addPayment(amt, chosenCurrency, method: _paymentMethod);
+                                _cartController.addPayment(
+                                    amt, chosenCurrency, method: _paymentMethod);
                               } else {
                                 final existing = _cartController.payments[0];
                                 _cartController.clearPayments();
-                                _cartController.addPayment(amt, existing.currency, method: _paymentMethod);
+                                _cartController.addPayment(
+                                    amt, existing.currency, method: _paymentMethod);
                               }
+                              final String mainCur =
+                                  _businessController.business['mainCurrency']
+                                      .toString();
+                              final double amtMain = chosenCurrency == mainCur
+                                  ? amt
+                                  : amt * Preferences.getExchangeRateResult();
+                              _cartController
+                                  .applySellingTotalFromImelipwa(amtMain);
                             },
                             decoration: InputDecoration(
                               contentPadding: inputPadding,
@@ -876,13 +885,13 @@ class _CartScreenState extends State<CartScreen> {
                             ),
                           ),
                         ),
-                        if (from!='invoice') const SizedBox(height: 8),
-                        if (from!='invoice') Text(
-                          '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
-                          style: bodyText(
-                            _cartController.remaining > 0 ? warningColor : textPlaceholderColor,
+                        if (from != 'invoice' && _cartController.remaining > 0.01) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
+                            style: bodyText(warningColor),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
