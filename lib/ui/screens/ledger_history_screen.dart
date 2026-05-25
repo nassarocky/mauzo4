@@ -6,6 +6,7 @@ import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
+import 'package:mauzo/utils/purchases_access.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/controllers/bought_controller.dart';
 import 'package:mauzo/models/expences.dart';
@@ -26,9 +27,15 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
   String _selectedType = 'all'; // all | sale | purchase | expense | supplier_payment
   DateTimeRange? _dateRange; // filter by postedAt
 
+  static bool _isPurchaseLedgerType(String type) =>
+      type == 'purchase' || type == 'supplier_payment';
+
   @override
   void initState() {
     super.initState();
+    if (!PurchasesAccess.isEnabled && _isPurchaseLedgerType(_selectedType)) {
+      _selectedType = 'all';
+    }
     // Do NOT set _dateRange here; when null we will use exact reset_time -> now in the query
     // Ensure we have the latest business data (and reset_time) when this screen opens
     Future.microtask(() async {
@@ -222,12 +229,20 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           ),
                           dropdownColor: Preferences.getTheme() ? mediumGrayColor : Colors.white,
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('All Types')),
-                            DropdownMenuItem(value: 'sale', child: Text('Sales')),
-                            DropdownMenuItem(value: 'purchase', child: Text('Purchases')),
-                            DropdownMenuItem(value: 'expense', child: Text('Expenses')),
-                            DropdownMenuItem(value: 'supplier_payment', child: Text('Supplier Payments')),
+                          items: [
+                            const DropdownMenuItem(
+                                value: 'all', child: Text('All Types')),
+                            const DropdownMenuItem(
+                                value: 'sale', child: Text('Sales')),
+                            if (PurchasesAccess.isEnabled) ...[
+                              const DropdownMenuItem(
+                                  value: 'purchase', child: Text('Purchases')),
+                              const DropdownMenuItem(
+                                  value: 'supplier_payment',
+                                  child: Text('Supplier Payments')),
+                            ],
+                            const DropdownMenuItem(
+                                value: 'expense', child: Text('Expenses')),
                           ],
                           onChanged: (v) => setState(() => _selectedType = v ?? 'all'),
                         ),
@@ -486,6 +501,9 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
           : Timestamp.fromDate(DateTime.tryParse(m['postedAt'].toString()) ?? DateTime.now());
 
       bool ok = true;
+      if (!PurchasesAccess.isEnabled && _isPurchaseLedgerType(type)) {
+        return false;
+      }
       if (_selectedSource != 'all') ok &= fs == _selectedSource;
       if (_selectedType != 'all') ok &= type == _selectedType;
       final DateTime? clientStart = _dateRange?.start ?? resetTimeTs?.toDate();
@@ -892,6 +910,7 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
         if (mounted) Navigator.pushNamed(context, '/sales');
         break;
       case 'purchase':
+        if (!PurchasesAccess.requireEnabled()) break;
         try {
           Get.find<BoughtController>().filterSalesById(refId);
         } catch (_) {}
@@ -906,19 +925,7 @@ class _LedgerHistoryScreenState extends State<LedgerHistoryScreen> {
         }
         break;
       case 'supplier_payment':
-        final role = (Get.find<ProfileController>().user['role'] ?? '').toString();
-        if (!_businessController.isPurchasesAllowedForRole(role)) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Open supplier debts from the owner account, or enable Allow Purchases for staff.',
-                ),
-              ),
-            );
-          }
-          break;
-        }
+        if (!PurchasesAccess.requireEnabled()) break;
         if (mounted) {
           Navigator.pushNamed(context, '/supplier-debt', arguments: {
             'filterDebtId': refId,

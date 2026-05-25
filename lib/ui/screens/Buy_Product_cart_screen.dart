@@ -11,6 +11,7 @@ import '../../controllers/business_controller.dart';
 import '../../controllers/supplier_debt_controller.dart';
 import '../../models/supplier_model.dart';
 import '../../utils/constants.dart';
+import '../../utils/purchases_access.dart';
 import '../../utils/preferences.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
@@ -101,17 +102,16 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
   /// Same flag as cart/sale screens; used in nested closures (e.g. Paid field [onChanged]).
   bool get _purchaseMultiFundEnabled =>
-      (_businessController.business['multiFundEnabled'] ?? false) == true;
+      _businessController.isMultiFundEnabled;
 
   @override
   Widget build(BuildContext context) {
     // CRITICAL SECURITY CHECK: Verify user has permission to buy products
-    final bool purchasesOk = _businessController.isPurchasesAllowedForRole(
-        (_profileController.user['role'] ?? '').toString());
+    final bool purchasesOk = PurchasesAccess.isEnabled;
     if (!_profileController.hasPermission('buy_products') || !purchasesOk) {
-      final String deniedBody = !_profileController.hasPermission('buy_products')
-          ? 'You do not have permission to access the product buying cart'
-          : 'Purchases are disabled for this business. Contact the owner to enable.';
+      final String deniedBody = !purchasesOk
+          ? 'purchases_disabled_by_admin'.tr
+          : 'You do not have permission to access the product buying cart';
       return Scaffold(
         appBar: AppBar(
           title: Text('Access Denied'),
@@ -281,7 +281,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       const SizedBox(height: 16),
                 
                 // Source of Funds Selector (visible only if multi-fund is enabled)
-                if ((_businessController.business['multiFundEnabled'] ?? false) == true)
+                if (_purchaseMultiFundEnabled)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(

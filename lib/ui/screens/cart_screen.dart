@@ -145,6 +145,10 @@ class _CartScreenState extends State<CartScreen> {
     return net < 0 ? 0 : net;
   }
 
+  bool get _isDebtAllowed => _businessController.isDebtEnabled;
+
+  bool get _isMultiFundEnabled => _businessController.isMultiFundEnabled;
+
   /// Keep Imelipwa (paid) field aligned with net due after discount / cart changes.
   void _syncImelipwaToNetDue() {
     if (_userEditedPaid || _paidFocusNode.hasFocus) return;
@@ -179,7 +183,11 @@ class _CartScreenState extends State<CartScreen> {
   /// Sync selected fund source into [CartController.payments] before Firestore / ledger.
   void _flushFundSourceIntoPaymentsBeforePersist() {
     if (_cartScreenFrom() == 'transfer') return;
+    if (!_isMultiFundEnabled) {
+      _paymentMethod = BusinessController.singleFundSourceValue;
+    }
     _cartController.applyFundSourceToAllPayments(_paymentMethod);
+    _cartController.enforceSingleFundPayment(method: _paymentMethod);
     final double currentTotal =
         _cartController.productsPrice - _cartController.discount.value;
     final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
@@ -238,6 +246,16 @@ class _CartScreenState extends State<CartScreen> {
                 // Ensure a default payment is present so "Paid" appears automatically
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (from != 'invoice' && from != 'transfer') {
+                    if (!_isMultiFundEnabled) {
+                      if (_paymentMethod !=
+                          BusinessController.singleFundSourceValue) {
+                        setState(() => _paymentMethod =
+                            BusinessController.singleFundSourceValue);
+                      }
+                      _cartController.enforceSingleFundPayment(
+                        method: BusinessController.singleFundSourceValue,
+                      );
+                    }
                     // Calculate current total
                     final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
                     final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
@@ -614,8 +632,8 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                         ),
                       const SizedBox(height: 12),
-                      // Fund source / payment method (single row; multi-fund only adds split-payment UI elsewhere)
-                      if (from != 'transfer')
+                      // Fund source selector only when Allow Multiple Fund Sources is ON.
+                      if (from != 'transfer' && _isMultiFundEnabled)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8.0),
                           child: Obx(() {
@@ -866,8 +884,16 @@ class _CartScreenState extends State<CartScreen> {
                               final double amtMain = chosenCurrency == mainCur
                                   ? amt
                                   : amt * Preferences.getExchangeRateResult();
-                              _cartController
-                                  .applySellingTotalFromImelipwa(amtMain);
+                              final bool ok = _cartController
+                                  .applySellingTotalFromImelipwa(
+                                amtMain,
+                                debtAllowed: _isDebtAllowed,
+                              );
+                              if (!ok) {
+                                errorSnackbar('debt_not_allowed'.tr);
+                                _userEditedPaid = false;
+                                _syncImelipwaToNetDue();
+                              }
                             },
                             decoration: InputDecoration(
                               contentPadding: inputPadding,
@@ -885,7 +911,9 @@ class _CartScreenState extends State<CartScreen> {
                             ),
                           ),
                         ),
-                        if (from != 'invoice' && _cartController.remaining > 0.01) ...[
+                        if (from != 'invoice' &&
+                            _isDebtAllowed &&
+                            _cartController.remaining > 0.01) ...[
                           const SizedBox(height: 8),
                           Text(
                             '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
@@ -938,6 +966,10 @@ class _CartScreenState extends State<CartScreen> {
                             onPressed: () async {
                               // Skip debt validation for invoices - invoices can have debt
                               if (_cartController.remaining > 0 && from != 'invoice') {
+                                if (!_isDebtAllowed) {
+                                  errorSnackbar('debt_not_allowed'.tr);
+                                  return;
+                                }
                                 // Check if the client is unnamed or not set
                                 if (_cartController.client == null || _cartController.client == "unnamed_client" || _cartController.client?.id == null || _cartController.client?.id == '') {
                                   // Show error snackbar for 6 seconds if the client name is not set
@@ -1018,6 +1050,10 @@ class _CartScreenState extends State<CartScreen> {
                               } else {
 
                                 if (_cartController.remaining > 0) {
+                                  if (!_isDebtAllowed) {
+                                    errorSnackbar('debt_not_allowed'.tr);
+                                    return;
+                                  }
                                   showDialog(
                                     context: context,
                                     builder: (context) {
@@ -1300,7 +1336,7 @@ class _CartScreenState extends State<CartScreen> {
       'buyingPrice': _cartController.productsBuyingPrice,
       'payment': _cartController.payment,
       'payments': _cartController.payments.map((p) => p.toMap()).toList(),
-      'debt': _cartController.remaining,
+      'debt': _isDebtAllowed ? _cartController.remaining : 0,
       'discount': _cartController.discount.value,
       'comment': _detailsController.text.trim(),
       'date': DateTime.now(),
@@ -1341,8 +1377,7 @@ class _CartScreenState extends State<CartScreen> {
       errorSnackbar('Failed to create sale: $error');
     });
 
-    // If debt exists, handle debt history
-    if (_cartController.remaining > 0) {
+    if (_isDebtAllowed && _cartController.remaining > 0) {
       createDebtHistory(saleRef.id, businessId);
     }
   }
@@ -1531,6 +1566,11 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
+    if (_cartController.remaining > 0.01 && !_isDebtAllowed) {
+      errorSnackbar('debt_not_allowed'.tr);
+      return;
+    }
+
     _flushFundSourceIntoPaymentsBeforePersist();
 
     // On Windows desktop, skip Bluetooth selection and use system print dialog
@@ -1585,7 +1625,7 @@ class _CartScreenState extends State<CartScreen> {
         price: _cartController.productsPrice,
         buyingPrice: _cartController.productsBuyingPrice,
         payment: _cartController.payment,
-        debt: _cartController.remaining,
+        debt: _isDebtAllowed ? _cartController.remaining : 0,
         discount: _cartController.discount.value,
         comment: _detailsController.text.trim(),
         payments: List<Map<String, dynamic>>.from(
@@ -1612,16 +1652,6 @@ class _CartScreenState extends State<CartScreen> {
       // Then save the sale
       addSale(products);
       await decreaseSoldQuantity();
-
-      // Handle unpaid amount
-      if (_cartController.remaining > 0) {
-        if (_cartController.client != null) {
-          _clientController.updateDebt(
-            _cartController.client!,
-            _cartController.remaining + _cartController.client!.debt,
-          );
-        }
-      }
 
       // Handle advance payment
       if (_cartController.client != null && _cartController.client!.advance > 0) {

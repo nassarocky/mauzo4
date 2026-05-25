@@ -11,6 +11,7 @@ import 'package:mauzo/controllers/theme_controller.dart';
 import 'package:mauzo/controllers/pay_role_controller.dart';
 import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:path_provider/path_provider.dart';
+import '../utils/app_navigation.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
 import '../services/referral_attribution_service.dart';
@@ -61,6 +62,9 @@ class AuthController extends GetxController {
       FirebaseFunctions.instanceFor(region: 'us-central1');
   bool get isUserAuthenticated => FirebaseAuth.instance.currentUser != null;
 
+  /// True after cold-start routing; prevents auth token refresh from resetting the stack to /home.
+  bool _authBootstrapDone = false;
+
   /// [signupPromoCode] from the register form wins over silent pending install/deep-link code.
   Future<Map<String, dynamic>> _installReferrerFieldMap({
     String? signupPromoCode,
@@ -90,23 +94,47 @@ class AuthController extends GetxController {
     super.onReady();
     _user = Rx<User?>(_auth.currentUser);
     _user.bindStream(_auth.authStateChanges());
-    ever(_user, _setInitialScreen);
+    ever(_user, _onAuthUserChanged);
+    Future.microtask(() => _runInitialAuthRouting());
   }
 
-  _setInitialScreen(User? user) async {
-    Future.delayed(Duration.zero, () async {
-      if (Preferences.isLoggedIn()) {
-        await _profileController.updateUserData();
-        await _businessController.updateBusinessData();
+  void _resetAuthBootstrap() {
+    _authBootstrapDone = false;
+  }
 
-        // Initialize automatic payment generation after user data is loaded
-        _initializePaymentGeneration();
-
-        Get.offAllNamed('/home');
-      } else if (user == null) {
-        Get.offAllNamed('/login');
+  /// Only react to sign-out while the app is running — never force /home on token refresh.
+  void _onAuthUserChanged(User? user) {
+    if (user != null) return;
+    if (!Preferences.isLoggedIn()) {
+      if (!AppNavigation.isCurrentRoute('/login')) {
+        AppNavigation.logUnexpectedRedirect('auth stream signed out');
+        _resetAuthBootstrap();
+        AppNavigation.offAllNamed('/login', reason: 'auth_signed_out');
       }
-    });
+    }
+  }
+
+  Future<void> _runInitialAuthRouting() async {
+    if (_authBootstrapDone) return;
+
+    final user = _auth.currentUser;
+    if (!Preferences.isLoggedIn() || user == null) {
+      _authBootstrapDone = true;
+      if (!AppNavigation.isCurrentRoute('/login')) {
+        AppNavigation.offAllNamed('/login', reason: 'bootstrap_logged_out');
+      }
+      return;
+    }
+
+    await _profileController.updateUserData();
+    await _businessController.updateBusinessData();
+    _initializePaymentGeneration();
+    _authBootstrapDone = true;
+
+    final route = AppNavigation.currentRoute();
+    if (route == '/login' || route == '/' || route.isEmpty) {
+      AppNavigation.offAllNamed('/home', reason: 'bootstrap_logged_in');
+    }
   }
 
   void _initializePaymentGeneration() async {
@@ -167,7 +195,7 @@ class AuthController extends GetxController {
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
-      Get.offAllNamed('/login');
+      AppNavigation.offAllNamed('/login', reason: 'password_reset_done');
     } on FirebaseFunctionsException catch (e) {
       Get.snackbar('Error', e.message ?? e.code,
           snackPosition: SnackPosition.BOTTOM);
@@ -369,7 +397,7 @@ class AuthController extends GetxController {
 
       // Navigate to the home screen
       print(_auth.currentUser?.uid);
-      Get.offAllNamed('/home');
+      AppNavigation.offAllNamed('/home', reason: 'auth_login');
     } on FirebaseAuthException catch (e) {
       // Handle Firebase Authentication errors
       if (e.code == 'weak-password') {
@@ -494,7 +522,7 @@ class AuthController extends GetxController {
       await Preferences.setLoggedIn(true);
       await Preferences.setEnablePurchases('false');
       await _clearReferralAfterSuccessfulSignup();
-      Get.offAllNamed('/home');
+      AppNavigation.offAllNamed('/home', reason: 'auth_login');
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
         throw Exception('This phone number is already registered.');
@@ -601,7 +629,7 @@ class AuthController extends GetxController {
         await Preferences.setLoggedIn(true);
         await _profileController.updateUserData();
         await _businessController.updateBusinessData();
-        Get.offAllNamed('/home');
+        AppNavigation.offAllNamed('/home', reason: 'auth_login');
         return;
       }
 
@@ -619,7 +647,7 @@ class AuthController extends GetxController {
       await Preferences.setLoggedIn(true);
       await _profileController.updateUserData();
       await _businessController.updateBusinessData();
-      Get.offAllNamed('/home');
+      AppNavigation.offAllNamed('/home', reason: 'auth_login');
     } on FirebaseFunctionsException catch (e) {
       Get.snackbar(
         'OTP Error',
@@ -766,7 +794,7 @@ class AuthController extends GetxController {
         loginSuccess.value = true;
         //  print('UID check: ${_auth.currentUser?.uid}');
         //  print('email check: ${email}');
-        Get.offAllNamed('/home');
+        AppNavigation.offAllNamed('/home', reason: 'auth_login');
       } else {
         throw Exception('User document not found in Firestore.');
       }
@@ -815,6 +843,7 @@ class AuthController extends GetxController {
       _businessController.clearBusiness();
       await _auth.signOut();
       await Preferences.setLoggedIn(false);
+      _resetAuthBootstrap();
 
       Get.deleteAll();
       Get.put(ThemeController());
@@ -826,8 +855,7 @@ class AuthController extends GetxController {
       isLoading.value = false;
       loginSuccess.value = false;
 
-      // Navigate to the login screen
-      Get.offAllNamed('/login');
+      AppNavigation.offAllNamed('/login', reason: 'logout');
     } catch (e) {
       _showErrorSnackbar('Logout failed: ${e.toString()}');
     }

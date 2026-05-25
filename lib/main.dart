@@ -89,6 +89,7 @@ class MyApp extends StatelessWidget {
       themeMode: themeController.theme,
       theme: Themes.lightTheme,
       darkTheme: Themes.darkTheme,
+      initialRoute: Preferences.isLoggedIn() ? '/home' : '/login',
       onGenerateRoute: AppRouter.onGenerateRoute,
       // Android edge-to-edge (forced on API 35+): the system navigation bar
       // overlays the app. mq.padding.bottom already equals the nav-bar height

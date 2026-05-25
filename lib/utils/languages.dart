@@ -206,6 +206,12 @@ class Languages extends Translations {
           'order_created': 'Order created',
       'invoice_created': 'Invoice created',
           'overpaid': 'Overpaid',
+          'debt_not_allowed':
+              'Debt is disabled in Settings. Full payment is required.',
+          'purchases_disabled_by_admin':
+              'Purchases are disabled by the administrator.',
+          'purchases_role_not_allowed':
+              'Purchases are not available for your role (Sales Person).',
           'enter_discount': 'Enter discount',
           'comment': 'Comment',
       'Add Expense':'Add Expense',
@@ -916,6 +922,12 @@ class Languages extends Translations {
       'unpaid_amount_description': 'Unataka kuhifadhi kiasi kilichobaki vipi?',
       'order_created': 'Agizo limeundwa',
       'overpaid': 'Kulipwa kupita kiasi',
+      'debt_not_allowed':
+          'Deni limezimwa kwenye Mipangilio. Lazima kulipwa kiasi kamili.',
+      'purchases_disabled_by_admin':
+          'Manunuzi yamezimwa na msimamizi.',
+      'purchases_role_not_allowed':
+          'Manunuzi hayapatikani kwa jukumu lako (Muuzaji).',
       'enter_discount': 'Ingiza punguzo',
       'comment': 'Maoni',
       'Payment Records':'Malipo',

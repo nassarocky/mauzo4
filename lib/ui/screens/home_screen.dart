@@ -8,6 +8,7 @@ import 'package:mauzo/controllers/client_controller.dart';
 import 'package:mauzo/controllers/employee_controller.dart';
 import 'package:mauzo/controllers/expence_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/utils/purchases_access.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/controllers/supplier_controller.dart';
 import 'package:mauzo/controllers/supplier_debt_controller.dart';
@@ -52,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String accountEmail = '+255698720225/+255781282076';
   bool isAccountActive = true;
   bool isInitialized = false;
+  bool _subscriptionBlockDialogOpen = false;
   bool isBuyingStock = Preferences.getStockDisplayPreference();
   String _appVersion = '';
   StreamSubscription<DocumentSnapshot>? _userSubscription;
@@ -172,8 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (active) {
       if (mounted) {
         setState(() => isAccountActive = true);
-        Navigator.of(context, rootNavigator: true)
-            .popUntil((route) => route.isFirst);
+        _dismissSubscriptionBlockDialogIfOpen();
       }
       return;
     }
@@ -186,10 +187,18 @@ class _HomeScreenState extends State<HomeScreen> {
       // Sync/data/unknown issue — do not lock the app behind payment UI.
       if (mounted) {
         setState(() => isAccountActive = true);
-        Navigator.of(context, rootNavigator: true)
-            .popUntil((route) => route.isFirst);
+        _dismissSubscriptionBlockDialogIfOpen();
       }
     }
+  }
+
+  void _dismissSubscriptionBlockDialogIfOpen() {
+    if (!_subscriptionBlockDialogOpen || !mounted) return;
+    final nav = Navigator.of(context, rootNavigator: true);
+    if (nav.canPop()) {
+      nav.pop();
+    }
+    _subscriptionBlockDialogOpen = false;
   }
 
   bool _isBusinessOwner() {
@@ -212,12 +221,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void showAccountStatusDialog(String? status) {
+    if (_subscriptionBlockDialogOpen) return;
+
     final isOwner = _isBusinessOwner();
     final message = _accountStatusMessage(status, isOwner: isOwner);
     final showPayment = isOwner;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || _subscriptionBlockDialogOpen) return;
+      _subscriptionBlockDialogOpen = true;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -254,7 +266,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
-      );
+      ).then((_) {
+        if (mounted) {
+          setState(() => _subscriptionBlockDialogOpen = false);
+        } else {
+          _subscriptionBlockDialogOpen = false;
+        }
+      });
     });
   }
 
@@ -666,15 +684,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           }),
 
-                          const SizedBox(height: 12),
-
-                          _buildAnalyticsCard(
-                            icon: Icons.shopping_cart,
-                            iconColor: Colors.purple,
-                            title: 'PURCHASES PAID'.tr,
-                            amount: formatCurrency(purchasesExclusive, _businessController.business['mainCurrency']),
-                            gradient: [Colors.purple.shade50, Colors.purple.shade100],
-                          ),
+                          if (PurchasesAccess.isEnabled) ...[
+                            const SizedBox(height: 12),
+                            _buildAnalyticsCard(
+                              icon: Icons.shopping_cart,
+                              iconColor: Colors.purple,
+                              title: 'PURCHASES PAID'.tr,
+                              amount: formatCurrency(purchasesExclusive, _businessController.business['mainCurrency']),
+                              gradient: [Colors.purple.shade50, Colors.purple.shade100],
+                            ),
+                          ],
 
                           const SizedBox(height: 12),
 
@@ -1216,8 +1235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       route: 'expenses',
                     ),
                     
-                    if (_businessController.isPurchasesAllowedForRole(
-                        (_profileController.user['role'] ?? '').toString()))
+                    if (PurchasesAccess.isEnabled)
                       DrawerTile(
                         title: 'Purchases'.tr,
                         icon: Icons.import_export,
@@ -1690,8 +1708,7 @@ class _MoreExpandableSectionState extends State<_MoreExpandableSection>
                         icon: Icons.business_center,
                         route: 'assets',
                       ),
-                    if (widget.businessController.isPurchasesAllowedForRole(
-                        (widget.profileController.user['role'] ?? '').toString()))
+                    if (PurchasesAccess.isEnabled)
                       ...[
                         DrawerMenuItem(
                           title: 'Supplier Debts'.tr,

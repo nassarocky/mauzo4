@@ -5,15 +5,43 @@ import 'package:mauzo/models/profile_model.dart';
 import '../utils/constants.dart';
 
 class ProfileController extends GetxController {
+  /// Roles that must never access purchases/suppliers, even when Allow Purchases is ON.
+  static const Set<String> purchaseExcludedRoles = {
+    'sales_person',
+    'employee',
+    'agent',
+  };
+
+  static const Set<String> purchasePermissions = {
+    'buy_products',
+    'manage_suppliers',
+    'manage_supplier_debt',
+    'view_purchases',
+  };
+
+  /// Normalized role (`employee` → `sales_person`).
+  String get normalizedRole {
+    String role = user['role']?.toString() ?? '';
+    if (role == 'employee') role = 'sales_person';
+    return role;
+  }
+
+  bool get isPurchaseExcludedRole =>
+      purchaseExcludedRoles.contains(normalizedRole);
+
   /// Centralized permission check
   bool hasPermission(String permission) {
+    if (isPurchaseExcludedRole && purchasePermissions.contains(permission)) {
+      return false;
+    }
+
     final user = this.user;
     String role = user['role'] ?? '';
     
     // Legacy support: treat 'employee' as 'sales_person'
     if (role == 'employee') role = 'sales_person';
     
-    // Custom permissions override
+    // Custom permissions override (purchase perms still blocked for excluded roles above)
     final List perms = user['permissions'] ?? [];
     if (perms.contains(permission)) return true;
     final Map<String, List<String>> rolePermissions = {
@@ -32,7 +60,7 @@ class ProfileController extends GetxController {
       ],
       'sales_person': [
         'view_products', 'make_sales', 'view_sales_own', 'manage_clients', 'create_invoices',
-        'print_invoices', 'share_invoices', 'buy_products', 'sale_invoices', 'record_debt_payment'
+        'print_invoices', 'share_invoices', 'sale_invoices', 'record_debt_payment',
       ],
       'agent': [
         'view_products', 'view_sales', 'view_reports', 'view_statistics'

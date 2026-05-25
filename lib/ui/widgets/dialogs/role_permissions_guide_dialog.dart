@@ -31,7 +31,8 @@ class RolePermissionsGuideDialog extends StatelessWidget {
     },
     'sales_person': {
       'title': 'Sales Person',
-      'description': 'Sales-focused role with product purchasing capabilities',
+      'description':
+          'Sales-focused role. Cannot access purchases or suppliers (even when Allow Purchases is on).',
       'permissions': [
         'View products',
         'Make sales',
@@ -39,7 +40,7 @@ class RolePermissionsGuideDialog extends StatelessWidget {
         'Manage clients',
         'Create & print invoices',
         'Share invoices',
-        'Buy products for business'
+        'Record client debt payments',
       ],
       'color': Colors.green,
       'icon': Icons.point_of_sale,

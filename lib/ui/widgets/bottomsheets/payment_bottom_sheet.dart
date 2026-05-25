@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:pattern_formatter/numeric_formatter.dart';
+import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/preferences.dart';
@@ -23,11 +24,45 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
   int paymentsCounter = 0;
   final CartController _cartController = Get.find();
   final ProfileController _profileController = Get.find();
+  final BusinessController _businessController = Get.find();
   final List<Map<String, dynamic>> _payments = [];
+
+  bool get _multiFund => _businessController.isMultiFundEnabled;
+
+  String get _singleMethod =>
+      widget.defaultMethod ?? BusinessController.singleFundSourceValue;
 
   @override
   void initState() {
     super.initState();
+    if (!_multiFund) {
+      _cartController.enforceSingleFundPayment(method: _singleMethod);
+    }
+
+    if (!_multiFund) {
+      paymentsCounter = 1;
+      final bool isMainCurrency =
+          widget.chosenCurrency == _profileController.user['mainCurrency'];
+      final double initialAmount = _cartController.payments.isNotEmpty
+          ? _cartController.payments.first.amount
+          : (isMainCurrency
+              ? _cartController.remaining
+              : (_cartController.remaining /
+                  Preferences.getExchangeRateResult()));
+      final String currency = _cartController.payments.isNotEmpty
+          ? _cartController.payments.first.currency
+          : widget.chosenCurrency;
+      _payments.add({
+        'amount': initialAmount,
+        'currency': currency,
+        'method': _singleMethod,
+        'controller': TextEditingController(
+          text: formatCurrencyWithoutSymbol(initialAmount),
+        ),
+      });
+      return;
+    }
+
     if (_cartController.payments.length > 0) {
       paymentsCounter = _cartController.payments.length;
       for (final payment in _cartController.payments) {
@@ -41,10 +76,6 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
           },
         );
       }
-      // If the bottom sheet was opened with a defaultMethod (from inline selector)
-      // and all existing methods are 'cash' (likely auto-initialized), honor the
-      // user's selected method by overriding them. Edit screens don't pass
-      // defaultMethod, so their original methods remain intact.
       if (widget.defaultMethod != null) {
         final String dm = widget.defaultMethod!;
         final bool allCash = _payments.every((p) => (p['method'] ?? 'cash') == 'cash');
@@ -56,7 +87,6 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
       }
     } else {
       paymentsCounter = 1;
-      // Auto-fill with remaining amount converted to the chosen currency
       final bool isMainCurrency =
           widget.chosenCurrency == _profileController.user['mainCurrency'];
       final double initialAmount = isMainCurrency
@@ -293,6 +323,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                       ],
                     ),
                   ),
+                if (_multiFund) ...[
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -343,6 +374,7 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                     ),
                   ],
                 ),
+                ],
                 const SizedBox(height: 20),
                 DeleteSaveButton(
                   onDelete: () {
@@ -351,7 +383,10 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                   },
                   onSave: () {
                     _cartController.clearPayments();
-                    for (var payment in _payments) {
+                    final Iterable<Map<String, dynamic>> rowsToSave = _multiFund
+                        ? _payments
+                        : _payments.take(1);
+                    for (var payment in rowsToSave) {
                       // Treat empty as zero
                       if ((payment['controller'].text as String).trim().isEmpty) {
                         payment['amount'] = 0.0;
@@ -372,8 +407,18 @@ class _PaymentBottomSheetState extends State<PaymentBottomSheet> {
                       _cartController.addPayment(
                         payment['amount'],
                         payment['currency'],
-                        method: (payment['method'] ?? 'cash') as String,
+                        method: _multiFund
+                            ? (payment['method'] ?? 'cash') as String
+                            : _singleMethod,
                       );
+                    }
+                    _cartController.enforceSingleFundPayment(method: _singleMethod);
+
+                    if (!_businessController.isDebtEnabled &&
+                        _cartController.remaining > 0.01) {
+                      _cartController.clearPayments();
+                      errorSnackbar('debt_not_allowed'.tr);
+                      return;
                     }
 
                     Navigator.pop(context);

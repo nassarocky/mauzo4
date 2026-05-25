@@ -6,6 +6,7 @@ import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/utils/constants.dart';
 import '../../../utils/preferences.dart';
+import '../../../utils/purchases_access.dart';
 
 class SelectSupplierScreen extends StatefulWidget {
   const SelectSupplierScreen({Key? key}) : super(key: key);
@@ -22,19 +23,13 @@ class _SelectSupplierScreenState extends State<SelectSupplierScreen> {
   @override
   void initState() {
     super.initState();
-    final role = (_profileController.user['role'] ?? '').toString();
-    if (!_businessController.isPurchasesAllowedForRole(role)) {
+    if (!PurchasesAccess.isEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
       });
     }
   }
@@ -67,6 +62,7 @@ class _SelectSupplierScreenState extends State<SelectSupplierScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
+          if (!PurchasesAccess.requireEnabled()) return;
           Navigator.pushNamed(context, '/supplier/add');
         },
         child: const Icon(Icons.add),

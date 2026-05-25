@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/business_model.dart';
+import 'profile_controller.dart';
 import '../services/fund_source_service.dart';
 import '../utils/constants.dart';
 import '../utils/preferences.dart';
@@ -11,6 +12,18 @@ class BusinessController extends GetxController {
   final Rx<Map<String, dynamic>> _business = Rx<Map<String, dynamic>>({});
   Map<String, dynamic> get business => _business.value;
   final Rx<String> businessId = "".obs;
+
+  /// From Firestore `debtEnabled` (Allow Debt in Settings). When false, sales cannot record client debt.
+  bool get isDebtEnabled => _business.value['debtEnabled'] == true;
+
+  /// Updates local state and prefs immediately when the owner toggles Allow Debt.
+  Future<void> setDebtEnabled(bool value) async {
+    final b = Map<String, dynamic>.from(_business.value);
+    b['debtEnabled'] = value;
+    _business.value = b;
+    await Preferences.setEnabletDebt(value);
+    update();
+  }
 
   /// Keeps [business.invoicePaymentDetails] in sync for receipts without waiting for Firestore refetch.
   /// Call after editing payment methods locally (e.g. invoice payment settings).
@@ -55,13 +68,39 @@ class BusinessController extends GetxController {
 
   List<Map<String, dynamic>> get allFundSources => _fundSources.toList();
 
-  /// Staff see purchases (and supplier list / supplier debts in the drawer) only when
-  /// Firestore `additionalString1` / [business]['purchases'] is `'true'`.
-  /// Business owners always bypass this flag (toggle is for other users).
+  /// Allow Purchases (Firestore `additionalString1` → [business]['purchases']).
+  /// Applies to all roles including owner.
+  bool get isPurchasesEnabled =>
+      (_business.value['purchases']?.toString() ?? 'false') == 'true';
+
+  /// Allow Multiple Fund Sources (`multiFundEnabled` on business).
+  bool get isMultiFundEnabled =>
+      (_business.value['multiFundEnabled'] ?? false) == true;
+
+  Future<void> setMultiFundEnabled(bool value) async {
+    final b = Map<String, dynamic>.from(_business.value);
+    b['multiFundEnabled'] = value;
+    _business.value = b;
+    update();
+  }
+
+  /// Default fund source when multi-fund is disabled (single cash bucket).
+  static const String singleFundSourceValue = 'cash';
+
+  /// Business setting + role (Sales Person / Agent always denied).
   bool isPurchasesAllowedForRole(String userRole) {
-    final role = userRole.toString();
-    if (role == 'owner') return true;
-    return (business['purchases']?.toString() ?? 'false') == 'true';
+    final r = userRole == 'employee' ? 'sales_person' : userRole;
+    if (ProfileController.purchaseExcludedRoles.contains(r)) return false;
+    return isPurchasesEnabled;
+  }
+
+  Future<void> setPurchasesEnabled(bool value) async {
+    final flag = value ? 'true' : 'false';
+    final b = Map<String, dynamic>.from(_business.value);
+    b['purchases'] = flag;
+    _business.value = b;
+    await Preferences.setEnablePurchases(flag);
+    update();
   }
 
   void reloadFundSources(List<Map<String, dynamic>> list) {
@@ -119,8 +158,31 @@ class BusinessController extends GetxController {
   /// Rows for payment / fund-source dropdowns: [effectiveFundSources], plus the row for
   /// [currentValue] if it exists in the full catalog but was dropped (e.g. inactive), so we
   /// do not reset the selection to [values.first] (usually **cash**).
+  List<Map<String, dynamic>> _cashOnlyFundSourceRows(
+    List<Map<String, dynamic>> catalog,
+  ) {
+    for (final e in catalog) {
+      final v = e['value']?.toString() ?? '';
+      final lt = e['ledgerType']?.toString() ?? '';
+      if (v == singleFundSourceValue || lt == singleFundSourceValue) {
+        return [Map<String, dynamic>.from(e)];
+      }
+    }
+    for (final e in FundSourceService.defaultFundSources) {
+      if (e['value'] == singleFundSourceValue) {
+        return [Map<String, dynamic>.from(e)];
+      }
+    }
+    return [
+      Map<String, dynamic>.from(FundSourceService.defaultFundSources.first),
+    ];
+  }
+
   List<Map<String, dynamic>> paymentMethodsForDropdown({String? currentValue}) {
-    final base = List<Map<String, dynamic>>.from(effectiveFundSources);
+    var base = List<Map<String, dynamic>>.from(effectiveFundSources);
+    if (!isMultiFundEnabled) {
+      return _cashOnlyFundSourceRows(base);
+    }
     final cv = (currentValue ?? '').trim();
     if (cv.isEmpty) return base;
 
@@ -337,9 +399,10 @@ class BusinessController extends GetxController {
 
           print('Business data updated: ${_business.value}');
 
-          // Keep local purchases toggle aligned with Firestore for Settings UI.
+          // Keep local toggles aligned with Firestore for Settings UI.
           final p = rawData['additionalString1']?.toString().trim() ?? '';
           await Preferences.setEnablePurchases(p == 'true' ? 'true' : 'false');
+          await Preferences.setEnabletDebt(business.debtEnabled);
 
           // Fund sources: used for expenses and for all "payment method" pickers (sales, payroll, debts).
           try {

@@ -11,6 +11,7 @@ import 'package:mauzo/ui/widgets/search_filter_icon.dart';
 import '../../widgets/bottomsheets/supplier_info_bottom_sheet.dart';
 import '../../../controllers/supplier_controller.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/purchases_access.dart';
 
 class SuppliersScreen extends StatefulWidget {
   const SuppliersScreen({Key? key}) : super(key: key);
@@ -27,19 +28,13 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
   @override
   void initState() {
     super.initState();
-    final role = (_profileController.user['role'] ?? '').toString();
-    if (!_businessController.isPurchasesAllowedForRole(role)) {
+    if (!PurchasesAccess.isEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
       });
     }
   }
@@ -54,7 +49,8 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool canManageSuppliers = _profileController.hasPermission('manage_suppliers');
+    final bool canManageSuppliers = _profileController.hasPermission('manage_suppliers') &&
+        PurchasesAccess.isEnabled;
     
     return Scaffold(
       appBar: AppBar(
@@ -63,6 +59,7 @@ class _SuppliersScreenState extends State<SuppliersScreen> {
       ),
       floatingActionButton: canManageSuppliers ? FloatingActionButton(
         onPressed: () {
+          if (!PurchasesAccess.requireEnabled()) return;
           Navigator.pushNamed(
             context,
             '/supplier/add',

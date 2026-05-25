@@ -9,6 +9,7 @@ import '../../../utils/constants.dart';
 import '../../../utils/image.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/buttons/primary_button.dart';
+import '../../../utils/purchases_access.dart';
 
 class AddSupplierScreen extends StatefulWidget {
   const AddSupplierScreen({Key? key}) : super(key: key);
@@ -54,18 +55,12 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       return;
     }
 
-    final role = (_profileController.user['role'] ?? '').toString();
-    if (!_businessController.isPurchasesAllowedForRole(role)) {
+    if (!PurchasesAccess.isEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Suppliers are available to the owner, or to staff when Allow Purchases is enabled in settings.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
       });
       return;
     }

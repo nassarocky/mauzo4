@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../utils/app_navigation.dart';
 import '../../../utils/constants.dart';
 
 class DrawerTile extends StatelessWidget {
@@ -20,7 +21,7 @@ class DrawerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () {
-        Navigator.pushNamed(context, '/$route');
+        AppNavigation.navigateFromDrawer(context, route);
       },
       child: Container(
         padding: EdgeInsets.symmetric(

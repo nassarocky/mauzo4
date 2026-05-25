@@ -31,6 +31,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../utils/download_helper.dart';
+import '../../../utils/purchases_access.dart';
 
 class BoughtScreen extends StatefulWidget {
   const BoughtScreen({Key? key}) : super(key: key);
@@ -52,29 +53,22 @@ class _boughtControllerState extends State<BoughtScreen> {
   void initState() {
     super.initState();
     
-    // CRITICAL SECURITY CHECK: Verify user has permission to buy products
+    if (!PurchasesAccess.isEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
+      });
+      return;
+    }
+
     if (!_profileController.hasPermission('buy_products')) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         Get.snackbar(
           'Access Denied',
           'You do not have permission to view or manage product purchases',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
-      });
-      return;
-    }
-
-    if (!_businessController.isPurchasesAllowedForRole(
-        (_profileController.user['role'] ?? '').toString())) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Purchases are disabled for this business. Contact the owner to enable.',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red,
           colorText: Colors.white,
@@ -133,17 +127,23 @@ class _boughtControllerState extends State<BoughtScreen> {
   @override
   Widget build(BuildContext context) {
     final bool canViewPurchases = _profileController.hasPermission('view_purchases');
+    final bool canCreatePurchase =
+        _profileController.hasPermission('buy_products');
 
     return Scaffold(
       backgroundColor: Preferences.getTheme()
           ? Theme.of(context).scaffoldBackgroundColor
           : const Color(0xFFE5E5E5),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.pushNamed(context, '/buy');
-        },
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canCreatePurchase
+          ? FloatingActionButton(
+              onPressed: () {
+                if (PurchasesAccess.requireEnabled()) {
+                  Navigator.pushNamed(context, '/buy');
+                }
+              },
+              child: const Icon(Icons.add),
+            )
+          : null,
       appBar: AppBar(
         title: Text(
           'all_purchases'.tr,
@@ -424,7 +424,8 @@ class _boughtControllerState extends State<BoughtScreen> {
                                           ),
                                         ),
                                         const Spacer(),
-                                        if (_profileController.hasPermission('buy_products'))
+                                        if (_profileController
+                                            .hasPermission('buy_products'))
                                           PopupMenuButton(
                                             child: Icon(
                                               Icons.more_vert,
@@ -912,6 +913,8 @@ class _boughtControllerState extends State<BoughtScreen> {
 
 
   void editPurchase(Sale purchase, Supplier? supplier, BuildContext context, DateTime time) {
+    if (!PurchasesAccess.requireEnabled()) return;
+
     List<Product> products = [];
 
     for (final product in purchase.products) {
@@ -959,6 +962,8 @@ class _boughtControllerState extends State<BoughtScreen> {
     _cartController.setProducts(products, purchase.products);
     _cartController.passedArgument = purchase.id;
     _cartController.origin = 'edit_purchase';
+
+    if (!PurchasesAccess.requireEnabled()) return;
 
     Navigator.push(
       context,

@@ -9,6 +9,7 @@ import '../../controllers/profile_controller.dart';
 import '../../models/supplier_debt_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/preferences.dart';
+import '../../utils/purchases_access.dart';
 import '../widgets/buttons/primary_button.dart';
 
 class SupplierDebtScreen extends StatefulWidget {
@@ -28,19 +29,13 @@ class _SupplierDebtScreenState extends State<SupplierDebtScreen> {
   @override
   void initState() {
     super.initState();
-    final role = (_profileController.user['role'] ?? '').toString();
-    if (!_businessController.isPurchasesAllowedForRole(role)) {
+    if (!PurchasesAccess.isEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Supplier debts are available to the owner, or to staff when Allow Purchases is enabled in settings.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
       });
       return;
     }

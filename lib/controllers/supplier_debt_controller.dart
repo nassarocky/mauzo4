@@ -31,17 +31,15 @@ class SupplierDebtController extends GetxController {
     print('[DEBUG SupplierDebtController] onInit called');
     
     final ProfileController _profileController = Get.find();
-    final String userRole = _profileController.user['role'] ?? '';
-    
-    // Load supplier debts for all roles except agents (sales persons do purchases and need to track supplier debts)
-    if (userRole != 'agent') {
-      // Load pending debts by default (optimized)
+
+    if (!_profileController.isPurchaseExcludedRole) {
       loadDebtsByStatus('pending');
     } else {
-      // Set empty data for agents (no error)
       supplierDebts.value = [];
       filteredSupplierDebts.value = [];
-      print('SupplierDebtController: Agents cannot view supplier debts, skipping data initialization');
+      print(
+        'SupplierDebtController: Purchase-excluded role, skipping supplier debt data',
+      );
     }
   }
 

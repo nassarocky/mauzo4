@@ -12,6 +12,7 @@ import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
 
 import '../../../controllers/business_controller.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/purchases_access.dart';
 import '../buttons/primary_button.dart';
 import '../buttons/secondary_button.dart';
 
@@ -26,9 +27,10 @@ class SupplierInfoBottomSheet extends StatelessWidget {
     final BusinessController businessController = Get.find();
     final ProfileController profileController = Get.find();
     final SupplierDebtController supplierDebtController = Get.find();
-    final bool canManageSuppliers = profileController.hasPermission('manage_suppliers');
-    final bool showPurchasesNav = businessController.isPurchasesAllowedForRole(
-        (profileController.user['role'] ?? '').toString());
+    final bool canManageSuppliers =
+        profileController.hasPermission('manage_suppliers') &&
+            PurchasesAccess.isEnabled;
+    final bool showPurchasesNav = PurchasesAccess.isEnabled;
 
     // Calculate total debt owed to this supplier
     final supplierDebts = supplierDebtController.supplierDebts
@@ -286,14 +288,13 @@ class SupplierInfoBottomSheet extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (totalDebt > 0) ...[  
+                    if (showPurchasesNav && totalDebt > 0) ...[  
                       const SizedBox(width: 8),
                       Expanded(
                         child: PrimaryButton(
                           color: warningColor,
                           text: 'record_payment'.tr,
                           onPressed: () {
-                            // Navigate to supplier debt screen to record payment
                             Navigator.pop(context);
                             Navigator.pushNamed(context, '/supplier-debt');
                           },

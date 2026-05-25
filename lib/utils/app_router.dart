@@ -1,4 +1,8 @@
 import 'package:flutter/cupertino.dart';
+import 'package:get/get.dart';
+import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/ui/screens/purchases_blocked_screen.dart';
+import 'package:mauzo/utils/purchases_access.dart';
 import 'package:mauzo/privacy_policy_screen.dart';
 import 'package:mauzo/ui/screens/auth/login_screen.dart';
 import 'package:mauzo/ui/screens/categories_screen.dart';
@@ -47,117 +51,129 @@ import '../ui/screens/payment_management_screen.dart';
 import 'package:mauzo/ui/screens/ledger_history_screen.dart';
 import 'package:mauzo/ui/screens/assets_screen.dart';
 import '../ui/screens/inventory_loss_screen.dart';
+import '../ui/widgets/app_back_scope.dart';
 
 class AppRouter {
+  static CupertinoPageRoute<void> _page(
+    Widget screen, {
+    RouteSettings? settings,
+    bool backToHome = true,
+  }) {
+    return CupertinoPageRoute<void>(
+      settings: settings,
+      builder: (_) =>
+          backToHome ? AppBackScope(child: screen) : screen,
+    );
+  }
+
+  static bool _purchasesRouteAllowed(String? routeName) {
+    if (!PurchasesAccess.isGuardedRoute(routeName)) return true;
+    if (!Get.isRegistered<BusinessController>()) return true;
+    return PurchasesAccess.isEnabled;
+  }
+
   static Route onGenerateRoute(RouteSettings settings) {
+    if (!_purchasesRouteAllowed(settings.name)) {
+      return _page(const PurchasesBlockedScreen(), settings: settings);
+    }
+
     switch (settings.name) {
       case '/debt':
-        return CupertinoPageRoute(builder: (_) => DebtHistoryScreen());
+        return _page(DebtHistoryScreen());
       case '/supplier-debt':
-        return CupertinoPageRoute(builder: (_) => const SupplierDebtScreen(), settings: settings);
+        return _page(const SupplierDebtScreen(), settings: settings);
       case '/login':
-        return CupertinoPageRoute(builder: (_) => const LoginScreen());
+        return _page(const LoginScreen(), backToHome: false);
       case '/addemployee':
-        return CupertinoPageRoute(builder: (_) => EmployeesScreen());
+        return _page(EmployeesScreen());
       case '/invoices':
-        return CupertinoPageRoute(builder: (_) => const InvoicesScreen());
+        return _page(const InvoicesScreen());
       case '/register':
-        return CupertinoPageRoute(builder: (_) => RegisterScreen());
+        return _page(RegisterScreen(), backToHome: false);
       case '/expenses':
-        return CupertinoPageRoute(builder: (_) =>  const ExpenseListScreen(), settings: settings);
+        return _page(const ExpenseListScreen(), settings: settings);
       case '/report':
-        return CupertinoPageRoute(builder: (_) =>   ReportScreen());
+        return _page(ReportScreen());
       case '/add-expense':
-    return CupertinoPageRoute(builder: (_) => AddExpenseScreen());
+        return _page(AddExpenseScreen());
       case '/edit-expense':
-        return CupertinoPageRoute(
-          builder: (_) => EditExpenseScreen(),
-          settings: settings, // Pass settings to ensure arguments are available
-        );
+        return _page(EditExpenseScreen(), settings: settings);
       case '/home':
-        return CupertinoPageRoute(
-          builder: (_) => const HomeScreen());
-    case '/sale/add':
+        return _page(const HomeScreen(), backToHome: false);
+      case '/sale/add':
         final args = settings.arguments;
         if (args is Map && args['userData'] is UserData) {
-          return CupertinoPageRoute(builder: (_) => DualScreenApp(userData: args['userData']));
+          return _page(DualScreenApp(userData: args['userData']));
         }
-        return CupertinoPageRoute(builder: (_) => DualScreenApp());
+        return _page(DualScreenApp());
       case '/sales':
-        return CupertinoPageRoute(builder: (_) => const SalesScreen());
+        return _page(const SalesScreen());
       case '/cart':
-        return CupertinoPageRoute(builder: (_) => const CartScreen());
+        return _page(const CartScreen());
       case '/buycart':
-        return CupertinoPageRoute(builder: (_) => const BuyProductCartScreen());
+        return _page(const BuyProductCartScreen());
       case '/buy':
-        return CupertinoPageRoute(builder: (_) => const BuyProductScreen());
+        return _page(const BuyProductScreen());
       case '/privacy-policy':
-        return CupertinoPageRoute(builder: (_) =>  PrivacyPolicyPage());
+        return _page(PrivacyPolicyPage());
       case '/resetPassword':
-        return CupertinoPageRoute(builder: (_) => ResetPasswordScreen());
+        return _page(ResetPasswordScreen(), backToHome: false);
       case '/bought':
-        return CupertinoPageRoute(builder: (_) => const BoughtScreen());
+        return _page(const BoughtScreen());
       case '/products':
-        return CupertinoPageRoute(builder: (_) => const ProductsScreen());
+        return _page(const ProductsScreen());
       case '/product/add':
-        return CupertinoPageRoute(builder: (_) => const AddProductScreen());
+        return _page(const AddProductScreen());
       case '/store/add':
-        return CupertinoPageRoute(builder: (_) => const StoreScreen());
+        return _page(const StoreScreen());
       case '/transfer_requests':
-        return CupertinoPageRoute(builder: (_) => const TransferRequestsScreen());
+        return _page(const TransferRequestsScreen());
       case '/statistics':
-        return CupertinoPageRoute(builder: (_) => const StatisticsScreen());
+        return _page(const StatisticsScreen());
       case '/clients':
-        return CupertinoPageRoute(builder: (_) => const ClientsScreen());
+        return _page(const ClientsScreen());
       case '/reports':
-        return CupertinoPageRoute(builder: (_) =>  CloseBookScreen());
+        return _page(CloseBookScreen());
       case '/client/select':
-        return CupertinoPageRoute(builder: (_) => const SelectClientScreen());
+        return _page(const SelectClientScreen());
       case '/client/add':
-        return CupertinoPageRoute(
-          builder: (_) => const AddClientScreen());
+        return _page(const AddClientScreen());
       case '/suppliers':
-        return CupertinoPageRoute(builder: (_) => const SuppliersScreen());
+        return _page(const SuppliersScreen());
       case '/supplier/select':
-        return CupertinoPageRoute(builder: (_) => const SelectSupplierScreen());
+        return _page(const SelectSupplierScreen());
       case '/supplier/add':
-        return CupertinoPageRoute(
-          builder: (_) => const AddSupplierScreen());
+        return _page(const AddSupplierScreen());
       case '/supplier/edit':
-        return CupertinoPageRoute(
-          settings: settings,
-          builder: (_) => const EditSupplierScreen());
+        return _page(const EditSupplierScreen(), settings: settings);
       case '/employee/add':
-        return CupertinoPageRoute(
-            builder: (_) =>  AddEmployeeScreen());
+        return _page(AddEmployeeScreen());
       case '/categories':
-        return CupertinoPageRoute(builder: (_) => const CategoriesScreen());
+        return _page(const CategoriesScreen());
       case '/settings':
-        return CupertinoPageRoute(builder: (_) => const SettingsScreen());
+        return _page(const SettingsScreen());
       case '/subscription':
-        return CupertinoPageRoute(builder: (_) => SubscriptionScreen());
+        return _page(SubscriptionScreen());
       case '/support':
-        return CupertinoPageRoute(builder: (_) => const SupportScreen());
+        return _page(const SupportScreen());
       case '/account':
-        return CupertinoPageRoute(builder: (_) =>  AccountScreen());
+        return _page(AccountScreen());
       case '/services':
-        return CupertinoPageRoute(builder: (_) => const ServicesScreen());
+        return _page(const ServicesScreen());
       case '/pay-roles':
-        return CupertinoPageRoute(builder: (_) => const PayRoleManagementScreen());
+        return _page(const PayRoleManagementScreen());
       case '/select-employee-pay-role':
-        return CupertinoPageRoute(builder: (_) => const SelectEmployeeForPayRoleScreen());
+        return _page(const SelectEmployeeForPayRoleScreen());
       case '/payment-management':
-        return CupertinoPageRoute(builder: (_) => const PaymentManagementScreen());
+        return _page(const PaymentManagementScreen());
       case '/ledger':
-        return CupertinoPageRoute(builder: (_) => const LedgerHistoryScreen());
+        return _page(const LedgerHistoryScreen());
       case '/assets':
-        return CupertinoPageRoute(builder: (_) => const AssetsScreen());
+        return _page(const AssetsScreen());
       case '/inventory-losses':
-        return CupertinoPageRoute(builder: (_) => const InventoryLossScreen());
+        return _page(const InventoryLossScreen());
       default:
-        return CupertinoPageRoute(
-          builder: (_) => const LoadingScreen(),
-        );
+        return _page(const LoadingScreen(), backToHome: false);
     }
   }
 }

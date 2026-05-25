@@ -47,6 +47,9 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
   DateTime? selectedDate;
 
   bool _isLoading = false;
+
+  bool get _isDebtAllowed => _businessController.isDebtEnabled;
+
   @override
   void dispose() {
     Timer.run(() {
@@ -721,6 +724,10 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
                             color: greenColor,
                             onPressed: () async {
                               if (_cartController.remaining > 0) {
+                                if (!_isDebtAllowed) {
+                                  errorSnackbar('debt_not_allowed'.tr);
+                                  return;
+                                }
                                 // Check if the client is unnamed or not set
                                 if (_cartController.client == null || _cartController.client == "unnamed_client" || _cartController.client?.id == null || _cartController.client?.id == '') {
                                   // Show error snackbar for 6 seconds if the client name is not set
@@ -780,6 +787,10 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
 
 
                               if (_cartController.remaining > 0) {
+                                if (!_isDebtAllowed) {
+                                  errorSnackbar('debt_not_allowed'.tr);
+                                  return;
+                                }
                                 showDialog(
                                   context: context,
                                   builder: (context) {
@@ -961,7 +972,7 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       'buyingPrice': _cartController.productsBuyingPrice,
       'payment': _cartController.payment,
       'payments': _cartController.payments.map((p) => p.toMap()).toList(),
-      'debt': _cartController.remaining,
+      'debt': _isDebtAllowed ? _cartController.remaining : 0,
       'discount': _cartController.discount.value,
       'comment': _detailsController.text.trim(),
       'date': Timestamp.fromDate(selectedDate!),
@@ -1000,8 +1011,7 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       errorSnackbar('Failed to create sale: $error');
     });
 
-    // If debt exists, handle debt history
-    if (_cartController.remaining > 0) {
+    if (_isDebtAllowed && _cartController.remaining > 0) {
       createDebtHistory(saleRef.id, businessId);
     }
   }

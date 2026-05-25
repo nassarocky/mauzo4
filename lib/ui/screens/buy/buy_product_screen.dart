@@ -13,6 +13,7 @@ import '../mobile_code.dart';
 import '../../../models/product_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
+import '../../../utils/purchases_access.dart';
 import '../../widgets/bottomsheets/sort_products_bottom_sheet.dart';
 import '../../widgets/search_filter_icon.dart';
 import '../../widgets/tiles/bought_tile.dart';
@@ -62,30 +63,22 @@ class _BuyProductScreenState extends State<BuyProductScreen>
   void initState() {
     super.initState();
     
-    // CRITICAL SECURITY CHECK: Verify user has permission to buy products
+    if (!PurchasesAccess.isEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+        PurchasesAccess.notifyDisabled();
+      });
+      return;
+    }
+
     if (!_profileController.hasPermission('buy_products')) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         Get.snackbar(
           'Access Denied',
           'You do not have permission to buy products',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-          duration: const Duration(seconds: 3),
-        );
-      });
-      return;
-    }
-
-    final businessController = Get.find<BusinessController>();
-    if (!businessController.isPurchasesAllowedForRole(
-        (_profileController.user['role'] ?? '').toString())) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pop();
-        Get.snackbar(
-          'Access Denied',
-          'Purchases are disabled for this business. Contact the owner to enable.',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red,
           colorText: Colors.white,

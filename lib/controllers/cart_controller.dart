@@ -128,14 +128,23 @@ class CartController extends GetxController {
       discount.value < -0.01 ? 'new_sale_price' : 'discounted_price';
 
   /// Imelipwa edits the sale total: above catalog uses negative discount; below catalog is partial pay.
-  void applySellingTotalFromImelipwa(double amountMainCurrency) {
-    if (!amountMainCurrency.isFinite || amountMainCurrency < 0) return;
+  /// Returns false when [debtAllowed] is false and amount is below catalog (partial pay / debt).
+  bool applySellingTotalFromImelipwa(
+    double amountMainCurrency, {
+    required bool debtAllowed,
+  }) {
+    if (!amountMainCurrency.isFinite || amountMainCurrency < 0) return true;
     final double catalog = productsPrice;
     if (amountMainCurrency + 1e-9 >= catalog) {
       setDiscount(catalog - amountMainCurrency);
-    } else {
-      setDiscount(0);
+      return true;
     }
+    if (!debtAllowed) {
+      setDiscount(0);
+      return false;
+    }
+    setDiscount(0);
+    return true;
   }
 
   bool _isCustomUnitPrice(
@@ -364,22 +373,49 @@ class CartController extends GetxController {
   final _payments = <Payment>[].obs;
   get payments => _payments;
 
+  String get _singleFundMethod => BusinessController.singleFundSourceValue;
+
   void addPayment(double amount, String currency, {String method = 'cash'}) {
+    final String m = _businessController.isMultiFundEnabled
+        ? method
+        : _singleFundMethod;
+    if (!_businessController.isMultiFundEnabled) {
+      _payments.assignAll([
+        Payment(amount: amount, currency: currency, method: m),
+      ]);
+      return;
+    }
     if (_payments.length < 4) {
       _payments.add(
         Payment(
           amount: amount,
           currency: currency,
-          method: method,
+          method: m,
         ),
       );
     }
   }
 
+  /// When multi-fund is off: one payment row, cash (or configured default) only.
+  void enforceSingleFundPayment({String? method}) {
+    if (_businessController.isMultiFundEnabled) return;
+    final String m = (method ?? _singleFundMethod).trim().isEmpty
+        ? _singleFundMethod
+        : (method ?? _singleFundMethod);
+    if (_payments.isEmpty) return;
+    final String currency = _payments.first.currency;
+    final double total = payment;
+    _payments.assignAll([
+      Payment(amount: total, currency: currency, method: m),
+    ]);
+  }
+
   /// Replaces [method] on every payment row (amount/currency unchanged). Used when the user
   /// picks a fund source on the sale cart so rows created as `cash` still persist correctly.
   void applyFundSourceToAllPayments(String method) {
-    final String m = method.trim().isEmpty ? 'cash' : method.trim();
+    final String m = _businessController.isMultiFundEnabled
+        ? (method.trim().isEmpty ? 'cash' : method.trim())
+        : _singleFundMethod;
     if (_payments.isEmpty) return;
     _payments.assignAll(
       _payments
@@ -436,6 +472,7 @@ class CartController extends GetxController {
       ));
     }
     _payments.assignAll(scaled);
+    enforceSingleFundPayment();
   }
 
   // * COMMENT

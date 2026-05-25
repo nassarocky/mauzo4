@@ -714,22 +714,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Switch(
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           activeColor: primaryLightColor,
-                          value: Preferences.getEnableDebt(),
+                          value: _businessController.isDebtEnabled,
                           onChanged: (value) async {
-                            setState(() {
-                              Preferences.setEnabletDebt(value);
-                            });
-                            String businessId = _businessController.business['id'];
+                            await _businessController.setDebtEnabled(value);
+                            final String businessId =
+                                _businessController.business['id'];
                             await FirebaseFirestore.instance
                                 .collection('businesses')
                                 .doc(businessId)
-                                .update({'debtEnabled': value}).then((_) {
+                                .update({'debtEnabled': value})
+                                .then((_) {
                               successSnackbar('Changes made Successfully');
                               print("debtEnabled updated successfully");
                             }).catchError((error) {
                               print("Failed to update debtEnabled: $error");
                             });
-                            _businessController.updateBusinessData();
+                            await _businessController.updateBusinessData();
+                            if (mounted) setState(() {});
                           },
                         ),
                     ],
@@ -748,13 +749,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Switch(
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           activeColor: primaryLightColor,
-                          value: (_businessController.business['purchases']?.toString() ?? 'false') ==
-                              'true',
+                          value: _businessController.isPurchasesEnabled,
                           onChanged: (bool value) async {
-                            setState(() {
-                              Preferences.setEnablePurchases(value ? 'true' : 'false');
-                            });
-                            String businessId = _businessController.business['id'];
+                            await _businessController.setPurchasesEnabled(value);
+                            final String businessId =
+                                _businessController.business['id'];
                             await FirebaseFirestore.instance
                                 .collection('businesses')
                                 .doc(businessId)
@@ -765,7 +764,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }).catchError((error) {
                               print("Failed to update additionalString1: $error");
                             });
-                            _businessController.updateBusinessData();
+                            await _businessController.updateBusinessData();
+                            if (mounted) setState(() {});
                           },
                         ),
                     ],
@@ -784,9 +784,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Switch(
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           activeColor: primaryLightColor,
-                          value: (_businessController.business['multiFundEnabled'] ?? false) == true,
+                          value: _businessController.isMultiFundEnabled,
                           onChanged: (value) async {
-                            String businessId = _businessController.business['id'];
+                            await _businessController.setMultiFundEnabled(value);
+                            final String businessId =
+                                _businessController.business['id'];
                             await FirebaseFirestore.instance
                                 .collection('businesses')
                                 .doc(businessId)
