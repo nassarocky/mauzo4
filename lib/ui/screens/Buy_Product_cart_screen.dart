@@ -1108,6 +1108,10 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (p.itemType == 'service') continue;
         final pref = firestore.collection('products').doc(businessId).collection('userProducts').doc(p.id);
         reads.add(await fireTx.get(pref));
+        if (p.isPairedMain && p.twinProductId != null && p.twinProductId!.isNotEmpty) {
+          final twinRef = firestore.collection('products').doc(businessId).collection('userProducts').doc(p.twinProductId!);
+          reads.add(await fireTx.get(twinRef));
+        }
       }
       var ri = 0;
       final persistedSale = Map<String, dynamic>.from(saleData);
@@ -1147,6 +1151,36 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           notes: TransactionOrigins.purchase,
           totalValue: delta * pr,
         ).toMap());
+
+        if (p.isPairedMain && p.twinProductId != null && p.twinProductId!.isNotEmpty) {
+          final twinSnap = reads[ri++];
+          if (twinSnap.exists) {
+            final twinCur = (twinSnap.data()?['quantity'] ?? 0.0);
+            final twinCurD = twinCur is num ? twinCur.toDouble() : 0.0;
+            final twinNext = (twinCurD - delta).clamp(0.0, double.infinity);
+            final twinPriceRaw = twinSnap.data()?['price'] ?? 0;
+            final twinPr = twinPriceRaw is num ? twinPriceRaw.toDouble() : 0.0;
+            fireTx.update(twinSnap.reference, {'quantity': twinNext});
+            final twinTRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
+            fireTx.set(twinTRef, StockTransaction(
+              transactionId: twinTRef.id,
+              productId: p.twinProductId!,
+              quantity: delta,
+              previousQuantity: twinCurD,
+              newQuantity: twinNext,
+              transactionType: TransactionTypes.removal,
+              transactionOrigin: TransactionOrigins.purchase,
+              timestamp: ts,
+              userId: businessId,
+              price: twinPr,
+              referenceId: saleRef.id,
+              referenceType: TransactionReferenceTypes.purchase,
+              employeeName: employeeName,
+              notes: 'Paired twin adjustment (purchase)',
+              totalValue: delta * twinPr,
+            ).toMap());
+          }
+        }
       }
     });
   }

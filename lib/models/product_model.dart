@@ -31,6 +31,12 @@ class Product {
   // New: item type (product or service)
   final String itemType;
 
+  /// `normal` (default) or `paired` (main product with linked twin).
+  String productType;
+  String? twinProductId;
+  bool isTwinProduct;
+  String? parentProductId;
+
   // New fields for store stock and reserve data
  // double storeQuantity; // Converted from int
   String reserveString1;
@@ -71,6 +77,10 @@ class Product {
     this.reserveList2 = const [],
     this.expireDate,
     this.itemType = 'product', // Default to 'product' if not set
+    this.productType = 'normal',
+    this.twinProductId,
+    this.isTwinProduct = false,
+    this.parentProductId,
   });
 
   static Product fromSnapshot(DocumentSnapshot snapshot) {
@@ -124,6 +134,10 @@ class Product {
           ? (data['expireDate'] as Timestamp).toDate()
           : null,
       itemType: data['itemType'] as String? ?? 'product', // Default to 'product' if not set
+      productType: data['productType'] as String? ?? 'normal',
+      twinProductId: data['twinProductId'] as String?,
+      isTwinProduct: data['isTwinProduct'] as bool? ?? false,
+      parentProductId: data['parentProductId'] as String?,
     );
   }
 
@@ -155,6 +169,10 @@ class Product {
       'reserveList2': reserveList2,
       'expireDate': expireDate != null ? Timestamp.fromDate(expireDate!) : null,
       'itemType': itemType, // Add itemType to Firestore
+      'productType': productType,
+      if (twinProductId != null) 'twinProductId': twinProductId,
+      'isTwinProduct': isTwinProduct,
+      if (parentProductId != null) 'parentProductId': parentProductId,
     };
   }
 
@@ -192,4 +210,9 @@ class Product {
   /// Valid stored value, or [defaultWholesaleMinQuantity] when Firestore has 0 or missing field (legacy).
   int get effectiveWholesaleMinQuantity =>
       wholesaleMinQuantity >= 1 ? wholesaleMinQuantity : defaultWholesaleMinQuantity;
+
+  bool get isPairedMain =>
+      productType == 'paired' &&
+      twinProductId != null &&
+      twinProductId!.isNotEmpty;
 }

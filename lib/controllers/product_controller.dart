@@ -17,6 +17,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
+import '../services/paired_product_service.dart';
 import '../constants/transaction_constants.dart';
 import 'business_controller.dart';
 class ProductController extends GetxController {
@@ -423,6 +424,7 @@ class ProductController extends GetxController {
     String? referenceId,
     String? referenceType,
     String? notes,
+    double? pairedTwinQuantityDelta,
   }) async {
     // Skip quantity update for services
     if (product.itemType == 'service') return;
@@ -435,58 +437,299 @@ class ProductController extends GetxController {
     }
 
     try {
-      // ✅ USE BATCH for atomic writes (works great offline!)
       final batch = firestore.batch();
-      
-      final productRef = firestore
-          .collection('products')
-          .doc(business)
-          .collection('userProducts')
-          .doc(product.id);
+      final ts = Timestamp.now();
+      final employeeName = (_profileController.user['name'] ?? '').toString();
 
-      final currentQuantity = product.quantity ?? 0.0;
-      final quantityChange = (count - currentQuantity).abs();
-
-      // Add product quantity update to batch
-      batch.update(productRef, {'quantity': count});
-
-      // Create transaction reference
-      final transactionRef = firestore
-          .collection('transactions')
-          .doc(business)
-          .collection('usersTransactions')
-          .doc();
-
-      final stockTransaction = StockTransaction(
-          transactionId: transactionRef.id,
-          productId: product.id,
-          quantity: quantityChange,
-          previousQuantity: currentQuantity,
-          newQuantity: count,
-          transactionType: count < currentQuantity ? TransactionTypes.removal : TransactionTypes.addition,
-          transactionOrigin: type,
-          timestamp: Timestamp.now(),
-          userId: business,
-          price: product.price,
-          referenceId: referenceId,
-          referenceType: referenceType,
-          notes: notes,
-          employeeName: _profileController.user['name'],
-          totalValue: quantityChange * product.price,
+      _addQuantityUpdateToBatch(
+        batch: batch,
+        businessId: business,
+        product: product,
+        newQuantity: count,
+        type: type,
+        timestamp: ts,
+        employeeName: employeeName,
+        referenceId: referenceId,
+        referenceType: referenceType,
+        notes: notes,
       );
 
-      // Add transaction to batch
-      batch.set(transactionRef, stockTransaction.toMap());
+      final twinDelta = pairedTwinQuantityDelta ??
+          (PairedProductService.isPairedMain(product)
+              ? PairedProductService.twinDeltaForMainMovement(
+                  main: product,
+                  mainQuantityChange: count - product.quantity,
+                )
+              : null);
 
-      // ✅ Commit batch - single await for both operations
+      if (twinDelta != null &&
+          twinDelta != 0 &&
+          product.twinProductId != null &&
+          product.twinProductId!.isNotEmpty) {
+        final twin = getProduct(product.twinProductId!);
+        if (twin.id.isNotEmpty) {
+          final twinNew = (twin.quantity + twinDelta).clamp(0.0, double.infinity);
+          _addQuantityUpdateToBatch(
+            batch: batch,
+            businessId: business,
+            product: twin,
+            newQuantity: twinNew,
+            type: type,
+            timestamp: ts,
+            employeeName: employeeName,
+            referenceId: referenceId,
+            referenceType: referenceType,
+            notes: notes ?? 'Paired twin stock adjustment',
+          );
+        }
+      }
+
       await batch.commit();
-
-      // Update UI after successful commit
       search(searchText.value);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
       rethrow;
     }
+  }
+
+  void _addQuantityUpdateToBatch({
+    required WriteBatch batch,
+    required String businessId,
+    required Product product,
+    required double newQuantity,
+    required String type,
+    required Timestamp timestamp,
+    required String employeeName,
+    String? referenceId,
+    String? referenceType,
+    String? notes,
+  }) {
+    final productRef = firestore
+        .collection('products')
+        .doc(businessId)
+        .collection('userProducts')
+        .doc(product.id);
+
+    final currentQuantity = product.quantity;
+    final quantityChange = (newQuantity - currentQuantity).abs();
+
+    batch.update(productRef, {'quantity': newQuantity});
+
+    final transactionRef = firestore
+        .collection('transactions')
+        .doc(businessId)
+        .collection('usersTransactions')
+        .doc();
+
+    batch.set(
+      transactionRef,
+      StockTransaction(
+        transactionId: transactionRef.id,
+        productId: product.id,
+        quantity: quantityChange,
+        previousQuantity: currentQuantity,
+        newQuantity: newQuantity,
+        transactionType: newQuantity < currentQuantity
+            ? TransactionTypes.removal
+            : TransactionTypes.addition,
+        transactionOrigin: type,
+        timestamp: timestamp,
+        userId: businessId,
+        price: product.price,
+        referenceId: referenceId,
+        referenceType: referenceType,
+        notes: notes,
+        employeeName: employeeName,
+        totalValue: quantityChange * product.price,
+      ).toMap(),
+    );
+  }
+
+  /// Creates main + twin products in one atomic batch.
+  Future<String?> createPairedProductBundle({
+    required Map<String, dynamic> mainFields,
+    required String twinName,
+    required double twinBuyingPrice,
+    required double twinSellingPrice,
+    required double initialMainQuantity,
+    required double initialTwinQuantity,
+    required double mainSellingPrice,
+  }) async {
+    final String? business = _businessController.businessId.value;
+    if (business == null) {
+      errorSnackbar('Owner ID is null');
+      return null;
+    }
+
+    final mainRef = firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .doc();
+    final twinRef = firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .doc();
+
+    final batch = firestore.batch();
+    final mainData = Map<String, dynamic>.from(mainFields);
+    mainData['id'] = mainRef.id;
+    mainData['productType'] = PairedProductService.typePaired;
+    mainData['twinProductId'] = twinRef.id;
+    mainData['isTwinProduct'] = false;
+    mainData.remove('parentProductId');
+
+    final twinData = <String, dynamic>{
+      'id': twinRef.id,
+      'owner': mainData['owner'],
+      'businessId': mainData['businessId'] ?? business,
+      'name': twinName.trim(),
+      'code': '${mainData['code'] ?? ''}-TWIN',
+      'category': mainData['category'],
+      'image': '',
+      'quantity': initialTwinQuantity,
+      'buyingPrice': twinBuyingPrice,
+      'price': twinSellingPrice,
+      'wholesalePrice': twinSellingPrice,
+      'wholesaleMinQuantity': mainData['wholesaleMinQuantity'] ?? Product.defaultWholesaleMinQuantity,
+      'discount': 0.0,
+      'manufacturer': mainData['manufacturer'] ?? '',
+      'location': mainData['location'] ?? '',
+      'details': 'Twin product for ${mainData['name']}',
+      'understock': mainData['understock'] ?? 10,
+      'storeQuantity': 0,
+      'reserveString1': mainData['reserveString1'] ?? 'unit',
+      'reserveString2': '',
+      'reserveDouble1': 0.0,
+      'reserveDouble2': 0.0,
+      'reserveList1': <String>[],
+      'reserveList2': <String>[],
+      'itemType': 'product',
+      'productType': PairedProductService.typeNormal,
+      'isTwinProduct': true,
+      'parentProductId': mainRef.id,
+    };
+
+    batch.set(mainRef, mainData);
+    batch.set(twinRef, twinData);
+    await batch.commit();
+
+    await updateInitialTransaction(initialMainQuantity, mainRef.id, mainSellingPrice);
+    if (initialTwinQuantity > 0) {
+      await updateInitialTransaction(initialTwinQuantity, twinRef.id, twinSellingPrice);
+    }
+    return mainRef.id;
+  }
+
+  /// Link a new twin to an existing main product (convert normal → paired on edit).
+  Future<String?> attachTwinToExistingMain({
+    required Product main,
+    required String twinName,
+    required double twinBuyingPrice,
+    required double twinSellingPrice,
+    required double twinQuantity,
+  }) async {
+    final String? business = _businessController.businessId.value;
+    if (business == null) {
+      errorSnackbar('Owner ID is null');
+      return null;
+    }
+    if (main.isTwinProduct) {
+      errorSnackbar('paired_attach_from_twin_blocked'.tr);
+      return null;
+    }
+
+    final mainRef = firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .doc(main.id);
+    final twinRef = firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .doc();
+
+    final batch = firestore.batch();
+    batch.set(twinRef, {
+      'id': twinRef.id,
+      'owner': business,
+      'businessId': business,
+      'name': twinName.trim(),
+      'code': '${main.code}-TWIN',
+      'category': main.category,
+      'image': '',
+      'quantity': twinQuantity,
+      'buyingPrice': twinBuyingPrice,
+      'price': twinSellingPrice,
+      'wholesalePrice': twinSellingPrice,
+      'wholesaleMinQuantity': main.wholesaleMinQuantity,
+      'discount': 0.0,
+      'manufacturer': main.manufacturer,
+      'location': main.location,
+      'details': 'Twin product for ${main.name}',
+      'understock': main.understock,
+      'storeQuantity': 0,
+      'reserveString1': main.reserveString1,
+      'reserveString2': '',
+      'reserveDouble1': 0.0,
+      'reserveDouble2': 0.0,
+      'reserveList1': <String>[],
+      'reserveList2': <String>[],
+      'itemType': 'product',
+      'productType': PairedProductService.typeNormal,
+      'isTwinProduct': true,
+      'parentProductId': main.id,
+    });
+    batch.update(mainRef, {
+      'productType': PairedProductService.typePaired,
+      'twinProductId': twinRef.id,
+      'isTwinProduct': false,
+    });
+    await batch.commit();
+
+    if (twinQuantity > 0) {
+      await updateInitialTransaction(twinQuantity, twinRef.id, twinSellingPrice);
+    }
+    search(searchText.value);
+    return twinRef.id;
+  }
+
+  /// Update twin product fields when editing a paired main product.
+  Future<void> updateLinkedTwinProduct({
+    required String twinId,
+    required String name,
+    required double buyingPrice,
+    required double sellingPrice,
+    required double newQuantity,
+  }) async {
+    final String? business = _businessController.businessId.value;
+    if (business == null) return;
+
+    final twin = getProduct(twinId);
+    if (twin.id.isEmpty) {
+      errorSnackbar('paired_twin_not_found'.tr);
+      return;
+    }
+
+    await firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts')
+        .doc(twinId)
+        .update({
+      'name': name.trim(),
+      'buyingPrice': buyingPrice,
+      'price': sellingPrice,
+      'wholesalePrice': sellingPrice,
+    });
+
+    if ((newQuantity - twin.quantity).abs() > 1e-9) {
+      await updateProductCount(twin, newQuantity, TransactionOrigins.manualAdjustment,
+          notes: 'Twin quantity updated from main product edit');
+    }
+    search(searchText.value);
   }
 
   Future<void> updateStoreCount(Product product, int count, String type) async {
@@ -536,8 +779,7 @@ class ProductController extends GetxController {
     } catch (e) {}
   }
 
-  void deleteProduct(Product product) async {
-
+  Future<void> deleteProduct(Product product, {bool deleteLinkedTwin = false}) async {
     final String? business = _businessController.businessId.value;
 
     if (business == null) {
@@ -545,18 +787,44 @@ class ProductController extends GetxController {
       return;
     }
 
+    if (PairedProductService.isTwin(product) && !deleteLinkedTwin) {
+      errorSnackbar('paired_delete_twin_blocked'.tr);
+      return;
+    }
+
+    if (PairedProductService.isPairedMain(product) &&
+        product.twinProductId != null &&
+        product.twinProductId!.isNotEmpty &&
+        !deleteLinkedTwin) {
+      errorSnackbar('paired_delete_main_requires_twin'.tr);
+      return;
+    }
+
     try {
-      await firestore
+      final batch = firestore.batch();
+      final col = firestore
           .collection('products')
           .doc(business)
-          .collection('userProducts')
-          .doc(product.id)
-          .delete();
+          .collection('userProducts');
+
+      batch.delete(col.doc(product.id));
+
+      if (PairedProductService.isPairedMain(product) &&
+          deleteLinkedTwin &&
+          product.twinProductId != null) {
+        batch.delete(col.doc(product.twinProductId!));
+      }
+
+      await batch.commit();
       successSnackbar('${product.name} ${'deleted'.tr}');
+      search(searchText.value);
     } catch (e) {
       errorSnackbar('error'.tr);
     }
   }
+
+  List<Product> sortProductsForDisplay(List<Product> list) =>
+      PairedProductService.sortForDisplay(list);
 
   Future<void> resetProductQuantities() async {
 
@@ -789,7 +1057,9 @@ void clearProducts(){
       "Code",
       "Unit",
       "Understock",
-      "Item Type"
+      "Item Type",
+      "Product Type",
+      "Twin / Parent ID",
     ];
 
     CellStyle headerStyle = CellStyle(
@@ -817,7 +1087,11 @@ void clearProducts(){
         product.code ?? '',
         product.reserveString1.isNotEmpty ? product.reserveString1 : 'unit',
         product.understock ?? 0,
-        product.itemType ?? 'product',
+        product.itemType,
+        product.productType,
+        product.isTwinProduct
+            ? (product.parentProductId ?? '')
+            : (product.twinProductId ?? ''),
       ]);
     }
 

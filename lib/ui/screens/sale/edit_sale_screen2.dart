@@ -1072,12 +1072,14 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       final pid = m['id']?.toString() ?? '';
       final origBase = saleLineBaseQuantity(m);
       final cartBase = _cartController.singleProductBaseQuantity(pid);
+      final inv = _productController.getProduct(pid);
+      if (inv.id.isEmpty) continue;
       updates.add(_productController.updateProductCount(
-          _productController.getProduct(pid),
-          _productController.getProduct(pid).quantity! -
-              cartBase +
-              origBase,
-          'Edit'));
+        inv,
+        inv.quantity - cartBase + origBase,
+        'Edit',
+        pairedTwinQuantityDelta: inv.isPairedMain ? (origBase - cartBase) : null,
+      ));
     }
     
     // ✅ Wait for all updates together

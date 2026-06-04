@@ -6,6 +6,7 @@ import '../../../controllers/profile_controller.dart';
 import '../../../utils/preferences.dart';
 import '../../widgets/bottomsheets/product_info_bottom_sheet.dart';
 import '../../../models/product_model.dart';
+import '../../../services/paired_product_service.dart';
 import '../../../utils/constants.dart';
 import '../dialogs/product_quantity_dialog.dart';
 
@@ -71,7 +72,10 @@ class ProductTile extends StatelessWidget {
             ),
           ),
         ),
-        margin: const EdgeInsets.only(left: 16, right: 16),
+        margin: EdgeInsets.only(
+          left: PairedProductService.isTwin(product) ? 28 : 16,
+          right: 16,
+        ),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,6 +115,42 @@ class ProductTile extends StatelessWidget {
                                   : primaryColor,
                             ),
                           ),
+                          if (product.isPairedMain)
+                            Container(
+                              margin: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Text(
+                                'paired_product_badge'.tr,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.blue.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          if (product.isTwinProduct)
+                            Container(
+                              margin: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.teal.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.teal.shade200),
+                              ),
+                              child: Text(
+                                'twin_product_badge'.tr,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.teal.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           if (product.expireDate != null &&
                               product.expireDate!.isBefore(DateTime.now()))
                             Text(

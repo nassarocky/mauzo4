@@ -106,10 +106,8 @@ class SaleController extends GetxController {
         var productInInventory = productController.getProduct(productId);
 
         // Add update to batch
-        if (productInInventory != null) {
-          final double baseQty = (productInInventory.quantity is num)
-              ? (productInInventory.quantity as num).toDouble()
-              : double.tryParse(productInInventory.quantity.toString()) ?? 0.0;
+        if (productInInventory.id.isNotEmpty) {
+          final double baseQty = productInInventory.quantity;
           double newQuantity = baseQty + quantityToAdd;
           updates.add(
             productController.updateProductCount(

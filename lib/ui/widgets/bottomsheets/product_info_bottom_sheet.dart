@@ -15,6 +15,7 @@ import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
 import '../../../controllers/cart_controller.dart';
 import '../../../models/product_model.dart';
+import '../../../services/paired_product_service.dart';
 import '../../screens/transactions/transactions_screen.dart';
 import '../dialogs/product_quantity_dialog.dart';
 import '../buttons/delete_save_button.dart';
@@ -603,11 +604,16 @@ class ProductInfoBottomSheet extends StatelessWidget {
                         context: context,
                         builder: (context) => DoubleActionDialog(
                           title: 'delete_product'.tr,
-                          content: 'delete_product_confirmation'.tr,
+                          content: PairedProductService.isPairedMain(product)
+                              ? 'paired_delete_main_confirm'.tr
+                              : 'delete_product_confirmation'.tr,
                           confirm: 'delete'.tr,
                           cancel: 'cancel'.tr,
                           onConfirm: () {
-                            _productController.deleteProduct(product);
+                            _productController.deleteProduct(
+                              product,
+                              deleteLinkedTwin: PairedProductService.isPairedMain(product),
+                            );
                             Navigator.pop(context);
                             Navigator.pop(context);
                           },

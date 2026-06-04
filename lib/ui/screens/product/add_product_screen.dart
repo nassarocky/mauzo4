@@ -71,6 +71,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isQuantityEntered = false;
   // Add state for item type
   String _selectedItemType = 'product'; // Default to 'product'
+  String _selectedProductType = 'normal';
+  final TextEditingController _twinNameController = TextEditingController();
+  final TextEditingController _twinBuyingPriceController = TextEditingController();
+  final TextEditingController _twinSellingPriceController = TextEditingController();
+  final TextEditingController _twinQuantityController = TextEditingController();
   @override
   void initState() {
     super.initState();
@@ -228,6 +233,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   @override
   void dispose() {
+    _twinNameController.dispose();
+    _twinBuyingPriceController.dispose();
+    _twinSellingPriceController.dispose();
+    _twinQuantityController.dispose();
     _productController.setCategory('No category'.tr);
     _productController.setManufacturer('No manufacturer'.tr);
     _productController.setLocation('No location'.tr);
@@ -305,8 +314,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _underStockController.clear();
     _totalBuyingPriceController.clear();
     _discountController.clear();
+    _twinNameController.clear();
+    _twinBuyingPriceController.clear();
+    _twinSellingPriceController.clear();
+    _twinQuantityController.clear();
     setState(() {
       imageFile = null;
+      _selectedProductType = 'normal';
     });
     _productController.setCategory('No category'.tr);
     _productController.setManufacturer('No manufacturer'.tr);
@@ -753,12 +767,113 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   onChanged: (value) {
                                     setState(() {
                                       _selectedItemType = value!;
+                                      if (_selectedItemType == 'service') {
+                                        _selectedProductType = 'normal';
+                                      }
                                     });
                                   },
                                 ),
                               ],
                             ),
                             const SizedBox(height: 24),
+                            if (_selectedItemType == 'product') ...[
+                              Row(
+                                children: [
+                                  Text('product_type'.tr),
+                                  const SizedBox(width: 16),
+                                  DropdownButton<String>(
+                                    value: _selectedProductType,
+                                    items: [
+                                      DropdownMenuItem(
+                                        value: 'normal',
+                                        child: Text('product_type_normal'.tr),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'paired',
+                                        child: Text('product_type_paired'.tr),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _selectedProductType = value!;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              if (_selectedProductType == 'paired') ...[
+                                Text(
+                                  'paired_product_hint'.tr,
+                                  style: bodyText(textMutedColor),
+                                ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  height: 44,
+                                  child: TextField(
+                                    controller: _twinNameController,
+                                    decoration: InputDecoration(
+                                      labelText: 'twin_product_name'.tr,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: TextField(
+                                          controller: _twinBuyingPriceController,
+                                          keyboardType: TextInputType.number,
+                                          decoration: InputDecoration(
+                                            labelText: 'twin_product_buying_price'.tr,
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: TextField(
+                                          controller: _twinSellingPriceController,
+                                          keyboardType: TextInputType.number,
+                                          decoration: InputDecoration(
+                                            labelText: 'twin_product_selling_price'.tr,
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  height: 44,
+                                  child: TextField(
+                                    controller: _twinQuantityController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      labelText: 'twin_product_quantity'.tr,
+                                      hintText: 'twin_product_quantity_hint'.tr,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 24),
+                              ],
+                            ],
                             // Understock, manufacturer, location fields (only for products)
                             if (_selectedItemType == 'product') ...[
                               SizedBox(
@@ -1162,6 +1277,36 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     return;
                                   }
 
+                                  if (_selectedItemType == 'product' &&
+                                      _selectedProductType == 'paired') {
+                                    if (_twinNameController.text.trim().isEmpty) {
+                                      _showSnackbar('twin_product_name_required'.tr);
+                                      return;
+                                    }
+                                    final twinBuy = double.tryParse(
+                                        _twinBuyingPriceController.text.replaceAll(',', ''));
+                                    final twinSell = double.tryParse(
+                                        _twinSellingPriceController.text.replaceAll(',', ''));
+                                    if (twinBuy == null || twinSell == null) {
+                                      _showSnackbar('twin_product_prices_required'.tr);
+                                      return;
+                                    }
+                                    if (twinBuy >= twinSell) {
+                                      _showSnackbar('twin_buy_below_sell'.tr);
+                                      return;
+                                    }
+                                    final twinQtyRaw = _twinQuantityController.text
+                                        .trim()
+                                        .replaceAll(',', '');
+                                    if (twinQtyRaw.isNotEmpty) {
+                                      final twinQty = double.tryParse(twinQtyRaw);
+                                      if (twinQty == null || twinQty < 0) {
+                                        _showSnackbar('twin_product_quantity_invalid'.tr);
+                                        return;
+                                      }
+                                    }
+                                  }
+
                                   isUploading = true;
 
                                   String? imageUrl;
@@ -1200,42 +1345,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       });
                                     }
 
-                                    final productRef = firestore
-                                        .collection('products')
-                                        .doc(businessId)
-                                        .collection('userProducts')
-                                        .doc();
-
                                     DateTime? expireDate = _expireDateController.text.trim().isNotEmpty
                                         ? DateTime.tryParse(_expireDateController.text.trim())
                                         : null;
 
-                                    await saveProductToUserStore(
-                                      understock: int.parse(
-                                          _underStockController.text.trim().replaceAll(',', '').isEmpty
-                                              ? '10'
-                                              : _underStockController.text.trim().replaceAll(',', '')),
-                                      owner: businessId,
-                                      id: productRef.id,
-                                      storeId: _businessController.business['owner'],
-                                      code: _codeController.text.trim(),
-                                      businessId: businessId,
-                                      name: _nameController.text.trim(),
-                                      buyingPrice: buyingPrice,
-                                      details: _detailsController.text.trim(),
-                                      imageUrl: imageUrl ?? '',
-                                      price: sellingPrice,
-                                      wholesalePrice: wholesalePrice,
-                                      wholesaleMinQuantity: wholesaleMinQty,
-                                      quantity: _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
-                                      manufacturer: _manufacturerController.text.trim(),
-                                      location: _locationController.text.trim(),
-                                      category: _categoryController.text.trim(),
-                                      expireDate: expireDate,
-                                    );
+                                    final mainQty = _selectedItemType == 'service'
+                                        ? 1.0
+                                        : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0;
 
-                                    await productRef.set({
-                                      'id': productRef.id,
+                                    final mainFields = <String, dynamic>{
                                       'owner': businessId,
                                       'businessId': businessId,
                                       'manufacturer': _manufacturerController.text.trim(),
@@ -1255,7 +1373,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       'price': sellingPrice,
                                       'wholesalePrice': wholesalePrice,
                                       'wholesaleMinQuantity': wholesaleMinQty,
-                                      'quantity': _selectedItemType == 'service' ? 1.0 : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0,
+                                      'quantity': mainQty,
                                       'category': _categoryController.text.trim(),
                                       'image': imageUrl ?? '',
                                       'storeQuantity': 0,
@@ -1266,14 +1384,92 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       'reserveList1': [],
                                       'reserveList2': [],
                                       'expireDate': expireDate,
-                                      'itemType': _selectedItemType, // Add itemType
-                                    });
+                                      'itemType': _selectedItemType,
+                                      'productType': _selectedProductType,
+                                      'isTwinProduct': false,
+                                    };
 
-                                    await _productController.updateInitialTransaction(
-                                      _selectedItemType == 'service' ? 1.0 : double.parse(_quantityController.text.trim().replaceAll(',', '')),
-                                      productRef.id,
-                                      sellingPrice,
-                                    );
+                                    if (_selectedItemType == 'product' &&
+                                        _selectedProductType == 'paired') {
+                                      final twinBuy = double.parse(
+                                          _twinBuyingPriceController.text.replaceAll(',', ''));
+                                      final twinSell = double.parse(
+                                          _twinSellingPriceController.text.replaceAll(',', ''));
+                                      final twinQtyRaw = _twinQuantityController.text
+                                          .trim()
+                                          .replaceAll(',', '');
+                                      final twinQty = twinQtyRaw.isEmpty
+                                          ? 0.0
+                                          : double.parse(twinQtyRaw);
+                                      final mainId = await _productController.createPairedProductBundle(
+                                        mainFields: mainFields,
+                                        twinName: _twinNameController.text.trim(),
+                                        twinBuyingPrice: twinBuy,
+                                        twinSellingPrice: twinSell,
+                                        initialMainQuantity: mainQty,
+                                        initialTwinQuantity: twinQty,
+                                        mainSellingPrice: sellingPrice,
+                                      );
+                                      if (mainId != null) {
+                                        await saveProductToUserStore(
+                                          understock: mainFields['understock'] as int,
+                                          owner: businessId,
+                                          id: mainId,
+                                          storeId: _businessController.business['owner'],
+                                          code: _codeController.text.trim(),
+                                          businessId: businessId,
+                                          name: _nameController.text.trim(),
+                                          buyingPrice: buyingPrice,
+                                          details: _detailsController.text.trim(),
+                                          imageUrl: imageUrl ?? '',
+                                          price: sellingPrice,
+                                          wholesalePrice: wholesalePrice,
+                                          wholesaleMinQuantity: wholesaleMinQty,
+                                          quantity: mainQty,
+                                          manufacturer: _manufacturerController.text.trim(),
+                                          location: _locationController.text.trim(),
+                                          category: _categoryController.text.trim(),
+                                          expireDate: expireDate,
+                                        );
+                                      }
+                                    } else {
+                                      final productRef = firestore
+                                          .collection('products')
+                                          .doc(businessId)
+                                          .collection('userProducts')
+                                          .doc();
+                                      mainFields['id'] = productRef.id;
+                                      mainFields['productType'] = 'normal';
+
+                                      await saveProductToUserStore(
+                                        understock: mainFields['understock'] as int,
+                                        owner: businessId,
+                                        id: productRef.id,
+                                        storeId: _businessController.business['owner'],
+                                        code: _codeController.text.trim(),
+                                        businessId: businessId,
+                                        name: _nameController.text.trim(),
+                                        buyingPrice: buyingPrice,
+                                        details: _detailsController.text.trim(),
+                                        imageUrl: imageUrl ?? '',
+                                        price: sellingPrice,
+                                        wholesalePrice: wholesalePrice,
+                                        wholesaleMinQuantity: wholesaleMinQty,
+                                        quantity: mainQty,
+                                        manufacturer: _manufacturerController.text.trim(),
+                                        location: _locationController.text.trim(),
+                                        category: _categoryController.text.trim(),
+                                        expireDate: expireDate,
+                                      );
+
+                                      await productRef.set(mainFields);
+
+                                      await _productController.updateInitialTransaction(
+                                        mainQty,
+                                        productRef.id,
+                                        sellingPrice,
+                                      );
+                                    }
 
                                     _showSnackbar('Product added successfully!');
                                     _clearFields();

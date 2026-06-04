@@ -19,6 +19,7 @@ import '../../widgets/bottomsheets/product_location_bottom_sheet.dart';
 import '../../widgets/bottomsheets/product_manufacturer_bottom_sheet.dart';
 import '../../widgets/buttons/primary_button.dart';
 import '../../../models/product_model.dart';
+import '../../../services/paired_product_service.dart';
 import '../../../utils/image.dart';
 import '../../widgets/bottomsheets/product_category_bottom_sheet.dart';
 
@@ -68,6 +69,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
   File? imageFile;
   bool isUploading = false;
   String _selectedUnit = 'unit'; // Default selected unit
+  String _selectedProductType = 'normal';
+  final TextEditingController _twinNameController = TextEditingController();
+  final TextEditingController _twinBuyingPriceController = TextEditingController();
+  final TextEditingController _twinSellingPriceController = TextEditingController();
+  final TextEditingController _twinQuantityController = TextEditingController();
   late UploadTask uploadTask;
 
   @override
@@ -83,6 +89,27 @@ class _EditProductScreenState extends State<EditProductScreen> {
     );
     if (widget.product.wholesalePrice > 0) {
       showAdditionalFields = true;
+    }
+
+    _selectedUnit = widget.product.reserveString1.isNotEmpty
+        ? widget.product.reserveString1
+        : 'unit';
+    _selectedProductType = widget.product.isTwinProduct
+        ? PairedProductService.typeNormal
+        : widget.product.productType;
+    if (widget.product.isPairedMain &&
+        widget.product.twinProductId != null &&
+        widget.product.twinProductId!.isNotEmpty) {
+      showAdditionalFields = true;
+      final twin = _productController.getProduct(widget.product.twinProductId!);
+      if (twin.id.isNotEmpty) {
+        _twinNameController.text = twin.name;
+        _twinBuyingPriceController.text = twin.buyingPrice.toString();
+        _twinSellingPriceController.text = twin.price.toString();
+        final tq = twin.quantity;
+        _twinQuantityController.text =
+            tq % 1 == 0 ? tq.toStringAsFixed(0) : tq.toString();
+      }
     }
 
     // CRITICAL SECURITY CHECK: Verify user has permission to edit products
@@ -125,6 +152,10 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
   @override
   void dispose() {
+    _twinNameController.dispose();
+    _twinBuyingPriceController.dispose();
+    _twinSellingPriceController.dispose();
+    _twinQuantityController.dispose();
     super.dispose();
   }
 
@@ -536,6 +567,134 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                     ),
                   ],
                 ),
+                if (widget.product.itemType == 'product' &&
+                    !widget.product.isTwinProduct) ...[
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Text('product_type'.tr),
+                      const SizedBox(width: 16),
+                      DropdownButton<String>(
+                        value: _selectedProductType,
+                        items: [
+                          DropdownMenuItem(
+                            value: PairedProductService.typeNormal,
+                            child: Text('product_type_normal'.tr),
+                          ),
+                          DropdownMenuItem(
+                            value: PairedProductService.typePaired,
+                            child: Text('product_type_paired'.tr),
+                          ),
+                        ],
+                        onChanged: widget.product.isPairedMain
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _selectedProductType = value!;
+                                });
+                              },
+                      ),
+                    ],
+                  ),
+                  if (widget.product.isPairedMain)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'paired_edit_cannot_remove_link'.tr,
+                        style: bodyText(textMutedColor),
+                      ),
+                    ),
+                  if (_selectedProductType == PairedProductService.typePaired) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.product.isPairedMain
+                          ? 'edit_twin_section_existing'.tr
+                          : 'edit_convert_to_paired_hint'.tr,
+                      style: bodyText(textMutedColor),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 44,
+                      child: TextField(
+                        controller: _twinNameController,
+                        decoration: InputDecoration(
+                          labelText: 'twin_product_name'.tr,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: TextField(
+                              controller: _twinBuyingPriceController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'twin_product_buying_price'.tr,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: TextField(
+                              controller: _twinSellingPriceController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'twin_product_selling_price'.tr,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 44,
+                      child: TextField(
+                        controller: _twinQuantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'twin_product_quantity'.tr,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+                if (widget.product.isTwinProduct &&
+                    widget.product.parentProductId != null &&
+                    widget.product.parentProductId!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.teal.shade200),
+                    ),
+                    child: Text(
+                      '${'paired_parent_product_label'.tr}: ${_productController.getProduct(widget.product.parentProductId!).name}',
+                      style: TextStyle(color: Colors.teal.shade900),
+                    ),
+                  ),
+                ],
              SizedBox(
                   height: 44,
                   width: double.infinity,
@@ -970,6 +1129,41 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                                 } else if (wholesaleDisplay > 0 &&
                                     buyingp >= wholesaleDisplay - 1e-9) {
                                   errorSnackbar('buying_must_be_below_wholesale'.tr);
+                                } else if (!widget.product.isTwinProduct &&
+                                    widget.product.itemType == 'product' &&
+                                    _selectedProductType ==
+                                        PairedProductService.typePaired) {
+                                  if (_twinNameController.text.trim().isEmpty) {
+                                    errorSnackbar('twin_product_name_required'.tr);
+                                  } else {
+                                    final twinBuy = double.tryParse(
+                                        _twinBuyingPriceController.text.replaceAll(',', ''));
+                                    final twinSell = double.tryParse(
+                                        _twinSellingPriceController.text.replaceAll(',', ''));
+                                    if (twinBuy == null || twinSell == null) {
+                                      errorSnackbar('twin_product_prices_required'.tr);
+                                    } else if (twinBuy >= twinSell) {
+                                      errorSnackbar('twin_buy_below_sell'.tr);
+                                    } else {
+                                      final twinQtyRaw = _twinQuantityController.text
+                                          .trim()
+                                          .replaceAll(',', '');
+                                      if (twinQtyRaw.isNotEmpty &&
+                                          (double.tryParse(twinQtyRaw) == null ||
+                                              double.parse(twinQtyRaw) < 0)) {
+                                        errorSnackbar('twin_product_quantity_invalid'.tr);
+                                      } else {
+                                        setState(() => isUploading = true);
+                                        await _saveProductFromForm(
+                                          quantityController,
+                                          sellip,
+                                          wholesaleDisplay,
+                                          wholesaleMinQty,
+                                          imageFile,
+                                        );
+                                      }
+                                    }
+                                  }
                                 } else {
                                   setState(() {
                                     isUploading = true;
@@ -1003,38 +1197,15 @@ uniqueUnits=removeDuplicateUnits(allUnits);
                                     }
                                   }
 
-                                  String url = widget.product.image!;
-                                  if (imageFile != null) {
-                                    url = await uploadFile(
-                                      'products',
-                                      imageFile!,
-                                    );
-                                  }
-                                  await updateProduct(
-                                    _businessController,
-                                    _nameController,
-                                    _codeController,
-                                    priceMain,
-                                    wholesaleMain,
-                                    wholesaleMinQty,
+                                  await _saveProductFromForm(
                                     quantityController,
-                                    _categoryController,
-                                    url,
-                                    _buyingPriceController,
-                                    _underStockController,
-                                    _discountController,
-                                    _locationController,
-                                    _manufacturerController,
-                                    _detailsController,
-                                    _expireDateController,
+                                    sellip,
+                                    wholesaleDisplay,
+                                    wholesaleMinQty,
+                                    imageFile,
+                                    priceMainOverride: priceMain,
+                                    wholesaleMainOverride: wholesaleMain,
                                   );
-                                  setState(() {
-                                    isUploading = false;
-                                  });
-                                  if (mounted) {
-                                    Navigator.pop(context);
-                                  }
-                                  successSnackbar('product_updated'.tr);
                                 }
                                 }
                               }
@@ -1057,7 +1228,67 @@ uniqueUnits=removeDuplicateUnits(allUnits);
     );
   }
 
-  Future<void> updateProduct(
+  Future<void> _saveProductFromForm(
+    TextEditingController quantityController,
+    double sellipDisplay,
+    double wholesaleDisplay,
+    int wholesaleMinQty,
+    File? imageFile, {
+    double? priceMainOverride,
+    double? wholesaleMainOverride,
+  }) async {
+    double priceMain = priceMainOverride ??
+        double.parse(_priceController.text.replaceAll(',', ''));
+    if (priceMainOverride == null &&
+        _payment == _businessController.business['secondaryCurrency']) {
+      priceMain = double.parse(
+        (sellipDisplay * Preferences.getExchangeRate()).toStringAsFixed(0),
+      );
+    }
+
+    double wholesaleMain = wholesaleMainOverride ?? 0.0;
+    if (wholesaleMainOverride == null && wholesaleDisplay > 0) {
+      wholesaleMain = wholesaleDisplay;
+      if (_payment == _businessController.business['secondaryCurrency']) {
+        wholesaleMain = double.parse(
+          (wholesaleDisplay * Preferences.getExchangeRate()).toStringAsFixed(0),
+        );
+      }
+    }
+
+    String url = widget.product.image ?? '';
+    if (imageFile != null) {
+      url = await uploadFile('products', imageFile) ?? url;
+    }
+
+    final ok = await updateProduct(
+      _businessController,
+      _nameController,
+      _codeController,
+      priceMain,
+      wholesaleMain,
+      wholesaleMinQty,
+      quantityController,
+      _categoryController,
+      url,
+      _buyingPriceController,
+      _underStockController,
+      _discountController,
+      _locationController,
+      _manufacturerController,
+      _detailsController,
+      _expireDateController,
+    );
+
+    if (!mounted) return;
+    setState(() => isUploading = false);
+    if (ok) {
+      Navigator.pop(context);
+      successSnackbar('product_updated'.tr);
+    }
+  }
+
+  Future<bool> updateProduct(
       BusinessController businessController,
       TextEditingController nameController,
       TextEditingController codeController,
@@ -1079,7 +1310,7 @@ uniqueUnits=removeDuplicateUnits(allUnits);
 
     if (businessId == null) {
       print('Owner ID is null, cannot update product.');
-      return;
+      return false;
     }
 
     DateTime? expireDate = expireDateController.text.trim().isNotEmpty
@@ -1098,10 +1329,44 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       }
     }
 
-    final double oldQuantity = (widget.product.quantity is num)
-        ? (widget.product.quantity as num).toDouble()
-        : double.tryParse(widget.product.quantity.toString()) ?? 0.0;
+    final double oldQuantity = widget.product.quantity;
     final double newQuantity = double.parse(quantityController.text.trim().replaceAll(',', ''));
+
+    String? twinId = widget.product.twinProductId;
+
+    if (!widget.product.isTwinProduct &&
+        widget.product.itemType == 'product' &&
+        _selectedProductType == PairedProductService.typePaired) {
+      final twinBuy =
+          double.parse(_twinBuyingPriceController.text.replaceAll(',', ''));
+      final twinSell =
+          double.parse(_twinSellingPriceController.text.replaceAll(',', ''));
+      final twinQtyRaw =
+          _twinQuantityController.text.trim().replaceAll(',', '');
+      final twinQty = twinQtyRaw.isEmpty ? 0.0 : double.parse(twinQtyRaw);
+
+      if (widget.product.productType != PairedProductService.typePaired) {
+        twinId = await _productController.attachTwinToExistingMain(
+          main: widget.product,
+          twinName: _twinNameController.text.trim(),
+          twinBuyingPrice: twinBuy,
+          twinSellingPrice: twinSell,
+          twinQuantity: twinQty,
+        );
+        if (twinId == null) return false;
+      } else if (twinId != null && twinId.isNotEmpty) {
+        await _productController.updateLinkedTwinProduct(
+          twinId: twinId,
+          name: _twinNameController.text.trim(),
+          buyingPrice: twinBuy,
+          sellingPrice: twinSell,
+          newQuantity: twinQty,
+        );
+      }
+    }
+
+    final productType =
+        widget.product.isTwinProduct ? 'normal' : _selectedProductType;
 
     await firestore
         .collection('products')
@@ -1132,7 +1397,13 @@ uniqueUnits=removeDuplicateUnits(allUnits);
       'location': locationController.text.trim(),
       'reserveString1': _selectedUnit,
       'manufacturer': manufacturerController.text.trim(),
-      'expireDate':expireDate
+      'expireDate': expireDate,
+      'productType': productType,
+      if (twinId != null && twinId.isNotEmpty) 'twinProductId': twinId,
+      'isTwinProduct': widget.product.isTwinProduct,
+      if (widget.product.parentProductId != null &&
+          widget.product.parentProductId!.isNotEmpty)
+        'parentProductId': widget.product.parentProductId,
     });
 
     await _productController.syncProductMetadataToStore(
@@ -1160,6 +1431,10 @@ uniqueUnits=removeDuplicateUnits(allUnits);
         'manufacturer': manufacturerController.text.trim(),
         'expireDate': expireDate != null ? Timestamp.fromDate(expireDate) : null,
         'itemType': widget.product.itemType,
+        'productType': productType,
+        'twinProductId': twinId,
+        'isTwinProduct': widget.product.isTwinProduct,
+        'parentProductId': widget.product.parentProductId,
       },
     );
 
@@ -1179,6 +1454,7 @@ uniqueUnits=removeDuplicateUnits(allUnits);
         notes: 'Manual quantity edit',
       );
     }
+    return true;
   }
   Future<void> _showAddUnitDialog(BuildContext context) async {
     // Create a new controller for this dialog to avoid conflicts

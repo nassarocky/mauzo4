@@ -252,12 +252,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
       body: Obx(
             () {
           // Sort products: services first
-          final sortedProducts = List.of(_productController.filteredProducts);
-          sortedProducts.sort((a, b) {
-            if (a.itemType == 'service' && b.itemType != 'service') return -1;
-            if (a.itemType != 'service' && b.itemType == 'service') return 1;
-            return 0;
-          });
+          final sortedProducts =
+              _productController.sortProductsForDisplay(_productController.filteredProducts);
           return Column(
             children: [
               AnimatedContainer(

@@ -128,9 +128,13 @@ void clearBought(){
           // Update business inventory (default behavior)
           var productInInventory = productController.getProduct(productId);
           
-          if (productInInventory != null) {
-            double newQuantity = productInInventory.quantity! - quantityToRemove;
-            updates.add(productController.updateProductCount(productInInventory, newQuantity, 'Purchase Deleted'));
+          if (productInInventory.id.isNotEmpty) {
+            double newQuantity = productInInventory.quantity - quantityToRemove;
+            updates.add(productController.updateProductCount(
+              productInInventory,
+              newQuantity,
+              'Purchase Deleted',
+            ));
           }
         }
       }
