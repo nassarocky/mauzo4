@@ -1348,6 +1348,45 @@ void clearProducts(){
     }
   }
   
+  /// Whether a purchase already created a shop stock movement for [productId].
+  Future<bool> hasPurchaseStockTransaction({
+    required String businessId,
+    required String purchaseId,
+    required String productId,
+  }) async {
+    final snap = await firestore
+        .collection('transactions')
+        .doc(businessId)
+        .collection('usersTransactions')
+        .where('referenceId', isEqualTo: purchaseId)
+        .where('productId', isEqualTo: productId)
+        .where('referenceType', isEqualTo: TransactionReferenceTypes.purchase)
+        .limit(1)
+        .get();
+    return snap.docs.isNotEmpty;
+  }
+
+  /// Applies shop stock increase for a purchase line (paired twin handled automatically).
+  Future<void> applyPurchaseStockIncrease({
+    required String businessId,
+    required String purchaseId,
+    required String productId,
+    required double delta,
+  }) async {
+    if (delta <= 0) return;
+    final live = getProduct(productId);
+    if (live.id.isEmpty || live.itemType == 'service') return;
+
+    await updateProductCount(
+      live,
+      live.quantity + delta,
+      TransactionOrigins.purchase,
+      referenceId: purchaseId,
+      referenceType: TransactionReferenceTypes.purchase,
+      notes: TransactionOrigins.purchase,
+    );
+  }
+
   /// Helper method to create enhanced stock transactions with full context
   /// Use this for sales, purchases, and other operations that need reference linking
   Future<void> createStockTransaction({

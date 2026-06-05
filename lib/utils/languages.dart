@@ -173,6 +173,10 @@ class Languages extends Translations {
           'paired_attach_from_twin_blocked':
               'Open the main product to add or edit the twin link.',
           'paired_twin_not_found': 'Twin product not found. Refresh the product list.',
+          'purchase_destination_store_hint':
+              'Stock goes to Store/Warehouse only — shop product list will NOT change. Use Shop/Business for normal shop stock.',
+          'purchase_saved_store_stock':
+              'Purchase saved. Stock added to Store/Warehouse (not shop inventory).',
           'statistics': 'Statistics',
       'Statistics':'Statistics',
           'categories': 'Categories',
@@ -916,6 +920,10 @@ class Languages extends Translations {
       'paired_attach_from_twin_blocked':
           'Fungua bidhaa kuu ili kuongeza au kubadilisha pacha.',
       'paired_twin_not_found': 'Bidhaa pacha haipatikani. Onyesha upya orodha ya bidhaa.',
+      'purchase_destination_store_hint':
+          'Hesabu huenda Store/Ghala tu — orodha ya bidhaa za duka HAITABADILIKA. Chagua Shop/Business kwa hesabu ya kawaida.',
+      'purchase_saved_store_stock':
+          'Manunuzi yamehifadhiwa. Hesabu imeongezwa Store/Ghala (si kwenye duka).',
       'statistics': 'Takwimu',
       'categories': 'Aina',
       'Don\'t have an account? Register': 'Hauna Account? Jisajili',

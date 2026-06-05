@@ -7,6 +7,7 @@ import 'package:mauzo/ui/screens/sale/edit_sale.screen.dart';
 import '../../controllers/cart_controller.dart';
 import '../../controllers/supplier_controller.dart';
 import '../../controllers/product_controller.dart';
+import '../../controllers/store_controller.dart';
 import '../../controllers/business_controller.dart';
 import '../../controllers/supplier_debt_controller.dart';
 import '../../models/supplier_model.dart';
@@ -21,6 +22,7 @@ import 'package:intl/intl.dart';
 import '../../services/ledger_service.dart';
 import '../../models/stock_transaction.dart';
 import '../../constants/transaction_constants.dart';
+import '../../services/paired_product_service.dart';
 
 class BuyProductCartScreen extends StatefulWidget {
   final UserData? userData; // Optional user data for flexibility
@@ -34,6 +36,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   final CartController _cartController = Get.find();
   final SupplierController _supplierController = Get.find();
   final ProductController _productController = Get.find();
+  final StoreController _storeController = Get.find();
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
   final SupplierDebtController _supplierDebtController = Get.find();
@@ -546,7 +549,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       Text(
                         _purchaseDestination == 'shop'
                             ? 'Products will be added to business inventory'
-                            : 'Products will be added directly to store',
+                            : 'purchase_destination_store_hint'.tr,
                         style: TextStyle(
                           fontSize: 12,
                           color: textMutedColor,
@@ -964,7 +967,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                         context, '/home', (route) => false);
                                     // show success snackbar
                                     successSnackbar(
-                                      _cartController.passedArgument != 'NOT' ? 'purchase_updated'.tr : 'order_created'.tr,
+                                      _cartController.passedArgument != 'NOT'
+                                          ? 'purchase_updated'.tr
+                                          : (_purchaseDestination == 'store'
+                                              ? 'purchase_saved_store_stock'.tr
+                                              : 'order_created'.tr),
                                     );
                                   } catch (e) {
                                     errorSnackbar(e.toString());
@@ -1095,6 +1102,129 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     };
   }
 
+  bool _snapIsPairedMain(Map<String, dynamic>? data) {
+    if (data == null) return false;
+    final type = data['productType'] as String? ?? PairedProductService.typeNormal;
+    final twinId = data['twinProductId'] as String?;
+    return type == PairedProductService.typePaired &&
+        twinId != null &&
+        twinId.isNotEmpty;
+  }
+
+  String? _snapTwinId(Map<String, dynamic>? data) {
+    final id = data?['twinProductId'] as String?;
+    if (id == null || id.isEmpty) return null;
+    return id;
+  }
+
+  bool _snapIsService(Map<String, dynamic>? data) {
+    return (data?['itemType'] as String? ?? 'product') == 'service';
+  }
+
+  /// Safety net: if the purchase saved but stock movement is missing, apply it now.
+  Future<void> _ensureShopPurchaseStockApplied(
+    String businessId,
+    String purchaseId,
+  ) async {
+    for (final p in _cartController.getUniqueProducts()) {
+      if (p.itemType == 'service') continue;
+      final delta = _cartController.singleProductBaseQuantity(p.id);
+      if (delta <= 0) continue;
+      final has = await _productController.hasPurchaseStockTransaction(
+        businessId: businessId,
+        purchaseId: purchaseId,
+        productId: p.id,
+      );
+      if (has) continue;
+      await _productController.applyPurchaseStockIncrease(
+        businessId: businessId,
+        purchaseId: purchaseId,
+        productId: p.id,
+        delta: delta,
+      );
+    }
+  }
+
+  Future<void> _ensureStorePurchaseStockApplied(
+    String businessId,
+    String storeId,
+    String purchaseId,
+  ) async {
+    final employeeName = (_profileController.user['name'] ?? '').toString();
+    for (final p in _cartController.getUniqueProducts()) {
+      if (p.itemType == 'service') continue;
+      final delta = _cartController.singleProductBaseQuantity(p.id);
+      if (delta <= 0) continue;
+      final has = await _productController.hasPurchaseStockTransaction(
+        businessId: businessId,
+        purchaseId: purchaseId,
+        productId: p.id,
+      );
+      if (has) continue;
+
+      final sref = firestore
+          .collection('store')
+          .doc(storeId)
+          .collection('userStore')
+          .doc(p.id);
+      final snap = await sref.get();
+      double prev = 0.0;
+      if (snap.exists) {
+        final q = snap.data()?['quantity'] ?? 0;
+        prev = q is num ? q.toDouble() : 0.0;
+        await sref.update({'quantity': prev + delta, 'total': prev + delta});
+      } else {
+        await sref.set({
+          'id': p.id,
+          'storeId': storeId,
+          'owner': businessId,
+          'businessId': businessId,
+          'name': p.name,
+          'price': p.price,
+          'buyingPrice': p.buyingPrice,
+          'quantity': delta,
+          'total': delta,
+          'category': p.category,
+          'image': p.image,
+          'storeQuantity': 0,
+          'understock': p.understock,
+          'code': p.code,
+          'details': p.details,
+          'manufacturer': p.manufacturer,
+          'location': p.location,
+          'reserveString1': p.reserveString1,
+          'reserveString2': '',
+          'reserveDouble1': 0.0,
+          'reserveDouble2': 0.0,
+          'reserveList1': <String>[],
+          'reserveList2': <String>[],
+        });
+      }
+      final tRef = firestore
+          .collection('transactions')
+          .doc(businessId)
+          .collection('usersTransactions')
+          .doc();
+      await tRef.set(StockTransaction(
+        transactionId: tRef.id,
+        productId: p.id,
+        quantity: delta,
+        previousQuantity: prev,
+        newQuantity: prev + delta,
+        transactionType: TransactionTypes.addition,
+        transactionOrigin: 'Purchase to Store',
+        timestamp: Timestamp.now(),
+        userId: businessId,
+        price: p.price,
+        referenceId: purchaseId,
+        referenceType: TransactionReferenceTypes.purchase,
+        employeeName: employeeName,
+        notes: 'Purchase to Store (stock repair)',
+        totalValue: delta * p.price,
+      ).toMap());
+    }
+  }
+
   Future<void> _commitNewPurchaseShop(
     DocumentReference<Map<String, dynamic>> saleRef,
     Map<String, dynamic> saleData,
@@ -1107,9 +1237,12 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       for (final p in unique) {
         if (p.itemType == 'service') continue;
         final pref = firestore.collection('products').doc(businessId).collection('userProducts').doc(p.id);
-        reads.add(await fireTx.get(pref));
-        if (p.isPairedMain && p.twinProductId != null && p.twinProductId!.isNotEmpty) {
-          final twinRef = firestore.collection('products').doc(businessId).collection('userProducts').doc(p.twinProductId!);
+        final mainSnap = await fireTx.get(pref);
+        reads.add(mainSnap);
+        final mainData = mainSnap.data();
+        final twinId = _snapTwinId(mainData);
+        if (_snapIsPairedMain(mainData) && twinId != null) {
+          final twinRef = firestore.collection('products').doc(businessId).collection('userProducts').doc(twinId);
           reads.add(await fireTx.get(twinRef));
         }
       }
@@ -1125,12 +1258,14 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (!snap.exists) {
           throw Exception('Product not found in shop: ${p.name}');
         }
-        final cur = (snap.data()?['quantity'] ?? 0.0);
+        final snapData = snap.data();
+        if (_snapIsService(snapData)) continue;
+        final cur = (snapData?['quantity'] ?? 0.0);
         final curD = cur is num ? cur.toDouble() : 0.0;
         final delta = _cartController.singleProductBaseQuantity(p.id);
         if (delta <= 0) continue;
         final next = curD + delta;
-        final rawP = snap.data()?['price'] ?? p.price;
+        final rawP = snapData?['price'] ?? p.price;
         final pr = rawP is num ? rawP.toDouble() : p.price;
         fireTx.update(snap.reference, {'quantity': next});
         final tRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
@@ -1152,19 +1287,21 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           totalValue: delta * pr,
         ).toMap());
 
-        if (p.isPairedMain && p.twinProductId != null && p.twinProductId!.isNotEmpty) {
+        final twinId = _snapTwinId(snapData);
+        if (_snapIsPairedMain(snapData) && twinId != null) {
           final twinSnap = reads[ri++];
           if (twinSnap.exists) {
-            final twinCur = (twinSnap.data()?['quantity'] ?? 0.0);
+            final twinData = twinSnap.data();
+            final twinCur = (twinData?['quantity'] ?? 0.0);
             final twinCurD = twinCur is num ? twinCur.toDouble() : 0.0;
             final twinNext = (twinCurD - delta).clamp(0.0, double.infinity);
-            final twinPriceRaw = twinSnap.data()?['price'] ?? 0;
+            final twinPriceRaw = twinData?['price'] ?? 0;
             final twinPr = twinPriceRaw is num ? twinPriceRaw.toDouble() : 0.0;
             fireTx.update(twinSnap.reference, {'quantity': twinNext});
             final twinTRef = firestore.collection('transactions').doc(businessId).collection('usersTransactions').doc();
             fireTx.set(twinTRef, StockTransaction(
               transactionId: twinTRef.id,
-              productId: p.twinProductId!,
+              productId: twinId,
               quantity: delta,
               previousQuantity: twinCurD,
               newQuantity: twinNext,
@@ -1183,6 +1320,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         }
       }
     });
+    await _ensureShopPurchaseStockApplied(businessId, saleRef.id);
   }
 
   Future<void> _commitNewPurchaseStore(
@@ -1265,6 +1403,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         ).toMap());
       }
     });
+    await _ensureStorePurchaseStockApplied(businessId, storeId, saleRef.id);
   }
 
   Future<void> _finalizePurchaseSideEffects(
@@ -1338,6 +1477,15 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     }
     final purchaseId = _cartController.passedArgument;
 
+    final priorStock = <String, bool>{};
+    for (final id in ids) {
+      priorStock[id] = await _productController.hasPurchaseStockTransaction(
+        businessId: businessId,
+        purchaseId: purchaseId,
+        productId: id,
+      );
+    }
+
     await firestore.runTransaction((fireTx) async {
       final ts = Timestamp.now();
       final purchaseSnap = await fireTx.get(purchaseRef);
@@ -1380,18 +1528,51 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (c.itemType == 'service') continue;
         final snap = snaps[c.id];
         if (snap == null || !snap.exists) continue;
-        final productMeta = _productController.getProduct(c.id);
-        if (productMeta.id == '') continue;
-        final q = snap.data()?['quantity'] ?? 0.0;
+        final snapData = snap.data();
+        if (_snapIsService(snapData)) continue;
+        final q = snapData?['quantity'] ?? 0.0;
         final snapQty = q is num ? q.toDouble() : 0.0;
         final orig = origQty[c.id] ?? 0.0;
         final newQty = _cartController.singleProductQuantity(c.id).toDouble();
-        final adjusted = snapQty - orig + newQty;
+        final hadStock = priorStock[c.id] ?? false;
+        final adjusted =
+            hadStock ? snapQty - orig + newQty : snapQty + newQty;
         final finalQty = adjusted < 0 ? 0.0 : adjusted;
-        final rawP = snap.data()?['price'] ?? productMeta.price;
-        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        final rawP = snapData?['price'] ?? c.price;
+        final price = rawP is num ? rawP.toDouble() : c.price;
         fireTx.update(snap.reference, {'quantity': finalQty});
         writeTxnLine(c.id, snapQty, finalQty, price, TransactionOrigins.purchaseEdit);
+
+        final twinId = _snapTwinId(snapData);
+        if (_snapIsPairedMain(snapData) && twinId != null) {
+          final twinRef = firestore
+              .collection('products')
+              .doc(businessId)
+              .collection('userProducts')
+              .doc(twinId);
+          final twinSnap = await fireTx.get(twinRef);
+          if (twinSnap.exists) {
+            final twinData = twinSnap.data();
+            final twinCur = (twinData?['quantity'] ?? 0.0);
+            final twinCurD = twinCur is num ? twinCur.toDouble() : 0.0;
+            final mainDelta = finalQty - snapQty;
+            if (mainDelta.abs() > 1e-12) {
+              final twinNext =
+                  (twinCurD - mainDelta).clamp(0.0, double.infinity);
+              final twinPriceRaw = twinData?['price'] ?? 0;
+              final twinPr =
+                  twinPriceRaw is num ? twinPriceRaw.toDouble() : 0.0;
+              fireTx.update(twinSnap.reference, {'quantity': twinNext});
+              writeTxnLine(
+                twinId,
+                twinCurD,
+                twinNext,
+                twinPr,
+                'Paired twin adjustment (purchase edit)',
+              );
+            }
+          }
+        }
       }
 
       for (final o in originalProducts) {
@@ -1399,19 +1580,21 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (currentProducts.any((p) => p.id == id)) continue;
         final snap = snaps[id];
         if (snap == null || !snap.exists) continue;
-        final productMeta = _productController.getProduct(id);
-        if (productMeta.id == '' || productMeta.itemType == 'service') continue;
-        final q = snap.data()?['quantity'] ?? 0.0;
+        final snapData = snap.data();
+        if (_snapIsService(snapData)) continue;
+        final q = snapData?['quantity'] ?? 0.0;
         final snapQty = q is num ? q.toDouble() : 0.0;
         final orig = (o['quantity'] as num).toDouble();
-        final adjusted = snapQty - orig;
+        final hadStock = priorStock[id] ?? false;
+        final adjusted = hadStock ? snapQty - orig : snapQty;
         final finalQty = adjusted < 0 ? 0.0 : adjusted;
-        final rawP = snap.data()?['price'] ?? productMeta.price;
-        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        final rawP = snapData?['price'] ?? 0;
+        final price = rawP is num ? rawP.toDouble() : 0.0;
         fireTx.update(snap.reference, {'quantity': finalQty});
         writeTxnLine(id, snapQty, finalQty, price, TransactionOrigins.purchaseEdit);
       }
     });
+    await _ensureShopPurchaseStockApplied(businessId, purchaseId);
   }
 
   Future<void> _commitEditPurchaseStore(List<dynamic> products) async {
@@ -1444,6 +1627,15 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       ids.add(c.id);
     }
     final purchaseId = _cartController.passedArgument;
+
+    final priorStock = <String, bool>{};
+    for (final id in ids) {
+      priorStock[id] = await _productController.hasPurchaseStockTransaction(
+        businessId: businessId,
+        purchaseId: purchaseId,
+        productId: id,
+      );
+    }
 
     await firestore.runTransaction((fireTx) async {
       final ts = Timestamp.now();
@@ -1487,42 +1679,42 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (c.itemType == 'service') continue;
         final snap = snaps[c.id];
         if (snap == null) continue;
-        final productMeta = _productController.getProduct(c.id);
-        if (productMeta.id == '') continue;
         final newQty = _cartController.singleProductQuantity(c.id).toDouble();
         final orig = origQty[c.id] ?? 0.0;
+        final hadStock = priorStock[c.id] ?? false;
         final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(c.id);
 
         if (snap.exists) {
           final q = snap.data()?['quantity'] ?? 0.0;
           final curStore = q is num ? q.toDouble() : 0.0;
-          final adjusted = curStore - orig + newQty;
+          final adjusted =
+              hadStock ? curStore - orig + newQty : curStore + newQty;
           final finalQty = adjusted < 0 ? 0.0 : adjusted;
-          final rawP = snap.data()?['price'] ?? productMeta.price;
-          final price = rawP is num ? rawP.toDouble() : productMeta.price;
+          final rawP = snap.data()?['price'] ?? c.price;
+          final price = rawP is num ? rawP.toDouble() : c.price;
           fireTx.update(sref, {'quantity': finalQty, 'total': finalQty});
           writeTxnLine(c.id, curStore, finalQty, price, TransactionOrigins.purchaseEdit);
         } else if (newQty > 0) {
           fireTx.set(sref, {
-            'id': productMeta.id,
+            'id': c.id,
             'storeId': storeId,
             'owner': businessId,
             'businessId': businessId,
-            'name': productMeta.name,
-            'price': productMeta.price,
-            'buyingPrice': productMeta.buyingPrice,
+            'name': c.name,
+            'price': c.price,
+            'buyingPrice': c.buyingPrice,
             'quantity': newQty,
             'total': newQty,
-            'category': productMeta.category,
-            'image': productMeta.image,
+            'category': c.category,
+            'image': c.image,
             'storeQuantity': 0,
-            'understock': productMeta.understock,
-            'code': productMeta.code,
-            'details': productMeta.details,
-            'manufacturer': productMeta.manufacturer,
-            'location': productMeta.location,
+            'understock': c.understock,
+            'code': c.code,
+            'details': c.details,
+            'manufacturer': c.manufacturer,
+            'location': c.location,
           });
-          writeTxnLine(c.id, 0.0, newQty, productMeta.price, TransactionOrigins.purchaseEdit);
+          writeTxnLine(c.id, 0.0, newQty, c.price, TransactionOrigins.purchaseEdit);
         }
       }
 
@@ -1531,20 +1723,20 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         if (currentProducts.any((p) => p.id == id)) continue;
         final snap = snaps[id];
         if (snap == null || !snap.exists) continue;
-        final productMeta = _productController.getProduct(id);
-        if (productMeta.id == '' || productMeta.itemType == 'service') continue;
         final q = snap.data()?['quantity'] ?? 0.0;
         final curStore = q is num ? q.toDouble() : 0.0;
         final orig = (o['quantity'] as num).toDouble();
-        final adjusted = curStore - orig;
+        final hadStock = priorStock[id] ?? false;
+        final adjusted = hadStock ? curStore - orig : curStore;
         final finalQty = adjusted < 0 ? 0.0 : adjusted;
         final sref = firestore.collection('store').doc(storeId).collection('userStore').doc(id);
-        final rawP = snap.data()?['price'] ?? productMeta.price;
-        final price = rawP is num ? rawP.toDouble() : productMeta.price;
+        final rawP = snap.data()?['price'] ?? 0;
+        final price = rawP is num ? rawP.toDouble() : 0.0;
         fireTx.update(sref, {'quantity': finalQty, 'total': finalQty});
         writeTxnLine(id, curStore, finalQty, price, TransactionOrigins.purchaseEdit);
       }
     });
+    await _ensureStorePurchaseStockApplied(businessId, storeId, purchaseId);
   }
 
   void clearCartData() {
