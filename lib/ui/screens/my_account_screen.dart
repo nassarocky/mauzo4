@@ -36,19 +36,10 @@ class _AccountScreenState extends State<AccountScreen> {
           child: Column(
             children: [
               Center(
-                child: SizedBox(
-                  height: 124,
-                  width: 124,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(100),
-                    child: Container(
-                      color: primaryUltraLightColor,
-                      child: Image.asset(
-                        'assets/images/splash.png',
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
+                child: Image.asset(
+                  'assets/images/hesabu_mauzo_logo.png',
+                  height: 88,
+                  fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(height: 12),

@@ -80,9 +80,6 @@ class _SalesScreenState extends State<SalesScreen> {
   @override
   Widget build(BuildContext context) {
     final bool canMakeSales = _profileController.hasPermission('make_sales');
-    final bool canViewSalesTotals = canMakeSales ||
-        (_businessController.business['allowSalesView'] == true) ||
-        _profileController.hasPermission('view_sales');
 
     return Scaffold(
       backgroundColor: Preferences.getTheme()
@@ -353,82 +350,6 @@ class _SalesScreenState extends State<SalesScreen> {
                   ? Theme.of(context).scaffoldBackgroundColor
                   : whiteColor,
             ),
-            if (canViewSalesTotals && _saleController.filteredSales.isNotEmpty)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEA9F),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Preferences.getTheme() ? mediumGrayColor : borderColor,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_saleController.selectedDateRange != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          '${'From:'.tr} ${DateFormat('dd/MM/yyyy').format(_saleController.selectedDateRange!.start)} '
-                          '${'to'.tr} ${DateFormat('dd/MM/yyyy').format(_saleController.selectedDateRange!.end)}',
-                          style: bodyText(textDarkColor),
-                        ),
-                      ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'TOTAL SALES:'.tr,
-                                style: bodyText(textPlaceholderColor),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatCurrency(
-                                  _saleController.getFilteredTotalSalesAmount(),
-                                  _businessController.business['mainCurrency'],
-                                ),
-                                style: h5(textDarkColor),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'TOTAL PAYMENTS:'.tr,
-                                style: bodyText(textPlaceholderColor),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatCurrency(
-                                  _saleController.getFilteredTotalPaymentsAmount(),
-                                  _businessController.business['mainCurrency'],
-                                ),
-                                style: h5(textDarkColor),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${_saleController.filteredSales.length} ${'sale'.tr.toLowerCase()}',
-                      style: bodyText(textPlaceholderColor),
-                    ),
-                  ],
-                ),
-              ),
-            if (canViewSalesTotals && _saleController.filteredSales.isNotEmpty)
-              const SizedBox(height: 8),
             Expanded(
               child: _saleController.getDatesCount() == 0
                   ? Center(

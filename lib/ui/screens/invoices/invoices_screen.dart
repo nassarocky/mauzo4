@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -27,8 +26,6 @@ import '../../widgets/buttons/primary_button.dart';
 import '../../widgets/buttons/secondary_button.dart';
 import '../sale/add_sale_screen.dart';
 import '../sale/edit_sale.screen.dart';
-import '../../../services/thermal_printer_service.dart';
-import '../../widgets/printer_selection_dialog.dart';
 import '../../../models/sale_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../utils/download_helper.dart';
@@ -48,18 +45,11 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
-  late final ThermalPrinterService _thermalPrinter;
 
   @override
   void initState() {
     super.initState();
-    
-    // Initialize thermal printer service
-    if (!Get.isRegistered<ThermalPrinterService>()) {
-      Get.put(ThermalPrinterService());
-    }
-    _thermalPrinter = Get.find<ThermalPrinterService>();
-    
+
     Timer.run(() {
       _invoiceController.setInvoicesByDate();
     });
@@ -611,11 +601,45 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     );
   }
 
-  Future<pw.Document> _generateInvoice(dynamic invoice, Client client) async {
+  Future<String?> _pickDocumentType() async {
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('document_type'.tr),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: Text('invoice_document'.tr),
+              onTap: () => Navigator.pop(ctx, 'invoice'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.request_quote_outlined),
+              title: Text('quotation'.tr),
+              onTap: () => Navigator.pop(ctx, 'quotation'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<pw.Document> _generateInvoice(
+    dynamic invoice,
+    Client client, {
+    String documentType = 'invoice',
+  }) async {
     final pdf = pw.Document();
     final currency = (_businessController.business['mainCurrency'] ?? 'TZS').toString();
     final dateTime = invoice.date.toDate();
     final business = _businessController.business;
+    final isQuotation = documentType == 'quotation';
+    final titleLabel = isQuotation ? 'QUOTATION' : 'INVOICE';
+    final detailsLabel =
+        isQuotation ? 'quotation_details'.tr : 'invoice_details'.tr;
+    final numberLabel =
+        isQuotation ? 'quotation_number'.tr : 'invoice_number'.tr;
 
     // Enabled payment details
     final List<Map<String, dynamic>> paymentDetails =
@@ -692,7 +716,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
             color: PdfColors.grey800,
             child: pw.Center(
               child: pw.Text(
-                'INVOICE',
+                titleLabel,
                 style: pw.TextStyle(
                   fontSize: 15,
                   fontWeight: pw.FontWeight.bold,
@@ -712,14 +736,14 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Invoice Details',
+                    pw.Text(detailsLabel,
                         style: pw.TextStyle(
                             fontSize: 10,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.grey700)),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                        'Invoice #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}',
+                        '$numberLabel: ${DateFormat('yyyyMMddHHmm').format(dateTime)}',
                         style: const pw.TextStyle(fontSize: 10)),
                     pw.Text(
                         'Date: ${DateFormat('dd/MM/yyyy').format(dateTime)}',
@@ -974,34 +998,36 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   }
 
   Future<void> printInvoice(dynamic invoice, Client client) async {
-    // On Windows desktop, skip Bluetooth selection and use system print dialog
-    final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
-      // Show printer selection dialog (Android only)
-      await showDialog(
-        context: context,
-        builder: (context) => const PrinterSelectionDialog(),
-      );
-      // If still no printer selected after dialog, return
-      if (_thermalPrinter.selectedPrinter.value == null) {
-        return;
-      }
-    }
+    final documentType = await _pickDocumentType();
+    if (documentType == null) return;
 
-    // Invoice is already a Sale object, use it directly
-    await _thermalPrinter.printReceipt(
-      sale: invoice as Sale,
-      client: client,
-      business: _businessController.business,
+    final pdf = await _generateInvoice(
+      invoice,
+      client,
+      documentType: documentType,
+    );
+
+    await Printing.layoutPdf(
+      name: documentType == 'quotation' ? 'Quotation' : 'Invoice',
+      onLayout: (PdfPageFormat format) async => pdf.save(),
     );
   }
 
   Future<void> shareInvoice(dynamic invoice, Client client) async {
-    final pdf = await _generateInvoice(invoice, client);
+    final documentType = await _pickDocumentType();
+    if (documentType == null) return;
+
+    final pdf = await _generateInvoice(
+      invoice,
+      client,
+      documentType: documentType,
+    );
 
     try {
       final pdfBytes = await pdf.save();
-      final fileName = 'Invoice_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
+      final prefix = documentType == 'quotation' ? 'Quotation' : 'Invoice';
+      final fileName =
+          '${prefix}_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf';
       
       if (DownloadHelper.isWeb) {
         // Web: Direct download using blob
@@ -1017,7 +1043,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
 
         await Share.shareXFiles(
           [XFile(filePath)],
-          text: 'Invoice Report',
+          text: documentType == 'quotation' ? 'Quotation' : 'Invoice Report',
         );
       }
     } catch (e) {

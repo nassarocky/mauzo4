@@ -53,18 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       const SizedBox(height: 20),
                       Image.asset(
-                        "assets/images/cash_register.png",
-                        height: 90,
-                        width: 90,
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'HESABU MAUZO',
-                        style: TextStyle(
-                          fontSize: 32,
-                          color: textDarkColor,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        'assets/images/hesabu_mauzo_logo.png',
+                        height: 96,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.centerLeft,
                       ),
                       const SizedBox(height: 12),
                       SizedBox(

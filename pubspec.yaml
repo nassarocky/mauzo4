@@ -55,16 +55,19 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
 
 flutter_native_splash:
-  image: assets/images/splash.png
+  image: assets/images/hesabu_mauzo_logo.png
   color: "#ffffff"
-  image_dark: assets/images/splash-dark.png
+  image_dark: assets/images/hesabu_mauzo_logo.png
   color_dark: "#333333"
 
-# Configure launcher icons generation for Windows
+# Configure launcher icons generation for Windows / Android / iOS
 flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/hesabu_mauzo_logo.png
   windows:
     generate: true
-    image_path: android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+    image_path: assets/images/hesabu_mauzo_logo.png
 
 flutter:
   uses-material-design: true

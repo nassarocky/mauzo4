@@ -13,8 +13,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode =  "20"
-def flutterVersionName =  "2.7"
+def flutterVersionCode =  "23"
+def flutterVersionName =  "3.0"
 
 android {
     namespace = "com.hesabu.mauzo"
@@ -49,7 +49,7 @@ android {
         release {
             keyAlias 'key-alias'
             keyPassword 'hesabumauzo'
-            storeFile file('C:/Users/LITtech/AndroidStudioProjects/mauzo/hesabumauzo.jks')
+            storeFile file('../../hesabumauzo.jks')
             storePassword 'hesabumauzo'
         }
     }

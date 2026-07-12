@@ -106,7 +106,7 @@ class Product {
 
     return Product(
       owner: data['owner'] as String? ?? '',
-      id: data['id'] as String? ?? snapshot.id,
+      id: snapshot.id,
       name: data['name'] as String? ?? 'Unnamed Product',
       storeId: data['storeId'] as String? ?? '',
       code: data['code'] as String? ?? '',

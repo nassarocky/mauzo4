@@ -327,19 +327,13 @@ class CartController extends GetxController {
   }
 
   double singleProductQuantity(String productId) {
-    final product = _products.firstWhere(
-      (p) => p.id == productId,
-      orElse: () => Product(
-        owner: '',
-        id: '',
-        name: '',
-        storeId: '',
-        code: '',
-        price: 0.0,
-        wholesaleMinQuantity: Product.defaultWholesaleMinQuantity,
-      ),
-    );
-    return product.count;
+    double sum = 0;
+    for (final p in _products) {
+      if (p.id == productId) {
+        sum += p.count;
+      }
+    }
+    return sum;
   }
 
   /// Same as [singleProductQuantity]; kept for call sites that referred to "base" stock units.
