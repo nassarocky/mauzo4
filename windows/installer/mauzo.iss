@@ -1,7 +1,7 @@
 [Setup]
 AppId={{8B8F14A3-9A07-4F69-8B77-90EFD8F693E4}}
 AppName=Mauzo
-AppVersion=1.0.0
+AppVersion=3.2
 AppPublisher=Mauzo
 AppPublisherURL=https://example.com
 DefaultDirName={pf}\Mauzo

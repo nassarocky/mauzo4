@@ -35,14 +35,74 @@ class SaleController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    bindDefaultSalesStream();
+  }
+
+  /// Rebind default list to sales since business [reset_time] (not all history).
+  void bindDefaultSalesStream() {
     try {
+      _saleSubscription?.cancel();
       _saleSubscription = FirestoreDb().getSales().listen((data) {
         sales.value = data;
-        filteredSales.value = data;
+        // Do not wipe an active custom date-range query.
+        if (!hasCustomDateRange) {
+          filterSales();
+        }
+      }, onError: (e) {
+        print("Error in sales stream: $e");
       });
     } catch (e) {
       print("Error initializing SaleController: $e");
     }
+  }
+
+  /// Display range for the date chip: selected range, or reset → today.
+  DateTimeRange defaultPeriodRange() {
+    final start = DateUtils.dateOnly(
+      FirestoreDb().defaultListPeriodStart().toDate(),
+    );
+    final end = DateUtils.dateOnly(DateTime.now());
+    if (end.isBefore(start)) {
+      return DateTimeRange(start: end, end: end);
+    }
+    return DateTimeRange(start: start, end: end);
+  }
+
+  DateTimeRange get effectiveDateRange =>
+      selectedDateRange ?? defaultPeriodRange();
+
+  bool isDefaultPeriod(DateTimeRange range) {
+    final def = defaultPeriodRange();
+    return DateUtils.dateOnly(range.start) == def.start &&
+        DateUtils.dateOnly(range.end) == def.end;
+  }
+
+  bool get hasCustomDateRange =>
+      selectedDateRange != null && !isDefaultPeriod(selectedDateRange!);
+
+  String get dateRangeChipLabel {
+    final range = effectiveDateRange;
+    return '${DateFormat('dd/MM/yyyy').format(range.start)} - ${DateFormat('dd/MM/yyyy').format(range.end)}';
+  }
+
+  /// Open Sales screen: show reset→today on the date chip and load that period.
+  /// Keeps client/employee filters if set before navigation (e.g. employee "view orders").
+  Future<void> ensureDefaultPeriodOnOpen() async {
+    selectedDateRange = defaultPeriodRange();
+    await _filteredSaleSubscription?.cancel();
+    _filteredSaleSubscription = null;
+    bindDefaultSalesStream();
+    if (sales.isNotEmpty) {
+      filterSales();
+    }
+  }
+
+  /// After closing books / business switch: full reset to period since [reset_time].
+  Future<void> resetToDefaultPeriod() async {
+    filterClients.clear();
+    filterEmployee.clear();
+    saleType.value = 'All';
+    await ensureDefaultPeriodOnOpen();
   }
 
   // * CRUD
@@ -256,9 +316,18 @@ class SaleController extends GetxController {
     return salesByDate;
   }
 
-  /// Daily header total in Mauzo yote — paid amount that day (not full invoice [price]).
+  /// Daily header total in Mauzo yote — net sales that day from [filteredSales]
+  /// (price − discount; excludes debt-repayment rows).
   double getTotalSalesByDate(DateTime date) {
-    return getTotalPaymentsByDate(date, filteredSales);
+    double total = 0;
+    final target = DateUtils.dateOnly(date);
+    for (final sale in filteredSales) {
+      if (sale.saleType == 'debt_repayment') continue;
+      if (DateUtils.dateOnly(sale.date.toDate()) == target) {
+        total += getSaleInvoiceNet(sale);
+      }
+    }
+    return total;
   }
 
   double _toDouble(dynamic value) {
@@ -545,26 +614,22 @@ class SaleController extends GetxController {
   }
 
   // * FILTERING
-  // No default date range - will use reset time by default
+  // Filled with reset→today on open; custom picks use getSalesByDateRange.
   DateTimeRange? selectedDateRange;
   final filteredSales = <Sale>[].obs;
   final saleType = 'All'.obs;
   final filterClients = <String>[].obs;
   final filterEmployee = <String>[].obs;
   void filterSales() async {
-    // If date range is selected, query database for that range
-    if (selectedDateRange != null) {
-      // Cancel previous filtered subscription if exists
+    // Default period (reset → today): use reset_time stream already in [sales].
+    // Custom range: query Firestore for that window only.
+    final bool useCustomRange = hasCustomDateRange;
+    if (useCustomRange) {
       await _filteredSaleSubscription?.cancel();
-      
-      // Query database for the selected date range
       _filteredSaleSubscription = FirestoreDb()
           .getSalesByDateRange(selectedDateRange!.start, selectedDateRange!.end)
           .listen((data) {
-        // Start with queried data
         var filtered = data;
-        
-        // Apply additional filters
         if (filterClients.isNotEmpty) {
           filtered = filtered.where((sale) {
             return filterClients.contains(sale.client);
@@ -580,32 +645,35 @@ class SaleController extends GetxController {
             return sale.debt > 0;
           }).toList();
         }
-        
         filteredSales.value = filtered;
         setSalesByDate();
       });
     } else {
-      // No date range selected, use in-memory filtering
       await _filteredSaleSubscription?.cancel();
-      
-      filteredSales.value = sales;
-      
+      _filteredSaleSubscription = null;
+      // Keep chip filled with the default period while using reset stream data.
+      selectedDateRange ??= defaultPeriodRange();
+      if (!isDefaultPeriod(selectedDateRange!)) {
+        selectedDateRange = defaultPeriodRange();
+      }
+
+      var filtered = List<Sale>.from(sales);
       if (filterClients.isNotEmpty) {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return filterClients.contains(sale.client);
         }).toList();
       }
       if (filterEmployee.isNotEmpty) {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return filterEmployee.contains(sale.employeeId);
         }).toList();
       }
       if (saleType.value == 'Debt') {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return sale.debt > 0;
         }).toList();
       }
-      
+      filteredSales.value = filtered;
       setSalesByDate();
     }
   }
@@ -661,9 +729,10 @@ class SaleController extends GetxController {
   }
 
   void clearSelectedDateRange() async {
-    selectedDateRange = null;
+    selectedDateRange = defaultPeriodRange();
     await _filteredSaleSubscription?.cancel();
     _filteredSaleSubscription = null;
+    bindDefaultSalesStream();
     filterSales();
   }
 
@@ -728,7 +797,7 @@ class SaleController extends GetxController {
 
     // Iterate through the list of sales and add each sale as a row in the Excel sheet
     for (Sale sale in filteredSales) {
-      Client client = clientController.getClient(sale.client);
+      Client client = clientController.resolveClientForSale(sale);
       String productNames = sale.products.map((product) {
         if (product is Product) {
           return '${product.quantity} ${product.name}';
@@ -880,7 +949,7 @@ class SaleController extends GetxController {
 
     // Iterate through the list of sales and add each sale as a row in the Excel sheet
     for (Sale sale in filteredSales) {
-      Client client = clientController.getClient(sale.client);
+      Client client = clientController.resolveClientForSale(sale);
       String productNames = sale.products.map((product) {
         if (product is Product) {
           return '${product.quantity} ${product.name}';

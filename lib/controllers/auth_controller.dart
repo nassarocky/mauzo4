@@ -89,6 +89,59 @@ class AuthController extends GetxController {
     await ReferralAttributionService.clearPending();
   }
 
+  /// Windows/desktop uses the web Firestore channel; the auth token may not be
+  /// attached to the first request immediately after sign-in.
+  Future<void> _ensureAuthTokenReady(User user) async {
+    await user.getIdToken(true);
+    await _auth.authStateChanges().firstWhere(
+          (u) => u?.uid == user.uid,
+          orElse: () => user,
+        );
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _fetchGmanUserDoc(
+    String uid,
+  ) async {
+    Future<DocumentSnapshot<Map<String, dynamic>>> read() {
+      return _firestore.collection('gmanusers').doc(uid).get();
+    }
+
+    try {
+      return await read();
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+      final user = _auth.currentUser;
+      if (user == null || user.uid != uid) rethrow;
+      debugPrint('Firestore permission-denied on gmanusers/$uid; refreshing auth token...');
+      await _ensureAuthTokenReady(user);
+      return await read();
+    }
+  }
+
+  String _resolveActiveBusinessId(List<dynamic> businessList) {
+    if (businessList.isEmpty) return '';
+    final saved = Preferences.getBusiness();
+    if (saved.isNotEmpty && businessList.contains(saved)) {
+      return saved;
+    }
+    return businessList.first.toString();
+  }
+
+  String _friendlyLoginError(Object e) {
+    if (e is FirebaseException) {
+      if (e.code == 'permission-denied') {
+        return 'Could not load your account data. Close the app, check your internet connection, and try again.';
+      }
+      return e.message ?? e.code;
+    }
+    final text = e.toString();
+    if (text.contains('permission-denied') ||
+        text.contains('Missing or insufficient permissions')) {
+      return 'Could not load your account data. Close the app, check your internet connection, and try again.';
+    }
+    return text;
+  }
+
   @override
   void onReady() {
     super.onReady();
@@ -126,6 +179,7 @@ class AuthController extends GetxController {
       return;
     }
 
+    await _ensureAuthTokenReady(user);
     await _profileController.updateUserData();
     await _businessController.updateBusinessData();
     _initializePaymentGeneration();
@@ -587,9 +641,10 @@ class AuthController extends GetxController {
       final userCred = await _auth.signInWithCustomToken(customToken);
       final user = userCred.user;
       if (user == null) throw Exception('Sign-in with custom token failed');
+      await _ensureAuthTokenReady(user);
 
       // Determine if user doc exists
-      final userDoc = await _firestore.collection('gmanusers').doc(user.uid).get();
+      final userDoc = await _fetchGmanUserDoc(user.uid);
       if (!userDoc.exists) {
         final resolvedEmail = _resolvedSignupEmail(
           explicitEmail: email,
@@ -637,7 +692,7 @@ class AuthController extends GetxController {
       await ReferralAttributionService.clearPending();
       final userData = userDoc.data() as Map<String, dynamic>;
       final List biz = userData['business'] ?? [];
-      final String firstBusiness = biz.isNotEmpty ? biz[0] : '';
+      final String firstBusiness = _resolveActiveBusinessId(biz);
       await Preferences.setPhone(userData['phone'] ?? phoneNumber.value);
       if ((userData['email'] ?? '').toString().isNotEmpty) {
         await Preferences.setEmail(userData['email']);
@@ -761,20 +816,24 @@ class AuthController extends GetxController {
         email: email,
         password: password,
       );
-      if (userCredential.user?.uid == null || userCredential.user!.uid.isEmpty) {
+      final user = userCredential.user;
+      if (user == null || user.uid.isEmpty) {
         throw Exception('User ID is missing.');
       }
+      await _ensureAuthTokenReady(user);
       // Fetch the user's document from Firestore using their UID
-      DocumentSnapshot userSnapshot = await _firestore
-          .collection('gmanusers')
-          .doc(userCredential.user!.uid)
-          .get();
+      DocumentSnapshot userSnapshot = await _fetchGmanUserDoc(user.uid);
 
       if (userSnapshot.exists) {
         var userData = userSnapshot.data() as Map<String, dynamic>;
         // Get the business list and take the first value if available
         List businessList = userData['business'] ?? [];
-        String firstBusiness = businessList.isNotEmpty ? businessList[0] : '';
+        String firstBusiness = _resolveActiveBusinessId(businessList);
+        if (firstBusiness.isEmpty) {
+          throw Exception(
+            'Your account is not linked to a business. Ask your shop owner to re-assign you.',
+          );
+        }
         // Save the fetched user data to preferences
         _profileController.role.value=userData['role'] ?? '';
         _profileController.emailId.value=email;
@@ -825,7 +884,7 @@ class AuthController extends GetxController {
 
       Get.snackbar(
         'Login Failed',
-        e.toString(),
+        _friendlyLoginError(e),
         snackPosition: SnackPosition.BOTTOM,
         duration: Duration(seconds: 5),
         backgroundColor: Colors.redAccent,

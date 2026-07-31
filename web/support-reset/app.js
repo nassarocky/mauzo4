@@ -105,14 +105,25 @@ function setTab(tab) {
   if (data) data.hidden = tab !== "data";
 }
 
+const SUPPORT_USER_ROLES = [
+  "owner",
+  "manager",
+  "cashier",
+  "sales_person",
+  "agent",
+  "employee",
+];
+
 function syncCollectionFieldsUI() {
   const col = $("dataCollection")?.value || "gmanusers";
   const wrapUser = $("wrapUserImage");
   const wrapMaxBiz = $("wrapUserMaxBusiness");
+  const wrapRole = $("wrapUserRole");
   const wrapBiz = $("wrapBizExtra");
   const wrapExtras = $("wrapUserDataExtras");
   if (wrapUser) wrapUser.hidden = col !== "gmanusers";
   if (wrapMaxBiz) wrapMaxBiz.hidden = col !== "gmanusers";
+  if (wrapRole) wrapRole.hidden = col !== "gmanusers";
   if (wrapBiz) wrapBiz.hidden = col !== "businesses";
   if (wrapExtras) wrapExtras.hidden = col !== "gmanusers";
 }
@@ -160,6 +171,8 @@ function clearDataForm() {
     const el = $(id);
     if (el) el.value = "";
   });
+  const roleEl = $("fieldRole");
+  if (roleEl) roleEl.value = "sales_person";
   dataLoadedCollection = "";
   dataLoadedDocumentId = "";
   dataLoadedOwnerId = "";
@@ -171,6 +184,13 @@ function clearDataForm() {
   setResolvedUidLine("");
   const lookup = $("dataUserLookup");
   if (lookup) lookup.value = "";
+}
+
+function setRoleField(role) {
+  const el = $("fieldRole");
+  if (!el) return;
+  const normalized = String(role || "").trim().toLowerCase();
+  el.value = SUPPORT_USER_ROLES.includes(normalized) ? normalized : "employee";
 }
 
 document.querySelector(".tabs")?.addEventListener("click", (e) => {
@@ -315,6 +335,11 @@ function applyLoadedRecord(col, documentId, d) {
   fillField("fieldImage", d.image);
   fillField("fieldTin", d.tin);
   fillField("fieldLogo", d.logo);
+  if (col === "gmanusers") {
+    setRoleField(d.role);
+  } else {
+    setRoleField("sales_person");
+  }
   if (col === "businesses") {
     fillField("fieldSubscriptionStatus", d.subscriptionStatus != null ? String(d.subscriptionStatus) : "");
     fillField("fieldPaymentStart", formatFirestoreTs(d.paymentStart));
@@ -442,6 +467,10 @@ $("dataSaveBtn")?.addEventListener("click", async () => {
   if (n) patch.name = n;
   if (p) patch.phone = p;
   if (col === "gmanusers") {
+    const role = ($("fieldRole")?.value || "").trim().toLowerCase();
+    if (SUPPORT_USER_ROLES.includes(role)) {
+      patch.role = role;
+    }
     const img = $("fieldImage")?.value.trim();
     if (img) patch.image = img;
     const mbEl = $("fieldMaxBusiness");

@@ -1,5 +1,8 @@
 Moved to web/support-reset/ — bundled with Flutter web build.
 
+Supports password reset, user/shop edits, and role reassignment
+(owner / manager / cashier / sales_person / agent / employee).
+
 Deploy:
   firebase deploy --only functions   # required for adminSupportResolveUser + adminSupportGetRecord / adminSupportUpdateRecord
   flutter build web --release

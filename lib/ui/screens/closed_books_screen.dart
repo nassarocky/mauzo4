@@ -331,6 +331,9 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       // This ensures sales stream uses the new reset_time for filtering
       await _businessController.updateBusinessData();
       print('Business controller refreshed with new reset_time.');
+      // Rebind sales/purchases streams to the new reset window.
+      await _saleController.resetToDefaultPeriod();
+      await _boughtController.resetToDefaultPeriod();
     } catch (e) {
       errorSnackbar('Failed to update reset time: ${e.toString()}'.tr);
     }

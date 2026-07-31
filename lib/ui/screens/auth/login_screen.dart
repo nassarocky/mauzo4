@@ -3,7 +3,7 @@ import 'package:get/get.dart';
 import '../../../controllers/auth_controller.dart';
 import '../../widgets/buttons/primary_button.dart';
 import '../../../utils/constants.dart';
-import 'register_screen.dart' show normalizePhoneToE164;
+import 'register_screen.dart' show phoneDigitsForDerivedEmail;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -148,9 +148,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               final digitsOnly = credential.replaceAll(RegExp(r'[^0-9]'), '');
                               final looksLikePhone = RegExp(r'^\+?[0-9]{9,15}$').hasMatch(credential.replaceAll(' ', ''));
                               if (looksLikePhone && digitsOnly.isNotEmpty) {
-                                final e164 = normalizePhoneToE164(credential);
-                                final normalized = e164.replaceAll(RegExp(r'[^0-9]'), '');
-                                credential = '$normalized@hesabumauzo.app';
+                                credential =
+                                    '${phoneDigitsForDerivedEmail(credential)}@hesabumauzo.app';
                               }
                               _authController.login(credential, password);
                             }

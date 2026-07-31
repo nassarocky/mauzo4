@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:mauzo/models/payment_model.dart';
 import 'package:mauzo/models/product_model.dart';
+import 'package:mauzo/utils/imelipwa_discount.dart';
 import 'package:mauzo/utils/preferences.dart';
 
 import '../models/client_model.dart';
@@ -16,16 +17,43 @@ class CartController extends GetxController {
   String passedArgument = 'NOT';
   String editInvoice = 'NOT';
   get products => _products;
-  getUniqueProducts() {
-    var products = <Product>[];
-    var productsId = <String>[];
-    for (var product in _products) {
-      if (!productsId.contains(product.id)) {
-        if (product.id != '') {
-          productsId.add(product.id);
-          products.add(product);
-        }
-      }
+
+  /// O(1) qty/price lookups rebuilt whenever cart lines change.
+  final Map<String, double> _lineQtyById = <String, double>{};
+  final Map<String, double> _linePriceById = <String, double>{};
+  final Map<String, double> _lineBuyingPriceById = <String, double>{};
+  final Map<String, double> _lineOriginalPriceById = <String, double>{};
+
+  /// Obx dependency for tiles that read O(1) qty/price maps.
+  final cartLinesEpoch = 0.obs;
+
+  void _reindexLineLookups() {
+    _lineQtyById.clear();
+    _linePriceById.clear();
+    _lineBuyingPriceById.clear();
+    _lineOriginalPriceById.clear();
+    for (final product in _products) {
+      if (product.id.isEmpty) continue;
+      _lineQtyById[product.id] =
+          (_lineQtyById[product.id] ?? 0) + product.count;
+    }
+    for (final entry in productsPriceMap) {
+      if (entry is! Map) continue;
+      final id = '${entry['id'] ?? ''}';
+      if (id.isEmpty) continue;
+      _linePriceById[id] = _asDouble(entry['price']);
+      _lineBuyingPriceById[id] = _asDouble(entry['buyingPrice']);
+      _lineOriginalPriceById[id] = _asDouble(entry['originalPrice']);
+    }
+    cartLinesEpoch.value++;
+  }
+
+  List<Product> getUniqueProducts() {
+    final seen = <String>{};
+    final products = <Product>[];
+    for (final product in _products) {
+      if (product.id.isEmpty || !seen.add(product.id)) continue;
+      products.add(product);
     }
     return products;
   }
@@ -129,22 +157,23 @@ class CartController extends GetxController {
 
   /// Imelipwa edits the sale total: above catalog uses negative discount; below catalog is partial pay.
   /// Returns false when [debtAllowed] is false and amount is below catalog (partial pay / debt).
+  ///
+  /// Partial pay / debt must keep an existing positive discount so
+  /// `remaining = productsPrice - payment - discount` stays correct.
   bool applySellingTotalFromImelipwa(
     double amountMainCurrency, {
     required bool debtAllowed,
   }) {
-    if (!amountMainCurrency.isFinite || amountMainCurrency < 0) return true;
-    final double catalog = productsPrice;
-    if (amountMainCurrency + 1e-9 >= catalog) {
-      setDiscount(catalog - amountMainCurrency);
-      return true;
+    final result = resolveImelipwaDiscountAdjustment(
+      amountMainCurrency: amountMainCurrency,
+      catalog: productsPrice,
+      currentDiscount: discount.value,
+      debtAllowed: debtAllowed,
+    );
+    if (result.nextDiscount != null) {
+      setDiscount(result.nextDiscount!);
     }
-    if (!debtAllowed) {
-      setDiscount(0);
-      return false;
-    }
-    setDiscount(0);
-    return true;
+    return result.allowed;
   }
 
   bool _isCustomUnitPrice(
@@ -164,32 +193,13 @@ class CartController extends GetxController {
     return double.tryParse(v.toString()) ?? 0.0;
   }
 
-  double getPrice(String productId) {
-    try {
-      return _asDouble(productsPriceMap
-          .firstWhere((element) => element['id'] == productId)['price']);
-    } catch (e) {
-      return 0;
-    }
-  }
+  double getPrice(String productId) => _linePriceById[productId] ?? 0;
 
-  double getBuyingPrice(String productId) {
-    try {
-      return _asDouble(productsPriceMap
-          .firstWhere((element) => element['id'] == productId)['buyingPrice']);
-    } catch (e) {
-      return 0;
-    }
-  }
+  double getBuyingPrice(String productId) =>
+      _lineBuyingPriceById[productId] ?? 0;
 
-  double getOriginalPrice(String productId) {
-    try {
-      return _asDouble(productsPriceMap
-          .firstWhere((element) => element['id'] == productId)['originalPrice']);
-    } catch (e) {
-      return 0;
-    }
-  }
+  double getOriginalPrice(String productId) =>
+      _lineOriginalPriceById[productId] ?? 0;
 
   void setProducts(List<Product> products, List<dynamic> productsMap) {
     productsPriceMap.value = [];
@@ -229,6 +239,7 @@ class CartController extends GetxController {
     }
     _products.value = products;
     enforceWholesaleThreshold();
+    _reindexLineLookups();
     _products.refresh();
     productsPriceMap.refresh();
   }
@@ -237,6 +248,7 @@ class CartController extends GetxController {
     _products.removeWhere((p) => p.id == product.id);
     productsPriceMap.removeWhere((e) => e['id'] == product.id);
     enforceWholesaleThreshold();
+    _reindexLineLookups();
     _products.refresh();
     productsPriceMap.refresh();
   }
@@ -245,6 +257,7 @@ class CartController extends GetxController {
     _products.clear();
     productsPriceMap.clear();
     useWholesalePricing.value = false;
+    _reindexLineLookups();
   }
 
   void updateCart(
@@ -272,6 +285,7 @@ class CartController extends GetxController {
     product.count = count;
     _products.add(product);
     enforceWholesaleThreshold();
+    _reindexLineLookups();
     _products.refresh();
     productsPriceMap.refresh();
   }
@@ -305,36 +319,36 @@ class CartController extends GetxController {
           useWholesalePricing.value ? wholesaleBase : retailBase;
       productsPriceMap[i] = e;
     }
+    _reindexLineLookups();
     productsPriceMap.refresh();
   }
 
   double get productsPrice {
-    return _products.fold(
-        0, (sum, product) => sum + (getPrice(product.id) * product.count));
+    double sum = 0;
+    for (final product in _products) {
+      sum += getPrice(product.id) * product.count;
+    }
+    return sum;
   }
 
   double get productsBuyingPrice {
     double total = 0;
-    for (var product in _products) {
+    for (final product in _products) {
       total += getBuyingPrice(product.id) * product.count;
     }
     return total;
   }
 
   double get productsOriginalPrice {
-    return _products.fold(
-        0, (sum, product) => sum + (getOriginalPrice(product.id) * product.count));
-  }
-
-  double singleProductQuantity(String productId) {
     double sum = 0;
-    for (final p in _products) {
-      if (p.id == productId) {
-        sum += p.count;
-      }
+    for (final product in _products) {
+      sum += getOriginalPrice(product.id) * product.count;
     }
     return sum;
   }
+
+  double singleProductQuantity(String productId) =>
+      _lineQtyById[productId] ?? 0;
 
   /// Same as [singleProductQuantity]; kept for call sites that referred to "base" stock units.
   double singleProductBaseQuantity(String productId) {

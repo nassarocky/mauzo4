@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show DateUtils;
 import 'package:get/get.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/models/business_model.dart';
@@ -92,15 +93,10 @@ class FirestoreDb {
         .collection('userReports')
         .snapshots()
         .map((snapshot) {
-      print('Received productos with ${snapshot.docs.length} documents');
-      List<Product> products = snapshot.docs.map((doc) {
-        print('Processing productos with ID: ${doc.id}');
-        return Product.fromSnapshot(doc);
-      }).toList();
-
-      // Sort the products alphabetically by name
+      final products = snapshot.docs
+          .map((doc) => Product.fromSnapshot(doc))
+          .toList();
       products.sort((a, b) => a.name.compareTo(b.name));
-
       return products;
     }).handleError((error) {
       Get.snackbar(
@@ -122,23 +118,16 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching productos for owner: $business');
-
     return firestore
         .collection('products')
         .doc(business)
         .collection('userProducts')
         .snapshots()
         .map((snapshot) {
-      print('Received productos with ${snapshot.docs.length} documents');
-      List<Product> products = snapshot.docs.map((doc) {
-        print('Processing productos with ID: ${doc.id}');
-        return Product.fromSnapshot(doc);
-      }).toList();
-
-      // Sort the products alphabetically by name
+      final products = snapshot.docs
+          .map((doc) => Product.fromSnapshot(doc))
+          .toList();
       products.sort((a, b) => a.name.compareTo(b.name));
-
       return products;
     }).handleError((error) {
       Get.snackbar(
@@ -158,23 +147,16 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    print('Fetching productos for store: $storeId');
-
     return firestore
         .collection('store')
         .doc(storeId)
         .collection('userStore')
         .snapshots()
         .map((snapshot) {
-      print('Received productos with ${snapshot.docs.length} documents');
-      List<Product> products = snapshot.docs.map((doc) {
-        print('Processing store productos with ID: ${doc.id}');
-        return Product.fromSnapshot(doc);
-      }).toList();
-
-      // Sort the products alphabetically by name
+      final products = snapshot.docs
+          .map((doc) => Product.fromSnapshot(doc))
+          .toList();
       products.sort((a, b) => a.name.compareTo(b.name));
-
       return products;
     }).handleError((error) {
       Get.snackbar(
@@ -221,6 +203,15 @@ class FirestoreDb {
     });
   }
 
+  /// Period start for default sales/purchases lists.
+  /// Uses business [reset_time], or start of today if missing — never "all history".
+  Timestamp defaultListPeriodStart() {
+    final dynamic raw = _businessController.business['reset_time'];
+    if (raw is Timestamp) return raw;
+    if (raw is DateTime) return Timestamp.fromDate(raw);
+    return Timestamp.fromDate(DateUtils.dateOnly(DateTime.now()));
+  }
+
   // * SALE
   Stream<List<Sale>> getSales() {
 
@@ -230,28 +221,7 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    // Get reset time from business data
-    final Timestamp? resetTime = _businessController.business['reset_time'];
-    
-    if (resetTime == null) {
-      print('Reset time is null, fetching all sales for owner: $business');
-      // Fallback to all sales if no reset time
-      return firestore
-          .collection('sales')
-          .doc(business)
-          .collection('userSales')
-          .snapshots()
-          .map((snapshot) {
-        print('Received Sales with ${snapshot.docs.length} documents');
-        return snapshot.docs.map((doc) {
-          return Sale.fromSnapshot(doc);
-        }).toList();
-      })
-          .handleError((error) {
-        print('Error fetching sales: $error');
-      });
-    }
-
+    final Timestamp resetTime = defaultListPeriodStart();
     print('Fetching sales from reset time: ${resetTime.toDate()} for owner: $business');
 
     // Query sales where date >= resetTime (optimized to reduce reads)
@@ -340,28 +310,7 @@ class FirestoreDb {
       return Stream.value([]);
     }
 
-    // Get reset time from business data
-    final Timestamp? resetTime = _businessController.business['reset_time'];
-    
-    if (resetTime == null) {
-      print('Reset time is null, fetching all purchases for owner: $business');
-      // Fallback to all purchases if no reset time
-      return firestore
-          .collection('recovered')
-          .doc(business)
-          .collection('userRecovered')
-          .snapshots()
-          .map((snapshot) {
-        print('Received Recovered with ${snapshot.docs.length} documents');
-        return snapshot.docs.map((doc) {
-          return Sale.fromSnapshot(doc);
-        }).toList();
-      })
-          .handleError((error) {
-        print('Error fetching Recovered: $error');
-      });
-    }
-
+    final Timestamp resetTime = defaultListPeriodStart();
     print('Fetching purchases from reset time: ${resetTime.toDate()} for owner: $business');
 
     // Query purchases where date >= resetTime (optimized to reduce reads)

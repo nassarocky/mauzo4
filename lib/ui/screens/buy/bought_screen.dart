@@ -78,36 +78,22 @@ class _boughtControllerState extends State<BoughtScreen> {
       return;
     }
 
-    // Check for supplier filter arguments from navigation
+    // Always open on purchases since last reset — avoid loading / showing all history.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final arguments = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-      if (arguments != null && arguments.containsKey('supplierId')) {
-        final String supplierId = arguments['supplierId'];
-        final String supplierName = arguments['supplierName'] ?? 'Unknown Supplier';
-        
-        print('DEBUG: Applying supplier filter for ID: $supplierId, Name: $supplierName');
-        
-        // Apply supplier filter after ensuring data is loaded
-        Future.delayed(const Duration(milliseconds: 1000), () {
-          print('DEBUG: Sales count: ${_boughtController.sales.length}');
-          print('DEBUG: Suppliers count: ${_supplierController.suppliers.length}');
-          
-          // Check if any sales have this supplier ID
-          final matchingSales = _boughtController.sales.where((sale) => sale.supplier == supplierId).toList();
-          print('DEBUG: Found ${matchingSales.length} sales with supplier ID: $supplierId');
-          
+      final arguments =
+          ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      final String? supplierId = arguments != null &&
+              arguments.containsKey('supplierId')
+          ? arguments['supplierId']?.toString()
+          : null;
+
+      Timer.run(() async {
+        await _boughtController.ensureDefaultPeriodOnOpen(
+          keepClientFilters: supplierId != null && supplierId.isNotEmpty,
+        );
+        if (supplierId != null && supplierId.isNotEmpty) {
           _boughtController.setFilterClients([supplierId]);
-          
-          // Force a refresh of the filtered sales
-          Future.delayed(const Duration(milliseconds: 100), () {
-            print('DEBUG: Filtered sales count: ${_boughtController.filteredSales.length}');
-          });
-        });
-      }
-      
-      // Always initialize the sales data
-      Timer.run(() {
-        _boughtController.setSalesByDate();
+        }
       });
     });
   }
@@ -220,6 +206,55 @@ class _boughtControllerState extends State<BoughtScreen> {
                       : Container(),
                   GestureDetector(
                     onTap: () {
+                      showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(1900),
+                        lastDate: DateTime.now(),
+                        initialDateRange: _boughtController.effectiveDateRange,
+                      ).then(
+                            (DateTimeRange? value) {
+                          if (value != null) {
+                            setState(() {
+                              _boughtController.setSelectedDateRange(value);
+                            });
+                            successSnackbar(
+                                "${'date'.tr}: ${_boughtController.dateRangeChipLabel}");
+                          }
+                        },
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Preferences.getTheme()
+                              ? mediumGrayColor
+                              : borderColor,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Text(
+                            _boughtController.dateRangeChipLabel,
+                            style: bodyText(
+                              Theme.of(context).textTheme.bodyMedium!.color,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.expand_more,
+                            color: iconGrayColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
                       showModalBottomSheet(
                         shape: const RoundedRectangleBorder(
                           borderRadius: BorderRadius.only(
@@ -269,63 +304,6 @@ class _boughtControllerState extends State<BoughtScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      showDateRangePicker(
-                        context: context,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime.now(),
-                      ).then(
-                            (DateTimeRange? value) {
-                          if (value != null) {
-                            DateTimeRange fromRange = DateTimeRange(
-                              start: DateTime.now(),
-                              end: DateTime.now(),
-                            );
-                            setState(() {
-                              fromRange = value;
-                              _boughtController.setSelectedDateRange(fromRange);
-                            });
-
-                            final String range =
-                                '${DateFormat('dd/MM/yyyy').format(fromRange.start)} - ${DateFormat('dd/MM/yyyy').format(fromRange.end)}';
-                            successSnackbar("${'date'.tr}: $range");
-                          }
-                        },
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: Preferences.getTheme()
-                              ? mediumGrayColor
-                              : borderColor,
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          Text(
-                            _boughtController.selectedDateRange != null
-                                ? '${DateFormat('dd/MM/yyyy').format(_boughtController.selectedDateRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_boughtController.selectedDateRange!.end)}'
-                                : 'any_date'.tr,
-                            style: bodyText(
-                              Theme.of(context).textTheme.bodyMedium!.color,
-                            ),
-                          ),
-                          const Icon(
-                            Icons.expand_more,
-                            color: iconGrayColor,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -335,6 +313,44 @@ class _boughtControllerState extends State<BoughtScreen> {
                   ? Theme.of(context).scaffoldBackgroundColor
                   : whiteColor,
             ),
+            if (_boughtController.filteredSales.isNotEmpty)
+              Container(
+                width: double.infinity,
+                color: Preferences.getTheme()
+                    ? Theme.of(context).scaffoldBackgroundColor
+                    : whiteColor,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${'total'.tr}: ${formatCurrency(
+                          _boughtController.getFilteredTotalPurchasesAmount(),
+                          _businessController.business['mainCurrency'],
+                        )}',
+                        style: h6(
+                          Theme.of(context).textTheme.bodyLarge!.color,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${'paid'.tr}: ${formatCurrency(
+                        _boughtController.getFilteredTotalPaidAmount(),
+                        _businessController.business['mainCurrency'],
+                      )}',
+                      style: bodyText(greenColor),
+                    ),
+                  ],
+                ),
+              ),
+            if (_boughtController.filteredSales.isNotEmpty)
+              Container(
+                height: 8,
+                color: Preferences.getTheme()
+                    ? Theme.of(context).scaffoldBackgroundColor
+                    : whiteColor,
+              ),
             Expanded(
               child: _boughtController.getDatesCount() == 0
                   ? Center(
@@ -379,7 +395,7 @@ class _boughtControllerState extends State<BoughtScreen> {
                           ),
                           const Spacer(),
                           Text(
-                            '${'paid'.tr}: ${formatCurrency(_boughtController.getTotalPaidByDate(
+                            '${'total'.tr}: ${formatCurrency(_boughtController.getTotalSalesByDate(
                               salesByDate[index]['date'],
                             ), _businessController.business['mainCurrency'])}',
                             style: const TextStyle(

@@ -36,14 +36,76 @@ class BoughtController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    bindDefaultPurchasesStream();
+  }
+
+  /// Rebind default list to purchases since business [reset_time] (not all history).
+  void bindDefaultPurchasesStream() {
     try {
+      _salesSubscription?.cancel();
       _salesSubscription = FirestoreDb().getBought().listen((data) {
         sales.value = data;
-        filteredSales.value = data;
+        // Do not wipe an active custom date-range query.
+        if (!hasCustomDateRange) {
+          filterSales();
+        }
+      }, onError: (e) {
+        print("Error in purchases stream: $e");
       });
     } catch (e) {
       print("Error binding bought sales stream: $e");
     }
+  }
+
+  /// Display range for the date chip: selected range, or reset → today.
+  DateTimeRange defaultPeriodRange() {
+    final start = DateUtils.dateOnly(
+      FirestoreDb().defaultListPeriodStart().toDate(),
+    );
+    final end = DateUtils.dateOnly(DateTime.now());
+    if (end.isBefore(start)) {
+      return DateTimeRange(start: end, end: end);
+    }
+    return DateTimeRange(start: start, end: end);
+  }
+
+  DateTimeRange get effectiveDateRange =>
+      selectedDateRange ?? defaultPeriodRange();
+
+  bool isDefaultPeriod(DateTimeRange range) {
+    final def = defaultPeriodRange();
+    return DateUtils.dateOnly(range.start) == def.start &&
+        DateUtils.dateOnly(range.end) == def.end;
+  }
+
+  bool get hasCustomDateRange =>
+      selectedDateRange != null && !isDefaultPeriod(selectedDateRange!);
+
+  String get dateRangeChipLabel {
+    final range = effectiveDateRange;
+    return '${DateFormat('dd/MM/yyyy').format(range.start)} - ${DateFormat('dd/MM/yyyy').format(range.end)}';
+  }
+
+  /// Open Purchases screen: show reset→today on the date chip and load that period.
+  /// Keeps supplier filters when [keepClientFilters] is true.
+  Future<void> ensureDefaultPeriodOnOpen({bool keepClientFilters = false}) async {
+    selectedDateRange = defaultPeriodRange();
+    if (!keepClientFilters) {
+      filterClients.clear();
+      saleType.value = 'All';
+    }
+    filterEmployee.clear();
+    await _filteredSalesSubscription?.cancel();
+    _filteredSalesSubscription = null;
+    bindDefaultPurchasesStream();
+    if (sales.isNotEmpty) {
+      filterSales();
+    }
+  }
+
+  /// After closing books / business switch: full reset to period since [reset_time].
+  Future<void> resetToDefaultPeriod({bool keepClientFilters = false}) async {
+    await ensureDefaultPeriodOnOpen(keepClientFilters: keepClientFilters);
   }
 
   @override
@@ -256,6 +318,12 @@ void clearBought(){
     return salesByDate;
   }
 
+  /// Net purchase amount after discount.
+  double getPurchaseNet(Sale sale) {
+    final double net = sale.price - sale.discount;
+    return net > 0 ? net : 0;
+  }
+
   // New: sum of paid values for a specific date (purchases)
   double getTotalPaidByDate(DateTime date) {
     double totalPaidByDate = 0;
@@ -269,16 +337,36 @@ void clearBought(){
     return totalPaidByDate;
   }
 
+  /// Daily header total for purchases — uses [filteredSales] so date-range
+  /// filters (e.g. 1 May–1 Jun) show the correct day sum.
   double getTotalSalesByDate(DateTime date) {
     double totalSalesByDate = 0;
-    date = DateUtils.dateOnly(date);
-    for (var i = 0; i < sales.length; i++) {
-      DateTime saleDate = DateUtils.dateOnly(sales[i].date.toDate());
-      if (saleDate == date) {
-        totalSalesByDate += sales[i].price;
+    final target = DateUtils.dateOnly(date);
+    for (var i = 0; i < filteredSales.length; i++) {
+      DateTime saleDate = DateUtils.dateOnly(filteredSales[i].date.toDate());
+      if (saleDate == target) {
+        totalSalesByDate += getPurchaseNet(filteredSales[i]);
       }
     }
     return totalSalesByDate;
+  }
+
+  /// Grand total of the current filtered purchase list (date range / supplier / etc.).
+  double getFilteredTotalPurchasesAmount() {
+    double total = 0;
+    for (final sale in filteredSales) {
+      total += getPurchaseNet(sale);
+    }
+    return total;
+  }
+
+  /// Total paid across the current filtered purchase list.
+  double getFilteredTotalPaidAmount() {
+    double total = 0;
+    for (final sale in filteredSales) {
+      total += sale.payment;
+    }
+    return total;
   }
 
 
@@ -501,19 +589,15 @@ void clearBought(){
   final filterClients = <String>[].obs;
   final filterEmployee = <String>[].obs;
   void filterSales() async {
-    // If date range is selected, query database for that range
-    if (selectedDateRange != null) {
-      // Cancel previous filtered subscription if exists
+    // Default period (reset → today): use reset_time stream already in [sales].
+    // Custom range: query Firestore for that window only.
+    final bool useCustomRange = hasCustomDateRange;
+    if (useCustomRange) {
       await _filteredSalesSubscription?.cancel();
-      
-      // Query database for the selected date range
       _filteredSalesSubscription = FirestoreDb()
           .getBoughtByDateRange(selectedDateRange!.start, selectedDateRange!.end)
           .listen((data) {
-        // Start with queried data
         var filtered = data;
-        
-        // Apply additional filters
         if (filterClients.isNotEmpty) {
           filtered = filtered.where((sale) {
             return filterClients.contains(sale.supplier);
@@ -529,32 +613,34 @@ void clearBought(){
             return sale.debt > 0;
           }).toList();
         }
-        
         filteredSales.value = filtered;
         setSalesByDate();
       });
     } else {
-      // No date range selected, use in-memory filtering
       await _filteredSalesSubscription?.cancel();
-      
-      filteredSales.value = sales;
-      
+      _filteredSalesSubscription = null;
+      selectedDateRange ??= defaultPeriodRange();
+      if (!isDefaultPeriod(selectedDateRange!)) {
+        selectedDateRange = defaultPeriodRange();
+      }
+
+      var filtered = List<Sale>.from(sales);
       if (filterClients.isNotEmpty) {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return filterClients.contains(sale.supplier);
         }).toList();
       }
       if (filterEmployee.isNotEmpty) {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return filterEmployee.contains(sale.employeeId);
         }).toList();
       }
       if (saleType.value == 'Debt') {
-        filteredSales.value = filteredSales.where((sale) {
+        filtered = filtered.where((sale) {
           return sale.debt > 0;
         }).toList();
       }
-      
+      filteredSales.value = filtered;
       setSalesByDate();
     }
   }
@@ -578,9 +664,10 @@ void clearBought(){
   }
 
   void clearSelectedDateRange() async {
-    selectedDateRange = null;
+    selectedDateRange = defaultPeriodRange();
     await _filteredSalesSubscription?.cancel();
     _filteredSalesSubscription = null;
+    bindDefaultPurchasesStream();
     filterSales();
   }
 

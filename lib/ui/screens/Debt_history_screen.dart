@@ -348,6 +348,41 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
           );
         }),
         iconTheme: const IconThemeData(color: Colors.black),
+        actions: [
+          IconButton(
+            tooltip: 'export_debtors_excel'.tr,
+            icon: Image.asset(
+              'assets/images/excel.png',
+              width: 24,
+              height: 24,
+            ),
+            onPressed: () {
+              Get.find<ClientController>().generateExcelFromDebtors();
+            },
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'export_debtors_pdf'.tr,
+            icon: const Icon(Icons.picture_as_pdf, color: Colors.black),
+            onSelected: (value) {
+              final clients = Get.find<ClientController>();
+              if (value == 'print') {
+                clients.generatePdfFromDebtors(share: false);
+              } else if (value == 'share') {
+                clients.generatePdfFromDebtors(share: true);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'print',
+                child: Text('print_pdf'.tr),
+              ),
+              PopupMenuItem(
+                value: 'share',
+                child: Text('share_pdf'.tr),
+              ),
+            ],
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(50),
           child: Padding(

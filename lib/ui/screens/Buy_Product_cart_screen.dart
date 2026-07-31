@@ -41,6 +41,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   final FocusNode _paidFocusNode = FocusNode();
 
   bool _isLoading = false;
+  int _loadingLineCount = 0;
+  bool _paymentSyncScheduled = false;
   Map<String, dynamic>? _originalPurchaseData;
   DateTime? selectedDate;
   // Purchase fund source state
@@ -103,6 +105,90 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   /// Same flag as cart/sale screens; used in nested closures (e.g. Paid field [onChanged]).
   bool get _purchaseMultiFundEnabled =>
       _businessController.isMultiFundEnabled;
+
+  /// Sync paid amount / fund method once per frame (avoids Obx ↔ payment rebuild loops).
+  void _schedulePurchasePaymentSync() {
+    if (_paymentSyncScheduled || _isLoading) return;
+    _paymentSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _paymentSyncScheduled = false;
+      if (!mounted || _isLoading) return;
+
+      if (!_purchaseMultiFundEnabled && _fundSource != 'cash') {
+        setState(() {
+          _fundSource = 'cash';
+        });
+        if (_cartController.payments.length > 0) {
+          final existing = _cartController.payments[0];
+          _cartController.clearPayments();
+          _cartController.addPayment(
+            existing.amount,
+            existing.currency,
+            method: 'cash',
+          );
+        }
+      }
+
+      final String defaultMethod =
+          !_purchaseMultiFundEnabled ? 'cash' : _fundSource;
+      final double currentTotal =
+          _cartController.productsPrice - _cartController.discount.value;
+      final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
+
+      if ((_lastProductsTotal - currentTotal).abs() > 0.0001) {
+        _lastProductsTotal = currentTotal;
+        _userEditedPaid = false;
+      }
+
+      if (_cartController.payments.length == 0 &&
+          _cartController.productsPrice > 0) {
+        _cartController.addPayment(
+          calcAmount,
+          chosenCurrency,
+          method: defaultMethod,
+        );
+        _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
+        return;
+      }
+
+      if (_cartController.payments.length == 1 &&
+          _cartController.payments[0].method != defaultMethod) {
+        final existing = _cartController.payments[0];
+        _cartController.clearPayments();
+        _cartController.addPayment(
+          existing.amount,
+          existing.currency,
+          method: defaultMethod,
+        );
+      }
+
+      if (!_userEditedPaid &&
+          _cartController.payments.length == 1 &&
+          !_paidFocusNode.hasFocus) {
+        final existing = _cartController.payments[0];
+        if ((existing.amount - calcAmount).abs() > 0.0001) {
+          _cartController.clearPayments();
+          _cartController.addPayment(
+            calcAmount,
+            existing.currency,
+            method: existing.method,
+          );
+          _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
+        }
+      }
+    });
+  }
+
+  /// Parallel transaction reads (still all-or-nothing inside one [runTransaction]).
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> _txGetAll(
+    Transaction fireTx,
+    List<DocumentReference<Map<String, dynamic>>> refs,
+  ) {
+    if (refs.isEmpty) {
+      return Future.value(const <DocumentSnapshot<Map<String, dynamic>>>[]);
+    }
+    return Future.wait(refs.map(fireTx.get));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -176,58 +262,32 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
         ),
         
         body: _isLoading
-            ? const Center(
-          child: CircularProgressIndicator(),
-        )
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Saving purchase…',
+                      style: bodyText(
+                        Theme.of(context).textTheme.bodyLarge!.color,
+                      ),
+                    ),
+                    if (_loadingLineCount > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '$_loadingLineCount products · please wait',
+                        style: bodyText(textMutedColor),
+                      ),
+                    ],
+                  ],
+                ),
+              )
             : Obx(
               () {
-                // Ensure a default payment exists so amount is auto-filled
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!_purchaseMultiFundEnabled && _fundSource != 'cash') {
-                    setState(() {
-                      _fundSource = 'cash';
-                    });
-                    if (_cartController.payments.length > 0) {
-                      final existing = _cartController.payments[0];
-                      _cartController.clearPayments();
-                      _cartController.addPayment(existing.amount, existing.currency, method: 'cash');
-                    }
-                  }
-                  // Payment `method` must be the fund source catalog `value` (custom = doc id),
-                  // not ledger bucket — so ledger/sales lists show the label the user configured.
-                  final String defaultMethod =
-                      !_purchaseMultiFundEnabled ? 'cash' : _fundSource;
-                  
-                  // Calculate current total
-                  final double currentTotal = _cartController.productsPrice - _cartController.discount.value;
-                  final double calcAmount = currentTotal < 0 ? 0 : currentTotal;
-                  
-                  // Check if total changed (product added/removed or discount changed)
-                  if ((_lastProductsTotal - currentTotal).abs() > 0.0001) {
-                    _lastProductsTotal = currentTotal;
-                    _userEditedPaid = false; // Reset user edit flag when total changes
-                  }
-                  
-                  if (_cartController.payments.length == 0 && _cartController.productsPrice > 0) {
-                    _cartController.addPayment(calcAmount, chosenCurrency, method: defaultMethod);
-                    _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
-                  } else if (_cartController.payments.length == 1 && _cartController.payments[0].method != defaultMethod) {
-                    // If the fund source changed, update only the method and preserve amount and currency
-                    final existing = _cartController.payments[0];
-                    _cartController.clearPayments();
-                    _cartController.addPayment(existing.amount, existing.currency, method: defaultMethod);
-                  }
-                  
-                  // Only auto-fill if user hasn't manually edited AND field is not focused
-                  if (!_userEditedPaid && _cartController.payments.length == 1 && !_paidFocusNode.hasFocus) {
-                    final existing = _cartController.payments[0];
-                    if ((existing.amount - calcAmount).abs() > 0.0001) {
-                      _cartController.clearPayments();
-                      _cartController.addPayment(calcAmount, existing.currency, method: existing.method);
-                      _paidController.text = formatCurrencyWithoutSymbol(calcAmount);
-                    }
-                  }
-                });
+                _schedulePurchasePaymentSync();
+                final uniqueProducts = _cartController.getUniqueProducts();
                 
                 // Supplier selector field
                 return SingleChildScrollView(
@@ -576,11 +636,9 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                       ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount:
-                        _cartController.getUniqueProducts().length,
+                        itemCount: uniqueProducts.length,
                         itemBuilder: (context, index) {
-                          final product =
-                          _cartController.getUniqueProducts()[index];
+                          final product = uniqueProducts[index];
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 16.0),
@@ -854,6 +912,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                               if (_isLoading) return;
                               setState(() {
                                 _isLoading = true;
+                                _loadingLineCount =
+                                    _cartController.getUniqueProducts().length;
                               });
                               try {
                               if (_cartController.remaining > 0) {
@@ -935,9 +995,10 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                 errorSnackbar('no_products_in_cart'.tr);
                                 return;
                               }
-                              List products = [];
-                              for (var item in _cartController
-                                  .getUniqueProducts()) {
+                              final List products = [];
+                              final confirmLines =
+                                  _cartController.getUniqueProducts();
+                              for (final item in confirmLines) {
                                 products.add({
                                   'id': item.id,
                                   'quantity': _cartController
@@ -1178,23 +1239,23 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
     await firestore.runTransaction((fireTx) async {
       final ts = Timestamp.now();
-      final reads = <DocumentSnapshot<Map<String, dynamic>>>[];
-      for (final line in stockLines) {
-        final pref = firestore
-            .collection('products')
-            .doc(businessId)
-            .collection('userProducts')
-            .doc(line.id);
-        reads.add(await fireTx.get(pref));
-      }
-      var ri = 0;
+      final prefs = <DocumentReference<Map<String, dynamic>>>[
+        for (final line in stockLines)
+          firestore
+              .collection('products')
+              .doc(businessId)
+              .collection('userProducts')
+              .doc(line.id),
+      ];
+      final reads = await _txGetAll(fireTx, prefs);
       final persistedSale = Map<String, dynamic>.from(saleData);
       persistedSale['id'] = saleRef.id;
       persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
       fireTx.set(saleRef, persistedSale);
       final employeeName = (_profileController.user['name'] ?? '').toString();
-      for (final line in stockLines) {
-        final snap = reads[ri++];
+      for (var i = 0; i < stockLines.length; i++) {
+        final line = stockLines[i];
+        final snap = reads[i];
         if (!snap.exists) {
           throw Exception('Product not found in shop: ${line.name}');
         }
@@ -1256,29 +1317,25 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
 
     await firestore.runTransaction((fireTx) async {
       final ts = Timestamp.now();
-      final reads = <DocumentSnapshot<Map<String, dynamic>>>[];
-      for (final line in stockLines) {
-        final sref = firestore
-            .collection('store')
-            .doc(storeId)
-            .collection('userStore')
-            .doc(line.id);
-        reads.add(await fireTx.get(sref));
-      }
-      var ri = 0;
+      final srefs = <DocumentReference<Map<String, dynamic>>>[
+        for (final line in stockLines)
+          firestore
+              .collection('store')
+              .doc(storeId)
+              .collection('userStore')
+              .doc(line.id),
+      ];
+      final reads = await _txGetAll(fireTx, srefs);
       final persistedSale = Map<String, dynamic>.from(saleData);
       persistedSale['id'] = saleRef.id;
       persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
       fireTx.set(saleRef, persistedSale);
       final employeeName = (_profileController.user['name'] ?? '').toString();
-      for (final line in stockLines) {
-        final snap = reads[ri++];
+      for (var i = 0; i < stockLines.length; i++) {
+        final line = stockLines[i];
+        final snap = reads[i];
         final delta = line.quantity;
-        final sref = firestore
-            .collection('store')
-            .doc(storeId)
-            .collection('userStore')
-            .doc(line.id);
+        final sref = srefs[i];
         double prev = 0.0;
         if (snap.exists) {
           final q = snap.data()?['quantity'] ?? 0;
@@ -1416,11 +1473,19 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       if (!purchaseSnap.exists) {
         throw Exception('Purchase record not found.');
       }
-      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
-      for (final id in ids) {
-        final ref = firestore.collection('products').doc(businessId).collection('userProducts').doc(id);
-        snaps[id] = await fireTx.get(ref);
-      }
+      final idList = ids.toList();
+      final prefs = <DocumentReference<Map<String, dynamic>>>[
+        for (final id in idList)
+          firestore
+              .collection('products')
+              .doc(businessId)
+              .collection('userProducts')
+              .doc(id),
+      ];
+      final readSnaps = await _txGetAll(fireTx, prefs);
+      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{
+        for (var i = 0; i < idList.length; i++) idList[i]: readSnaps[i],
+      };
       fireTx.update(purchaseRef, updatedData);
       final employeeName = (_profileController.user['name'] ?? '').toString();
 
@@ -1520,11 +1585,19 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       if (!purchaseSnap.exists) {
         throw Exception('Purchase record not found.');
       }
-      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
-      for (final id in ids) {
-        final ref = firestore.collection('store').doc(storeId).collection('userStore').doc(id);
-        snaps[id] = await fireTx.get(ref);
-      }
+      final idList = ids.toList();
+      final srefs = <DocumentReference<Map<String, dynamic>>>[
+        for (final id in idList)
+          firestore
+              .collection('store')
+              .doc(storeId)
+              .collection('userStore')
+              .doc(id),
+      ];
+      final readSnaps = await _txGetAll(fireTx, srefs);
+      final snaps = <String, DocumentSnapshot<Map<String, dynamic>>>{
+        for (var i = 0; i < idList.length; i++) idList[i]: readSnaps[i],
+      };
       fireTx.update(purchaseRef, updatedData);
       final employeeName = (_profileController.user['name'] ?? '').toString();
 

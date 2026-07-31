@@ -25,6 +25,18 @@ String normalizePhoneToE164(String input, {String defaultCountryCode = '255'}) {
   return '+$digits';
 }
 
+/// Digits-only phone for derived Auth email — must match Cloud Functions
+/// [normalizePhoneDigitsForDerivedEmail] and employee registration.
+String phoneDigitsForDerivedEmail(String input) {
+  String digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.startsWith('0') && digits.length == 10) {
+    digits = '255${digits.substring(1)}';
+  } else if (digits.length == 9 && !digits.startsWith('255')) {
+    digits = '255$digits';
+  }
+  return digits;
+}
+
 class RegisterScreen extends StatefulWidget {
   RegisterScreen({Key? key}) : super(key: key);
 

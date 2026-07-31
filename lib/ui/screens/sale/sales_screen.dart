@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/controllers/client_controller.dart';
+import 'package:mauzo/controllers/employee_controller.dart';
 import 'package:mauzo/controllers/product_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/models/client_model.dart';
@@ -59,8 +60,9 @@ class _SalesScreenState extends State<SalesScreen> {
     }
     _thermalPrinter = Get.find<ThermalPrinterService>();
     
+    // Always open on sales since last reset — avoid loading / showing all history.
     Timer.run(() {
-      _saleController.setSalesByDate();
+      _saleController.ensureDefaultPeriodOnOpen();
     });
 
     super.initState();
@@ -73,8 +75,27 @@ class _SalesScreenState extends State<SalesScreen> {
       // Clear date range to use default reset time loading
       _saleController.clearSelectedDateRange();
       _saleController.filterClients.value = [];
+      _saleController.filterEmployee.value = [];
       _saleController.setSaleType('All');
     });
+  }
+
+  String _employeeFilterChipLabel() {
+    final ids = _saleController.filterEmployee;
+    if (ids.isEmpty) return 'all_employees'.tr;
+    if (ids.length == 1) {
+      final id = ids.first;
+      final fromSales = _saleController.sales.where((s) => s.employeeId == id);
+      if (fromSales.isNotEmpty && fromSales.first.employeeName.trim().isNotEmpty) {
+        return fromSales.first.employeeName;
+      }
+      if (Get.isRegistered<EmployeeController>()) {
+        final emp = Get.find<EmployeeController>().getEmployee(id);
+        if (emp.name.trim().isNotEmpty) return emp.name;
+      }
+      return '1 ${'employee'.tr.toLowerCase()}';
+    }
+    return '${ids.length} ${'Employees'.tr.toLowerCase()}';
   }
 
   @override
@@ -131,13 +152,18 @@ class _SalesScreenState extends State<SalesScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 scrollDirection: Axis.horizontal,
                 children: [
-                  _saleController.sales.length !=
-                      _saleController.filteredSales.length
+                  (_saleController.sales.length !=
+                          _saleController.filteredSales.length ||
+                          _saleController.filterEmployee.isNotEmpty ||
+                          _saleController.filterClients.isNotEmpty ||
+                          _saleController.hasCustomDateRange ||
+                          _saleController.saleType.value != 'All')
                       ? Row(
                     children: [
                       GestureDetector(
                         onTap: () {
                           _saleController.filterClients.value = [];
+                          _saleController.filterEmployee.value = [];
                           _saleController.setSaleType('All');
                           _saleController.clearSelectedDateRange();
                           _saleController.filterSales();
@@ -166,6 +192,99 @@ class _SalesScreenState extends State<SalesScreen> {
                     ],
                   )
                       : Container(),
+                  GestureDetector(
+                    onTap: () {
+                      showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(1900),
+                        lastDate: DateTime.now(),
+                        initialDateRange: _saleController.effectiveDateRange,
+                      ).then((DateTimeRange? value) {
+                        if (value != null) {
+                          setState(() {
+                            _saleController.setSelectedDateRange(value);
+                          });
+                          successSnackbar(
+                              "${'date'.tr}: ${_saleController.dateRangeChipLabel}");
+                        }
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Preferences.getTheme()
+                              ? mediumGrayColor
+                              : borderColor,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Text(
+                            _saleController.dateRangeChipLabel,
+                            style: bodyText(
+                              Theme.of(context).textTheme.bodyMedium!.color,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.expand_more,
+                            color: iconGrayColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      showModalBottomSheet(
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(4),
+                            topRight: Radius.circular(4),
+                          ),
+                        ),
+                        isScrollControlled: true,
+                        context: context,
+                        builder: (context) {
+                          return const SelectEmployeesBottomSheet();
+                        },
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: Preferences.getTheme()
+                              ? mediumGrayColor
+                              : borderColor,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Text(
+                            _employeeFilterChipLabel(),
+                            style: bodyText(
+                              Theme.of(context).textTheme.bodyMedium!.color,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.expand_more,
+                            color: iconGrayColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () {
                       showModalBottomSheet(
@@ -205,56 +324,6 @@ class _SalesScreenState extends State<SalesScreen> {
                                 : _saleController.filterClients.length == 1
                                 ? '${_saleController.filterClients.length} ${'client'.tr.toLowerCase()}'
                                 : '${_saleController.filterClients.length} ${'clients'.tr.toLowerCase()}',
-                            style: bodyText(
-                              Theme.of(context).textTheme.bodyMedium!.color,
-                            ),
-                          ),
-                          const Icon(
-                            Icons.expand_more,
-                            color: iconGrayColor,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      showDateRangePicker(
-                        context: context,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime.now(),
-                      ).then((DateTimeRange? value) {
-                        if (value != null) {
-                          setState(() {
-                            _saleController.setSelectedDateRange(value);
-                          });
-                          final range = _saleController.selectedDateRange!;
-                          final String rangeLabel =
-                              '${DateFormat('dd/MM/yyyy').format(range.start)} - ${DateFormat('dd/MM/yyyy').format(range.end)}';
-                          successSnackbar("${'date'.tr}: $rangeLabel");
-                        }
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: Preferences.getTheme()
-                              ? mediumGrayColor
-                              : borderColor,
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          Text(
-                            _saleController.selectedDateRange != null
-                                ? '${DateFormat('dd/MM/yyyy').format(_saleController.selectedDateRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_saleController.selectedDateRange!.end)}'
-                                : 'any_date'.tr,
                             style: bodyText(
                               Theme.of(context).textTheme.bodyMedium!.color,
                             ),
@@ -350,6 +419,63 @@ class _SalesScreenState extends State<SalesScreen> {
                   ? Theme.of(context).scaffoldBackgroundColor
                   : whiteColor,
             ),
+            if (_saleController.filteredSales.isNotEmpty &&
+                (canMakeSales ||
+                    _businessController.business['allowSalesView'] == true))
+              Container(
+                width: double.infinity,
+                color: Preferences.getTheme()
+                    ? Theme.of(context).scaffoldBackgroundColor
+                    : whiteColor,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${'TOTAL SALES:'.tr} ${formatCurrency(
+                        _saleController.getFilteredTotalSalesAmount(),
+                        _businessController.business['mainCurrency'],
+                      )}',
+                      style: h6(
+                        Theme.of(context).textTheme.bodyLarge!.color,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${'paid'.tr}: ${formatCurrency(
+                              _saleController.getFilteredTotalPaymentsAmount(),
+                              _businessController.business['mainCurrency'],
+                            )}',
+                            style: bodyText(greenColor),
+                          ),
+                        ),
+                        if (_saleController.getFilteredTotalUnpaidAmount() >
+                            0.01)
+                          Text(
+                            '${'debt'.tr}: ${formatCurrency(
+                              _saleController.getFilteredTotalUnpaidAmount(),
+                              _businessController.business['mainCurrency'],
+                            )}',
+                            style: bodyText(warningColor),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            if (_saleController.filteredSales.isNotEmpty &&
+                (canMakeSales ||
+                    _businessController.business['allowSalesView'] == true))
+              Container(
+                height: 8,
+                color: Preferences.getTheme()
+                    ? Theme.of(context).scaffoldBackgroundColor
+                    : whiteColor,
+              ),
             Expanded(
               child: _saleController.getDatesCount() == 0
                   ? Center(
@@ -416,8 +542,8 @@ class _SalesScreenState extends State<SalesScreen> {
                         children: List.from(
                           salesByDate[index]['sales'].map(
                                 (sale) {
-                              final client = _clientController
-                                  .getClient(sale.client);
+                              final client =
+                                  _clientController.resolveClientForSale(sale);
                               final time = sale.date.toDate();
 
                               // Payment method labels (built-in + custom from BusinessController)
@@ -544,15 +670,9 @@ class _SalesScreenState extends State<SalesScreen> {
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          sale.client == ''
-                                              ? sale.clientname
-                                              : _clientController
-                                              .getClient(
-                                              sale.client)
-                                              .id ==
-                                              ''
-                                              ? sale.clientname
-                                              : client.name,
+                                          client.name.isNotEmpty
+                                              ? client.name
+                                              : sale.clientname,
                                           style: bodyText(
                                               Theme.of(context)
                                                   .textTheme
@@ -1005,6 +1125,166 @@ class _SalesScreenState extends State<SalesScreen> {
           title:
           ('${'sale'.tr} ${DateFormat("dd.MM.yyyy", 'en_US').format(time)} ${DateFormat("hh:mm a", 'en_US').format(time)}'),
         ),
+      ),
+    );
+  }
+}
+
+/// Builds employee id → name options from loaded employees and current sales.
+List<MapEntry<String, String>> salesEmployeeFilterOptions(SaleController saleController) {
+  final map = <String, String>{};
+  if (Get.isRegistered<EmployeeController>()) {
+    for (final e in Get.find<EmployeeController>().employees) {
+      if (e.id.trim().isEmpty) continue;
+      map[e.id] = e.name.trim().isNotEmpty ? e.name : e.id;
+    }
+  }
+  for (final sale in saleController.sales) {
+    if (sale.employeeId.trim().isEmpty) continue;
+    map.putIfAbsent(
+      sale.employeeId,
+      () => sale.employeeName.trim().isNotEmpty
+          ? sale.employeeName
+          : sale.employeeId,
+    );
+  }
+  final list = map.entries.toList()
+    ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+  return list;
+}
+
+class SelectEmployeesBottomSheet extends StatefulWidget {
+  const SelectEmployeesBottomSheet({Key? key}) : super(key: key);
+
+  @override
+  State<SelectEmployeesBottomSheet> createState() =>
+      _SelectEmployeesBottomSheetState();
+}
+
+class _SelectEmployeesBottomSheetState extends State<SelectEmployeesBottomSheet> {
+  List<String> localFilterEmployees = [];
+  final SaleController _saleController = Get.find();
+
+  @override
+  void initState() {
+    localFilterEmployees = [..._saleController.filterEmployee];
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final options = salesEmployeeFilterOptions(_saleController);
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Employees'.tr,
+                  style: h5(Theme.of(context).textTheme.bodyLarge!.color),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Icon(
+                    Icons.close,
+                    color: iconGrayColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.4,
+            child: options.isEmpty
+                ? Center(
+                    child: Text(
+                      'not_found'.tr,
+                      style: bodyText(textPlaceholderColor),
+                    ),
+                  )
+                : ShaderMask(
+                    shaderCallback: (Rect rect) {
+                      return const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.purple,
+                          Colors.transparent,
+                          Colors.transparent,
+                          Colors.purple
+                        ],
+                        stops: [0.0, 0.05, 0.9, 1.0],
+                      ).createShader(rect);
+                    },
+                    blendMode: BlendMode.dstOut,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      itemBuilder: (_, index) {
+                        final entry = options[index];
+                        return CheckboxListTile(
+                          visualDensity: VisualDensity.compact,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          activeColor: Preferences.getTheme()
+                              ? primaryLightColor
+                              : primaryColor,
+                          title: Text(entry.value),
+                          value: localFilterEmployees.contains(entry.key),
+                          onChanged: (value) {
+                            setState(() {
+                              if (localFilterEmployees.contains(entry.key)) {
+                                localFilterEmployees.remove(entry.key);
+                              } else {
+                                localFilterEmployees.add(entry.key);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Preferences.getTheme() ? lightGrayColor : borderColor,
+                ),
+              ),
+            ),
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.3,
+                  child: SecondaryButton(
+                    onPressed: () {
+                      _saleController.filterEmployee.clear();
+                      _saleController.filterSales();
+                      Navigator.pop(context);
+                    },
+                    text: 'reset'.tr,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: PrimaryButton(
+                    text: 'apply'.tr,
+                    onPressed: () {
+                      _saleController.setFilterEmployee(localFilterEmployees);
+                      Navigator.pop(context);
+                    },
+                  ),
+                )
+              ],
+            ),
+          )
+        ],
       ),
     );
   }

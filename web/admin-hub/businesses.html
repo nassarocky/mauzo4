@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>HesabuMauzo — Businesses</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c1018;
+      --card: #151c28;
+      --border: #2a3544;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #6366f1;
+      --accent-dim: #4f46e5;
+      --danger: #f87171;
+      --ok: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px 16px 48px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 18px; }
+    .nav { margin-bottom: 16px; }
+    .nav a { color: #c7d2fe; text-decoration: none; font-size: 0.9rem; font-weight: 600; }
+    .nav a:hover { text-decoration: underline; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 16px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0e141e;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+    .filters {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) {
+      .filters { grid-template-columns: repeat(3, 1fr); }
+      .filters .span2 { grid-column: span 2; }
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
+    button {
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover:not(:disabled) { background: var(--accent-dim); }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+    button.danger { background: rgba(248, 113, 113, 0.15); color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.35); }
+    button.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.25); }
+    button.tiny { padding: 6px 10px; font-size: 0.8rem; }
+    #feedback {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-bottom: 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    #feedback.show { display: block; }
+    #feedback.ok { background: rgba(74, 222, 128, 0.12); color: #86efac; border-color: rgba(74, 222, 128, 0.35); }
+    #feedback.error { background: rgba(248, 113, 113, 0.1); color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
+    #feedback.info { background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.35); }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+    }
+    .grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    .biz {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: #0e141e;
+    }
+    .biz h2 {
+      margin: 0 0 8px;
+      font-size: 1.02rem;
+      color: #c7d2fe;
+    }
+    .biz p { margin: 4px 0; font-size: 0.86rem; color: var(--text); }
+    .biz span.k { color: var(--muted); font-weight: 600; }
+    .badge {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .badge.ok { color: #86efac; border-color: rgba(74, 222, 128, 0.4); }
+    .badge.ended { color: #fca5a5; border-color: rgba(248, 113, 113, 0.4); }
+    .badge.trial { color: #fde68a; border-color: rgba(251, 191, 36, 0.4); }
+    .biz-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .pager {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+    }
+    .auth-boot { text-align: center; padding: 28px 16px; color: var(--muted); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="nav"><a href="./">← Admin home</a></p>
+    <h1>Businesses</h1>
+    <p class="sub">Browse recently registered shops page by page. Filter by date, subscription status, or exact email/name. For <strong>subscription_ok</strong>, recently paid shops appear first.</p>
+
+    <div id="feedback" role="status" aria-live="polite"></div>
+
+    <div id="authBootCard" class="card auth-boot">Loading session…</div>
+
+    <div id="loginCard" class="card" hidden>
+      <form id="loginForm">
+        <label for="hubEmail">Email</label>
+        <input id="hubEmail" type="email" autocomplete="username" required />
+        <label for="hubPassword">Password</label>
+        <input id="hubPassword" type="password" autocomplete="current-password" required style="margin-top:8px" />
+        <div class="actions">
+          <button type="submit" class="primary">Sign in</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="mainCard" hidden>
+      <div class="card">
+        <div class="filters">
+          <div>
+            <label for="sortBy">Load / sort</label>
+            <select id="sortBy">
+              <option value="date">Recently registered</option>
+              <option value="paymentStart">Recently paid (payment start)</option>
+            </select>
+          </div>
+          <div>
+            <label for="subscriptionStatus">Subscription status</label>
+            <select id="subscriptionStatus">
+              <option value="">Any status</option>
+              <option value="subscription_ok">subscription_ok</option>
+              <option value="subscription_ontrial">subscription_ontrial</option>
+              <option value="subscription_ended">subscription_ended</option>
+            </select>
+          </div>
+          <div>
+            <label for="pageSize">Page size</label>
+            <select id="pageSize">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="30">30</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <div>
+            <label for="dateFrom">Registered from</label>
+            <input id="dateFrom" type="date" />
+          </div>
+          <div>
+            <label for="dateTo">Registered to</label>
+            <input id="dateTo" type="date" />
+          </div>
+          <div>
+            <label for="emailExact">Email (exact)</label>
+            <input id="emailExact" type="text" placeholder="shop@example.com" autocomplete="off" />
+          </div>
+          <div class="span2">
+            <label for="nameExact">Name (exact)</label>
+            <input id="nameExact" type="text" placeholder="Business name" autocomplete="off" />
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="loadBtn">Load page</button>
+          <button type="button" class="ghost" id="resetFiltersBtn">Reset filters</button>
+          <button type="button" class="ghost" id="logoutBtn">Sign out</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="meta">
+          <span>Signed in as <strong id="staffEmail"></strong></span>
+          <span id="pageMeta">Page 1</span>
+          <span id="sortMeta"></span>
+        </div>
+        <div id="bizGrid" class="grid"></div>
+        <div class="pager">
+          <button type="button" class="ghost" id="prevBtn" disabled>← Previous</button>
+          <button type="button" class="ghost" id="nextBtn" disabled>Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./businesses.js"></script>
+</body>
+</html>

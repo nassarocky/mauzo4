@@ -499,8 +499,17 @@ exports.adminResetUserPassword = onCall({ region: "us-central1" }, async (reques
   return { success: true, targetUid: uid };
 });
 
+const SUPPORT_USER_ROLES = [
+  "owner",
+  "manager",
+  "cashier",
+  "sales_person",
+  "agent",
+  "employee",
+];
+
 const SUPPORT_RECORD_COLLECTIONS = {
-  gmanusers: ["email", "name", "phone", "image", "maxBusiness"],
+  gmanusers: ["email", "name", "phone", "image", "maxBusiness", "role"],
   businesses: ["email", "name", "phone", "tin", "logo"],
 };
 
@@ -547,7 +556,7 @@ exports.adminSupportResolveUser = onCall({ region: "us-central1" }, async (reque
   return { uid, data, businesses };
 });
 
-/** Support: merge allowed fields on gmanusers or businesses; mirrors name/email/phone to userEmployees for that user. Commission admins only. */
+/** Support: merge allowed fields on gmanusers or businesses; mirrors name/email/phone/role to userEmployees for that user. Commission admins only. */
 exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (request) => {
   const callerUid = await assertCommissionAdmin(request);
   const { collection: col, documentId, patch } = request.data || {};
@@ -580,6 +589,18 @@ exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (requ
           );
         }
         sanitized[key] = n;
+      } else if (key === "role") {
+        const role =
+          typeof v === "string" ? v.trim().toLowerCase() : "";
+        if (!SUPPORT_USER_ROLES.includes(role)) {
+          throw new HttpsError(
+            "invalid-argument",
+            `role must be one of: ${SUPPORT_USER_ROLES.join(", ")}`
+          );
+        }
+        sanitized.role = role;
+        // Match app behavior: role change clears custom permission overrides.
+        sanitized.permissions = [];
       } else if (v === null) {
         sanitized[key] = null;
       } else if (typeof v === "string") {
@@ -613,6 +634,8 @@ exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (requ
     if (sanitized.name !== undefined) empPatch.name = sanitized.name;
     if (sanitized.phone !== undefined) empPatch.phone = sanitized.phone;
     if (sanitized.maxBusiness !== undefined) empPatch.maxBusiness = sanitized.maxBusiness;
+    if (sanitized.role !== undefined) empPatch.role = sanitized.role;
+    if (sanitized.permissions !== undefined) empPatch.permissions = sanitized.permissions;
     if (Object.keys(empPatch).length > 0) {
       for (const bid of bizList) {
         const empRef = firestore
@@ -3669,6 +3692,154 @@ exports.commissionAdminDeleteAgent = onCall({ region: "us-central1" }, async (re
 exports.commissionAdminPing = onCall({ region: "us-central1" }, async (request) => {
   await assertCommissionAdmin(request);
   return { ok: true };
+});
+
+function serializeFirestoreTs(value) {
+  if (!value) return null;
+  if (typeof value.toDate === "function") {
+    const d = value.toDate();
+    return { _seconds: Math.floor(d.getTime() / 1000), _nanoseconds: 0 };
+  }
+  if (typeof value._seconds === "number") {
+    return { _seconds: value._seconds, _nanoseconds: value._nanoseconds || 0 };
+  }
+  if (value instanceof Date) {
+    return { _seconds: Math.floor(value.getTime() / 1000), _nanoseconds: 0 };
+  }
+  return null;
+}
+
+function parseAdminDateBound(raw, endOfDay) {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
+    if (endOfDay) return new Date(y, m - 1, d, 23, 59, 59, 999);
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function serializeAdminBusiness(doc) {
+  const b = doc.data() || {};
+  return {
+    id: doc.id,
+    name: b.name || "",
+    email: b.email || "",
+    phone: b.phone || "",
+    ownerId: b.ownerId || "",
+    debtEnabled: b.debtEnabled,
+    subscriptionStatus: b.subscriptionStatus || "",
+    reset_time: serializeFirestoreTs(b.reset_time),
+    date: serializeFirestoreTs(b.date),
+    paymentStart: serializeFirestoreTs(b.paymentStart),
+    paymentLast: serializeFirestoreTs(b.paymentLast),
+  };
+}
+
+/**
+ * Paginated businesses for admin-hub (no full-collection dump).
+ * - sortBy "date": recently registered first
+ * - sortBy "paymentStart": recently paid first (use with subscription_ok)
+ * Optional filters: subscriptionStatus, dateFrom/dateTo (registration), email, name (exact)
+ */
+exports.adminListBusinesses = onCall({ region: "us-central1" }, async (request) => {
+  await assertCommissionAdmin(request);
+  const data = request.data || {};
+  const pageSizeRaw = parseInt(data.pageSize, 10);
+  const pageSize = Number.isFinite(pageSizeRaw)
+    ? Math.min(Math.max(pageSizeRaw, 1), 50)
+    : 20;
+
+  const subscriptionStatus = (data.subscriptionStatus || "").toString().trim();
+  const email = (data.email || "").toString().trim();
+  const name = (data.name || "").toString().trim();
+  let sortBy = (data.sortBy || "").toString().trim();
+  if (sortBy !== "date" && sortBy !== "paymentStart") {
+    sortBy =
+      subscriptionStatus === "subscription_ok" && !data.dateFrom && !data.dateTo
+        ? "paymentStart"
+        : "date";
+  }
+
+  const dateFrom = parseAdminDateBound(data.dateFrom, false);
+  const dateTo = parseAdminDateBound(data.dateTo, true);
+  if ((data.dateFrom && !dateFrom) || (data.dateTo && !dateTo)) {
+    throw new HttpsError("invalid-argument", "dateFrom/dateTo must be YYYY-MM-DD.");
+  }
+  // Registration-date range forces orderBy date (Firestore inequality rules).
+  if (dateFrom || dateTo) {
+    sortBy = "date";
+  }
+
+  // Exact email/name lookups are small; always sort by registration date.
+  const exactLookup = Boolean(email || name);
+  const orderField =
+    !exactLookup && sortBy === "paymentStart" ? "paymentStart" : "date";
+  let query = firestore.collection("businesses");
+
+  if (email) {
+    query = query.where("email", "==", email);
+  } else if (name) {
+    query = query.where("name", "==", name);
+  } else {
+    if (subscriptionStatus) {
+      query = query.where("subscriptionStatus", "==", subscriptionStatus);
+    }
+    if (dateFrom) {
+      query = query.where("date", ">=", admin.firestore.Timestamp.fromDate(dateFrom));
+    }
+    if (dateTo) {
+      query = query.where("date", "<=", admin.firestore.Timestamp.fromDate(dateTo));
+    }
+  }
+
+  query = query.orderBy(orderField, "desc");
+
+  const cursorId = data.cursor?.id ? String(data.cursor.id).trim() : "";
+  if (cursorId) {
+    const cursorDoc = await firestore.collection("businesses").doc(cursorId).get();
+    if (!cursorDoc.exists) {
+      throw new HttpsError("invalid-argument", "Pagination cursor document not found.");
+    }
+    query = query.startAfter(cursorDoc);
+  }
+
+  let snap;
+  try {
+    snap = await query.limit(pageSize + 1).get();
+  } catch (err) {
+    console.error("adminListBusinesses query failed:", err);
+    const msg = err?.message || String(err);
+    if (/index/i.test(msg)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Firestore index required for this filter/sort. Deploy indexes or open the link in the function logs. (${msg})`
+      );
+    }
+    throw new HttpsError("internal", msg);
+  }
+
+  const docs = snap.docs.slice(0, pageSize);
+  const hasMore = snap.docs.length > pageSize;
+  const businesses = docs.map(serializeAdminBusiness);
+
+  let nextCursor = null;
+  if (hasMore && docs.length > 0) {
+    nextCursor = { id: docs[docs.length - 1].id, orderField };
+  }
+
+  return {
+    businesses,
+    pageSize,
+    sortBy: orderField,
+    hasMore,
+    nextCursor,
+  };
 });
 
 /** Lightweight auth check for the agent portal (no Firestore composite indexes required). */

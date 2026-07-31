@@ -44,6 +44,40 @@ class _ClientsScreenState extends State<ClientsScreen> {
       appBar: AppBar(
         elevation: 0,
         title: Text('clients'.tr),
+        actions: [
+          IconButton(
+            tooltip: 'export_debtors_excel'.tr,
+            icon: Image.asset(
+              'assets/images/excel.png',
+              width: 24,
+              height: 24,
+            ),
+            onPressed: () {
+              _clientController.generateExcelFromDebtors();
+            },
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'export_debtors_pdf'.tr,
+            icon: const Icon(Icons.picture_as_pdf),
+            onSelected: (value) {
+              if (value == 'print') {
+                _clientController.generatePdfFromDebtors(share: false);
+              } else if (value == 'share') {
+                _clientController.generatePdfFromDebtors(share: true);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'print',
+                child: Text('print_pdf'.tr),
+              ),
+              PopupMenuItem(
+                value: 'share',
+                child: Text('share_pdf'.tr),
+              ),
+            ],
+          ),
+        ],
       ),
       floatingActionButton: canManageClients ? FloatingActionButton(
         onPressed: () {

@@ -331,7 +331,6 @@
         </div>
 
         <hr class="sep" />
-
         <label for="fieldEmail">email</label>
         <input id="fieldEmail" type="text" autocomplete="off" />
 
@@ -340,6 +339,22 @@
 
         <label for="fieldPhone">phone</label>
         <input id="fieldPhone" type="text" autocomplete="off" />
+
+        <div id="wrapUserRole">
+          <label for="fieldRole">role</label>
+          <select id="fieldRole" aria-label="User role">
+            <option value="owner">owner</option>
+            <option value="manager">manager</option>
+            <option value="cashier">cashier</option>
+            <option value="sales_person">sales_person</option>
+            <option value="agent">agent</option>
+            <option value="employee">employee (legacy)</option>
+          </select>
+          <p class="hint-block" style="margin-top:-6px">
+            Reassigns app access role on the user profile and all linked employee records.
+            Custom permission overrides are cleared.
+          </p>
+        </div>
 
         <div id="wrapUserMaxBusiness">
           <label for="fieldMaxBusiness">max business</label>
