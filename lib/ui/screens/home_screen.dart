@@ -1247,6 +1247,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.money,
                       route: 'debt',
                     ),
+
+                    if (canEditBusiness)
+                      DrawerTile(
+                        title: 'sms_debt_reminders'.tr,
+                        icon: Icons.sms_outlined,
+                        route: 'sms-credits',
+                      ),
                     
                     if(canEditBusiness)
                       DrawerTile(

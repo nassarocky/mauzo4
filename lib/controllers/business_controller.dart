@@ -370,6 +370,10 @@ class BusinessController extends GetxController {
             'trialStart': business.trialStart,
             'paymentStart': business.paymentStart,
             'paymentLast': business.paymentLast,
+            'smsCredits': (rawData['smsCredits'] as num?)?.toInt() ?? 0,
+            'smsCreditsUsed': (rawData['smsCreditsUsed'] as num?)?.toInt() ?? 0,
+            'smsCreditsTotalPurchased':
+                (rawData['smsCreditsTotalPurchased'] as num?)?.toInt() ?? 0,
             'invoicePaymentDetails': rawData['invoicePaymentDetails'] != null
                 ? List<Map<String, dynamic>>.from(
                     (rawData['invoicePaymentDetails'] as List)

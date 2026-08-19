@@ -505,6 +505,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 _buildDetailsCard(),
                 const SizedBox(height: 16),
                 _buildPaymentButton(context),
+                const SizedBox(height: 16),
+                _buildSmsCreditsCard(context),
                 const SizedBox(height: 24),
                 _buildProfileAccountCard(context),
                 const SizedBox(height: 24),
@@ -796,6 +798,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmsCreditsCard(BuildContext context) {
+    final credits = (_businessController.business['smsCredits'] as num?)?.toInt() ?? 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        child: ListTile(
+          leading: const Icon(Icons.sms_outlined, color: primaryColor),
+          title: Text('sms_debt_reminders'.tr),
+          subtitle: Text('${'sms_credits_remaining'.tr}: $credits'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.pushNamed(context, '/sms-credits'),
         ),
       ),
     );

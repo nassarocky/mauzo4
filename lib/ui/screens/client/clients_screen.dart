@@ -45,6 +45,16 @@ class _ClientsScreenState extends State<ClientsScreen> {
         elevation: 0,
         title: Text('clients'.tr),
         actions: [
+          if (_profileController.hasPermission('send_debt_sms') ||
+              _profileController.hasPermission('manage_debt') ||
+              (_profileController.user['role'] ?? '') == 'owner')
+            IconButton(
+              tooltip: 'sms_debt_reminders'.tr,
+              icon: const Icon(Icons.sms_outlined),
+              onPressed: () {
+                Navigator.pushNamed(context, '/sms-credits');
+              },
+            ),
           IconButton(
             tooltip: 'export_debtors_excel'.tr,
             icon: Image.asset(

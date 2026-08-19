@@ -51,7 +51,7 @@ class ProfileController extends GetxController {
         'manage_clients', 'manage_suppliers', 'edit_invoices', 'manage_expenses',
         'view_reports', 'edit_business', 'edit_home', 'create_invoices', 'transfer_products',
         'manage_transfers', 'view_statistics', 'manage_categories', 'view_transactions',
-        'manage_debt', 'print_invoices', 'share_invoices', 'buy_products', 'edit_sales', 'delete_sales',
+        'manage_debt', 'send_debt_sms', 'print_invoices', 'share_invoices', 'buy_products', 'edit_sales', 'delete_sales',
         'delete_invoices', 'sale_invoices', 'manage_supplier_debt'
       ],
       'cashier': [

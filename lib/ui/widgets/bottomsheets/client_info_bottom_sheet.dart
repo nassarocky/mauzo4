@@ -7,7 +7,9 @@ import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
-import '../../../controllers/profile_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/services/sms_reminder_service.dart';
+import 'package:mauzo/utils/sms_phone.dart';
 import '../../../utils/constants.dart';
 import '../../screens/client/advance_transaction.dart';
 import '../../screens/client/edit_client_screen.dart';
@@ -106,6 +108,47 @@ class ClientInfoBottomSheet extends StatelessWidget {
                       : Theme.of(context).textTheme.bodyMedium!.color,
                 ),
               ),
+              if (client.debt > 0 &&
+                  isValidSmsPhone(client.phone) &&
+                  (profileController.hasPermission('send_debt_sms') ||
+                      profileController.hasPermission('manage_debt')))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final credits =
+                          (businessController.business['smsCredits'] as num?)
+                                  ?.toInt() ??
+                              0;
+                      if (credits <= 0) {
+                        final nav = Navigator.of(context);
+                        nav.pop();
+                        nav.pushNamed('/sms-credits');
+                        errorSnackbar('sms_no_credits'.tr);
+                        return;
+                      }
+                      try {
+                        final lang =
+                            Get.locale?.languageCode == 'en' ? 'en' : 'sw';
+                        final result = await SmsReminderService().sendReminders(
+                          businessId: businessController.businessId.value,
+                          clientIds: [client.id],
+                          lang: lang,
+                        );
+                        await businessController.updateBusinessData();
+                        if ((result['sent'] ?? 0) > 0) {
+                          successSnackbar('sms_sent_one'.tr);
+                        } else {
+                          errorSnackbar('sms_send_failed'.tr);
+                        }
+                      } catch (e) {
+                        errorSnackbar(smsFunctionErrorMessage(e));
+                      }
+                    },
+                    icon: const Icon(Icons.sms_outlined, size: 18),
+                    label: Text('sms_send_one'.tr),
+                  ),
+                ),
               const SizedBox(height: 12),
               // When user taps this button, show the AdvanceTransactionsSheet
               // Replace the existing ElevatedButton for advance with this Row:

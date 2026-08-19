@@ -21,6 +21,12 @@ const client = new twilio(accountSid, authToken);
 const AT_API_KEY  = defineSecret("AT_API_KEY");
 const AT_USERNAME = defineSecret("AT_USERNAME");
 
+// ─── Mobishastra SMS (debt reminders). Owners buy credits from us; we pay the gateway. ───
+const MOBISHASTRA_USER = defineSecret("MOBISHASTRA_USER");
+const MOBISHASTRA_PWD = defineSecret("MOBISHASTRA_PWD");
+const MOBISHASTRA_SENDER_ID = defineSecret("MOBISHASTRA_SENDER_ID");
+const { registerSmsFunctions, applySmsPaymentFromCallback } = require("./sms_functions");
+
 const OTP_EXPIRY_MS   = 10 * 60 * 1000; // 10 minutes
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -239,6 +245,21 @@ async function assertCommissionAgent(request) {
   }
   return { uid: request.auth.uid, data: d.data() || {} };
 }
+
+const smsCloud = registerSmsFunctions({
+  firestore,
+  admin,
+  fetchImpl: typeof fetch === "function" ? fetch : require("node-fetch"),
+  secrets: {
+    user: MOBISHASTRA_USER,
+    pwd: MOBISHASTRA_PWD,
+    senderId: MOBISHASTRA_SENDER_ID,
+  },
+  assertCommissionAdmin,
+});
+exports.sendDebtReminderSms = smsCloud.sendDebtReminderSms;
+exports.makeSmsPayment = smsCloud.makeSmsPayment;
+exports.grantSmsCredits = smsCloud.grantSmsCredits;
 
 /** Returns normalized codes; throws if duplicate across other agents. */
 async function assertPromoCodesAvailableForAgent(codes, excludeAgentUid) {
@@ -1466,6 +1487,26 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
   if (status !== 'success') {
     console.log(`Payment status is not success: ${status}`);
     res.status(400).send('Payment not successful.');
+    return;
+  }
+
+  // SMS credit packs: money is ours; gateway is paid separately.
+  try {
+    const wasSms = await applySmsPaymentFromCallback(
+      firestore,
+      admin,
+      additionalProps
+    );
+    if (wasSms) {
+      console.log(
+        `SMS credits added for business ${additionalProps.businessId}`
+      );
+      res.status(200).send('SMS credits processed');
+      return;
+    }
+  } catch (smsPayErr) {
+    console.error('Error applying SMS payment callback:', smsPayErr);
+    res.status(500).send('Error processing SMS payment.');
     return;
   }
 

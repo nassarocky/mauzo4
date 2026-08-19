@@ -46,14 +46,25 @@ service cloud.firestore {
       // Allow creation of a new business if authenticated
       allow create: if request.auth != null;
 
-      // Allow read & update if user owns the business (businessId is in gmanusers.business array)
-      allow get, list, update, delete: if isBusinessAllowed(businessId);
+      // Allow read & delete if user belongs to the business
+      allow get, list, delete: if isBusinessAllowed(businessId);
+
+      // Clients may update shop fields but cannot grant themselves SMS credits
+      allow update: if isBusinessAllowed(businessId) &&
+        smsCreditFieldsUnchanged();
     }
 
-        // Support staff allowlist — used only by Cloud Function adminResetUserPassword (Admin SDK).
-    // Create documents in Firebase Console: collection support_admins, document ID = staff user's Auth UID.
-    match /support_admins/{uid} {
-      allow read, write: if false;
+    match /smsPricing/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /smsLogs/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+      match /messages/{docId} {
+        allow read: if isBusinessAllowed(businessId);
+        allow write: if false;
+      }
     }
 
     // ✅ Products collection - FIXED FOR TRANSFERS
@@ -390,6 +401,12 @@ match /inventoryLosses/{businessId} {
       return request.auth != null &&
         exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    function smsCreditFieldsUnchanged() {
+      return request.resource.data.get('smsCredits', 0) == resource.data.get('smsCredits', 0)
+        && request.resource.data.get('smsCreditsUsed', 0) == resource.data.get('smsCreditsUsed', 0)
+        && request.resource.data.get('smsCreditsTotalPurchased', 0) == resource.data.get('smsCreditsTotalPurchased', 0);
     }
 
     // ✅ Helper Function to check if user is manager or owner
