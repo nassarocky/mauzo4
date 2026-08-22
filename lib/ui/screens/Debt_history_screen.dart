@@ -13,9 +13,51 @@ import '../../models/debtHistory_model.dart';
 import 'package:mauzo/services/ledger_service.dart';
 import 'package:mauzo/services/sms_reminder_service.dart';
 import 'package:mauzo/ui/widgets/dialogs/debt_sms_dialog.dart';
+import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/utils/sale_debt_due_date.dart';
 import 'package:mauzo/utils/sms_phone.dart';
 import 'package:mauzo/utils/sms_settings.dart';
+
+ShapeBorder get _debtDialogShape =>
+    RoundedRectangleBorder(borderRadius: BorderRadius.circular(16));
+
+InputDecoration _debtFieldDecoration(
+  BuildContext context, {
+  String? labelText,
+  String? hintText,
+}) {
+  final isDark = Preferences.getTheme();
+  final side = BorderSide(
+    color: isDark ? lightGrayColor.withOpacity(0.4) : borderColor,
+  );
+  return InputDecoration(
+    labelText: labelText,
+    hintText: hintText,
+    filled: true,
+    fillColor: isDark ? darkGrayColor : gray100Color,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: side,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: side,
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: primaryColor, width: 1.4),
+    ),
+  );
+}
+
+ButtonStyle get _debtPrimaryButtonStyle => ElevatedButton.styleFrom(
+      elevation: 0,
+      backgroundColor: primaryColor,
+      foregroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
 
 class DebtHistoryScreen extends StatefulWidget {
   const DebtHistoryScreen({Key? key}) : super(key: key);
@@ -46,6 +88,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
+              shape: _debtDialogShape,
               title: Text('sms_credit_days'.tr),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -55,33 +98,44 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                     style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      IconButton(
-                        onPressed: days <= 0 || saving
-                            ? null
-                            : () => setDialogState(() => days -= 1),
-                        icon: const Icon(Icons.remove_circle_outline),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          '$days',
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w600,
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: primaryUltraLightColor,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          onPressed: days <= 0 || saving
+                              ? null
+                              : () => setDialogState(() => days -= 1),
+                          icon: const Icon(Icons.remove_circle_outline),
+                          color: primaryColor,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            '$days',
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w700,
+                              color: primaryColor,
+                            ),
                           ),
                         ),
-                      ),
-                      IconButton(
-                        onPressed: days >= 365 || saving
-                            ? null
-                            : () => setDialogState(() => days += 1),
-                        icon: const Icon(Icons.add_circle_outline),
-                      ),
-                    ],
+                        IconButton(
+                          onPressed: days >= 365 || saving
+                              ? null
+                              : () => setDialogState(() => days += 1),
+                          icon: const Icon(Icons.add_circle_outline),
+                          color: primaryColor,
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: 8),
                   Text('days'.tr, style: TextStyle(color: Colors.grey[600])),
                 ],
               ),
@@ -90,7 +144,8 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                   onPressed: saving ? null : () => Navigator.pop(dialogContext),
                   child: Text('cancel'.tr),
                 ),
-                TextButton(
+                ElevatedButton(
+                  style: _debtPrimaryButtonStyle,
                   onPressed: saving
                       ? null
                       : () async {
@@ -127,7 +182,10 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : Text('save'.tr),
                 ),
@@ -158,9 +216,19 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
       context: context,
       builder: (context) {
         return Obx(() => AlertDialog(
+          shape: _debtDialogShape,
           title: Text('Edit Debt'.tr),
           content: _debtHistoryController.isLoading.value
-              ? const Center(child: CircularProgressIndicator())
+              ? const SizedBox(
+                  height: 72,
+                  child: Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2.6),
+                    ),
+                  ),
+                )
               : SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -169,74 +237,98 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                       TextField(
                         controller: remainingCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: InputDecoration(labelText: 'Remaining Debt Amount'.tr),
+                        decoration: _debtFieldDecoration(
+                          context,
+                          labelText: 'Remaining Debt Amount'.tr,
+                        ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: commentCtrl,
-                        decoration: InputDecoration(labelText: 'Comment'.tr),
+                        decoration: _debtFieldDecoration(
+                          context,
+                          labelText: 'Comment'.tr,
+                        ),
                         maxLines: 2,
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 18),
-                          const SizedBox(width: 8),
-                          Text(DateFormat('yyyy-MM-dd – HH:mm').format(selectedDate)),
-                          const Spacer(),
-                          TextButton.icon(
-                            onPressed: () async {
-                              final date = await showDatePicker(
-                                context: context,
-                                initialDate: selectedDate,
-                                firstDate: DateTime(2015),
-                                lastDate: DateTime(2101),
-                              );
-                              if (date != null) {
-                                // Preserve time
-                                selectedDate = DateTime(date.year, date.month, date.day, selectedDate.hour, selectedDate.minute);
-                                (context as Element).markNeedsBuild();
-                              }
-                            },
-                            icon: const Icon(Icons.edit_calendar),
-                            label: Text('Change Date'.tr),
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: borderColor),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today, size: 18, color: primaryColor),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                DateFormat('yyyy-MM-dd – HH:mm').format(selectedDate),
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () async {
+                                final date = await showDatePicker(
+                                  context: context,
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime(2015),
+                                  lastDate: DateTime(2101),
+                                );
+                                if (date != null) {
+                                  // Preserve time
+                                  selectedDate = DateTime(date.year, date.month, date.day, selectedDate.hour, selectedDate.minute);
+                                  (context as Element).markNeedsBuild();
+                                }
+                              },
+                              icon: const Icon(Icons.edit_calendar, size: 18),
+                              label: Text('Change Date'.tr),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.event, size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(selectedDueDate)}',
-                          ),
-                          const Spacer(),
-                          TextButton.icon(
-                            onPressed: () async {
-                              final saleDay =
-                                  SaleDebtDueDate.startOfDay(selectedDate);
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: selectedDueDate.isBefore(saleDay)
-                                    ? saleDay
-                                    : selectedDueDate,
-                                firstDate: saleDay,
-                                lastDate:
-                                    SaleDebtDueDate.lastSelectableDueDate(
-                                  selectedDate,
-                                ),
-                              );
-                              if (picked != null) {
-                                selectedDueDate =
-                                    SaleDebtDueDate.startOfDay(picked);
-                                (context as Element).markNeedsBuild();
-                              }
-                            },
-                            icon: const Icon(Icons.edit_calendar),
-                            label: Text('sale_debt_due_date'.tr),
-                          ),
-                        ],
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: borderColor),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.event, size: 18, color: primaryColor),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(selectedDueDate)}',
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () async {
+                                final saleDay =
+                                    SaleDebtDueDate.startOfDay(selectedDate);
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: selectedDueDate.isBefore(saleDay)
+                                      ? saleDay
+                                      : selectedDueDate,
+                                  firstDate: saleDay,
+                                  lastDate:
+                                      SaleDebtDueDate.lastSelectableDueDate(
+                                    selectedDate,
+                                  ),
+                                );
+                                if (picked != null) {
+                                  selectedDueDate =
+                                      SaleDebtDueDate.startOfDay(picked);
+                                  (context as Element).markNeedsBuild();
+                                }
+                              },
+                              icon: const Icon(Icons.edit_calendar, size: 18),
+                              label: Text('sale_debt_due_date'.tr),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -249,6 +341,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
               ),
             if (!_debtHistoryController.isLoading.value)
               ElevatedButton(
+                style: _debtPrimaryButtonStyle,
                 onPressed: () async {
                   final newRemaining = double.tryParse(remainingCtrl.text.trim());
                   if (newRemaining == null || newRemaining < 0) {
@@ -347,6 +440,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        shape: _debtDialogShape,
         title: Text('Delete Debt'.tr),
         content: Text('This will clear the remaining debt for this sale, add the remaining amount to the Paid value of the sale, and remove the debt record.\n\nClient: ${debt.name}\nRemaining: ${debt.remainingDebtAmount.toStringAsFixed(2)}'),
         actions: [
@@ -355,7 +449,14 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
             child: Text('Cancel'.tr),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              elevation: 0,
+              backgroundColor: redColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
             onPressed: () {
               Navigator.pop(context);
               _deleteDebtTransaction(context, debt);
@@ -446,40 +547,69 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
     });
   }
 
+  bool get _isDark => Preferences.getTheme();
+
+  Color get _pageBg => _isDark ? darkGrayColor : const Color(0xFFF7F8FA);
+
+  Color get _cardBg => _isDark ? mediumGrayColor : whiteColor;
+
+  Color get _muted =>
+      Theme.of(context).textTheme.bodyMedium?.color ?? textMutedColor;
+
   /// Build a row of filter buttons: All, Pending, Paid.
   Widget buildFilterButtons() {
     return Obx(() {
       final filter = _debtHistoryController.filterStatus;
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: () => _debtHistoryController.setFilterStatus([]),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: filter.isEmpty ? Colors.blueAccent : Colors.grey,
+      Widget chip({
+        required String label,
+        required bool selected,
+        required VoidCallback onTap,
+      }) {
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: selected,
+            selectedColor: primaryUltraLightColor,
+            labelStyle: TextStyle(
+              color: selected ? primaryColor : _muted,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
             ),
-            child: Text('All'.tr),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: () =>
-                _debtHistoryController.setFilterStatus(["PENDING"]),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: filter.contains("PENDING")
-                  ? Colors.blueAccent
-                  : Colors.grey,
+            side: BorderSide(
+              color: selected
+                  ? primaryColor.withOpacity(0.35)
+                  : (_isDark ? lightGrayColor.withOpacity(0.3) : borderColor),
             ),
-            child: Text('Pending'.tr),
+            backgroundColor: _cardBg,
+            showCheckmark: false,
+            onSelected: (_) => onTap(),
           ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: () => _debtHistoryController.setFilterStatus(["PAID"]),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: filter.contains("PAID") ? Colors.blueAccent : Colors.grey,
+        );
+      }
+
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            chip(
+              label: 'All'.tr,
+              selected: filter.isEmpty,
+              onTap: () => _debtHistoryController.setFilterStatus([]),
             ),
-            child: Text('Paid'.tr),
-          ),
-        ],
+            chip(
+              label: 'Pending'.tr,
+              selected: filter.contains("PENDING"),
+              onTap: () =>
+                  _debtHistoryController.setFilterStatus(["PENDING"]),
+            ),
+            chip(
+              label: 'Paid'.tr,
+              selected: filter.contains("PAID"),
+              onTap: () => _debtHistoryController.setFilterStatus(["PAID"]),
+            ),
+          ],
+        ),
       );
     });
   }
@@ -487,8 +617,8 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _pageBg,
       appBar: AppBar(
-        backgroundColor: Colors.white, // AppBar background white
         title: Obx(() {
           // Calculate total remaining debt from the currently filtered list
           final totalDebt = _debtHistoryController.filteredDebtHistories.fold<double>(
@@ -497,15 +627,14 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
           );
           return Text(
             '${'Debt Records'.tr} (${totalDebt.toStringAsFixed(2)})',
-            style: const TextStyle(color: Colors.black),
           );
         }),
-        iconTheme: const IconThemeData(color: Colors.black),
+        elevation: 0,
         actions: [
           if ((_profileController.user['role'] ?? '') == 'owner')
             IconButton(
               tooltip: 'sms_credit_days'.tr,
-              icon: const Icon(Icons.event_available, color: Colors.black),
+              icon: const Icon(Icons.event_available_outlined),
               onPressed: () => _showDefaultLoanPeriodDialog(context),
             ),
           IconButton(
@@ -521,7 +650,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
           ),
           PopupMenuButton<String>(
             tooltip: 'export_debtors_pdf'.tr,
-            icon: const Icon(Icons.picture_as_pdf, color: Colors.black),
+            icon: const Icon(Icons.picture_as_pdf_outlined),
             onSelected: (value) {
               final clients = Get.find<ClientController>();
               if (value == 'print') {
@@ -542,40 +671,64 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
             ],
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(50),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15.0),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search by name...'.tr,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                prefixIcon: const Icon(Icons.search, color: Colors.black),
-                filled: true,
-                fillColor: Colors.white,
-              ),
-              onChanged: (query) {
-                _debtHistoryController.searchByClientName(query);
-              },
-            ),
-          ),
-        ),
       ),
       body: Column(
         children: [
-          const SizedBox(height: 10),
-          // Display filter toggle buttons
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              onChanged: (query) {
+                _debtHistoryController.searchByClientName(query);
+              },
+              decoration: InputDecoration(
+                hintText: 'Search by name...'.tr,
+                prefixIcon: Icon(Icons.search, color: _muted),
+                filled: true,
+                fillColor: _cardBg,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: _isDark ? lightGrayColor.withOpacity(0.25) : borderColor,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: _isDark ? lightGrayColor.withOpacity(0.25) : borderColor,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: primaryColor, width: 1.4),
+                ),
+              ),
+            ),
+          ),
           buildFilterButtons(),
-          const SizedBox(height: 10),
-          // List of Debt Histories wrapped in Obx for reactive updates
+          const SizedBox(height: 8),
           Expanded(
             child: Obx(() {
               if (_debtHistoryController.filteredDebtHistories.isEmpty) {
-                return Center(child: Text('No debt history found'.tr));
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.receipt_long_outlined, size: 44, color: _muted),
+                        const SizedBox(height: 10),
+                        Text(
+                          'No debt history found'.tr,
+                          style: TextStyle(color: _muted, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
               }
               return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                 itemCount: _debtHistoryController.filteredDebtHistories.length,
                 itemBuilder: (context, index) {
                   final debt = _debtHistoryController.filteredDebtHistories[index];
@@ -611,41 +764,92 @@ class DebtCard extends StatelessWidget {
     final DateTime dateIncurred = debt.dateIncurred.toDate();
     final String formattedDate = DateFormat('yyyy-MM-dd – HH:mm').format(dateIncurred);
     Client client = _clientController.getClient(debt.client);
+    final isDark = Preferences.getTheme();
+    final cardBg = isDark ? mediumGrayColor : whiteColor;
+    final muted = Theme.of(context).textTheme.bodyMedium?.color ?? textMutedColor;
+    final titleColor = Theme.of(context).textTheme.bodyLarge?.color ?? textDarkColor;
 
     Color getStatusColor() {
       if (debt.status == 'PAID') {
-        return Colors.greenAccent;
+        return greenColor;
       } else if (debt.status == 'PENDING') {
-        return Colors.orangeAccent;
+        return warningColor;
       }
-      return Colors.grey;
+      return textMutedColor;
     }
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-      elevation: 5,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
+    final initial = client.name.trim().isNotEmpty
+        ? client.name.trim()[0].toUpperCase()
+        : '?';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? lightGrayColor.withOpacity(0.25) : borderColor,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: primaryUltraLightColor,
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: primaryColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.person, color: Colors.blueAccent),
-                    const SizedBox(width: 10),
                     Text(
                       '${'Client:'.tr} ${client.name}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: getStatusColor().withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Status: ${debt.status}'.tr,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: getStatusColor(),
+                        ),
+                      ),
                     ),
                   ],
                 ),
-                PopupMenuButton<String>(
+              ),
+              PopupMenuButton<String>(
                   onSelected: (value) async {
                     if (value == 'view_orders') {
                       saleController.selectedDateRange = null;
@@ -706,106 +910,131 @@ class DebtCard extends StatelessWidget {
                     }
                     return items;
                   },
-                  icon: const Icon(Icons.more_vert),
+                  icon: Icon(Icons.more_vert, color: muted),
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            const Divider(),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.money, color: Colors.greenAccent),
-                const SizedBox(width: 10),
-                Text(
-                  '${'Initial Debt:'.tr} ${debt.initialDebtAmount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontSize: 16),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _amountTile(
+                  context,
+                  label: 'Initial Debt:'.tr,
+                  value: debt.initialDebtAmount.toStringAsFixed(2),
+                  color: greenColor,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.monetization_on, color: Colors.redAccent),
-                const SizedBox(width: 10),
-                Text(
-                  '${'Remaining Debt:'.tr} ${debt.remainingDebtAmount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _amountTile(
+                  context,
+                  label: 'Remaining Debt:'.tr,
+                  value: debt.remainingDebtAmount.toStringAsFixed(2),
+                  color: debt.remainingDebtAmount > 0 ? redColor : greenColor,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(Icons.timer, color: getStatusColor()),
-                const SizedBox(width: 10),
-                Text(
-                  'Status: ${debt.status}'.tr,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: getStatusColor(),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, color: Colors.grey),
-                const SizedBox(width: 10),
-                Text(
-                  'Date: $formattedDate',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-            if (debt.dueDate != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.event, color: Colors.grey),
-                  const SizedBox(width: 10),
-                  Text(
-                    '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(debt.dueDate!.toDate())}',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                ],
               ),
             ],
-            const SizedBox(height: 15),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  backgroundColor: Colors.blueAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Icon(Icons.calendar_today_outlined, size: 14, color: muted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Date: $formattedDate',
+                  style: TextStyle(fontSize: 13, color: muted),
                 ),
-                onPressed: () {
-                  _showPaymentRecords(context, debt);
-                },
-                icon: const Icon(Icons.payment, color: Colors.white),
-                label: Text('View Payments'.tr, style: const TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+          if (debt.dueDate != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(Icons.event_outlined, size: 14, color: muted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(debt.dueDate!.toDate())}',
+                    style: TextStyle(fontSize: 13, color: muted),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (debt.remainingDebtAmount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                debt.comment,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  color: redColor,
+                ),
               ),
             ),
-            const SizedBox(height: 10),
-            if (debt.remainingDebtAmount > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  debt.comment,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontStyle: FontStyle.italic,
-                    color: Colors.redAccent,
-                  ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                elevation: 0,
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-          ],
-        ),
+              onPressed: () {
+                _showPaymentRecords(context, debt);
+              },
+              icon: const Icon(Icons.payments_outlined, size: 18),
+              label: Text('View Payments'.tr),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _amountTile(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    final isDark = Preferences.getTheme();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(isDark ? 0.16 : 0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).textTheme.bodyLarge?.color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -813,19 +1042,33 @@ class DebtCard extends StatelessWidget {
   void _showPaymentRecords(BuildContext context, DebtHistory debt) {
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
         final List<dynamic> paymentRecords = debt.paymentRecords;
         return Container(
-          padding: const EdgeInsets.all(15),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           height: MediaQuery.of(context).size.height * 0.8,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: borderColor,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
               Text(
                 'Payment Records'.tr,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
-              const Divider(),
+              const SizedBox(height: 10),
               Expanded(
                 child: paymentRecords.isNotEmpty
                     ? ListView.builder(
@@ -835,17 +1078,40 @@ class DebtCard extends StatelessWidget {
                     final DateTime paymentDate = (record['date'] as Timestamp).toDate();
                     final String formattedPaymentDate =
                     DateFormat('yyyy-MM-dd – HH:mm').format(paymentDate);
-                    return ListTile(
-                      title: Text('${'Payment:'.tr} ${record['amount']}'),
-                      subtitle: Text('${'Date:'.tr} $formattedPaymentDate'),
-                      trailing: const Icon(Icons.check_circle, color: Colors.green),
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderColor),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xFFE8F5E9),
+                          child: Icon(Icons.check, color: greenColor, size: 20),
+                        ),
+                        title: Text('${'Payment:'.tr} ${record['amount']}'),
+                        subtitle: Text('${'Date:'.tr} $formattedPaymentDate'),
+                      ),
                     );
                   },
                 )
-                    : Center(child: Text('No payment records available'.tr)),
+                    : Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.payments_outlined,
+                              size: 40,
+                              color: textMutedColor,
+                            ),
+                            const SizedBox(height: 10),
+                            Text('No payment records available'.tr),
+                          ],
+                        ),
+                      ),
               ),
-              Align(
-                alignment: Alignment.bottomRight,
+              SizedBox(
+                width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -854,10 +1120,12 @@ class DebtCard extends StatelessWidget {
                   icon: const Icon(Icons.payment),
                   label: Text('Make Debt Payment'.tr),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                    backgroundColor: Colors.blueAccent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
@@ -892,18 +1160,31 @@ class DebtCard extends StatelessWidget {
         return StatefulBuilder(
           builder: (context, setStateLocal) {
             return Obx(() => AlertDialog(
+              shape: _debtDialogShape,
               title: Text('Enter Payment Amount'.tr),
               content: _debtHistoryController.isLoading.value
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const SizedBox(
+                      height: 72,
+                      child: Center(
+                        child: SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 2.6),
+                        ),
+                      ),
+                    )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         TextField(
                           controller: paymentController,
                           keyboardType: TextInputType.number,
-                          decoration: InputDecoration(hintText: 'Amount'.tr),
+                          decoration: _debtFieldDecoration(
+                            context,
+                            hintText: 'Amount'.tr,
+                          ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
                         if (((_businessController.business['multiFundEnabled'] ?? false) == true))
                           Obx(() {
                             final methods = _businessController
@@ -930,12 +1211,9 @@ class DebtCard extends StatelessWidget {
                             }
                             return DropdownButtonFormField<String>(
                               value: safe,
-                              decoration: InputDecoration(
+                              decoration: _debtFieldDecoration(
+                                context,
                                 labelText: 'Payment Method'.tr,
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(4)),
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
                               ),
                               items: methods
                                   .map((m) {
@@ -962,6 +1240,7 @@ class DebtCard extends StatelessWidget {
                   ),
                 if (!_debtHistoryController.isLoading.value)
                   ElevatedButton(
+                    style: _debtPrimaryButtonStyle,
                     onPressed: () {
                       final double paymentAmount =
                           double.tryParse(paymentController.text) ?? 0.0;
