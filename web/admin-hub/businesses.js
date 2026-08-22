@@ -226,14 +226,22 @@ async function openPaymentUpdate(b) {
     setFeedback("This business has no email for payment update.", "error");
     return;
   }
-  const raw = prompt(`Enter number of days to extend payment for ${email}:`);
+  const raw = prompt(
+    `Add or reduce subscription days for ${email}\nPositive = add days\nNegative = reduce days (e.g. -7)\n\nDays:`
+  );
   if (raw == null) return;
   const days = parseInt(String(raw).trim(), 10);
-  if (!Number.isFinite(days) || days < 1) {
-    setFeedback("Enter a valid number of days.", "error");
+  if (!Number.isFinite(days) || days === 0 || Math.abs(days) > 3650) {
+    setFeedback("Enter a non-zero number of days between -3650 and 3650.", "error");
     return;
   }
-  setFeedback("Updating payment…", "info");
+  if (days < 0) {
+    const ok = confirm(
+      `Reduce ${Math.abs(days)} subscription day(s) for "${b.name || email}"?`
+    );
+    if (!ok) return;
+  }
+  setFeedback(days < 0 ? "Reducing subscription days…" : "Updating payment…", "info");
   try {
     const qs = new URLSearchParams({ email, numberOfDays: String(days) });
     const res = await fetch(`${functionsHttpBase()}/paymentCallbackEmail2?${qs}`, {

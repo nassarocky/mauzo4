@@ -1536,10 +1536,15 @@ exports.paymentCallbackEmail2 = onRequest(
       const numberOfDays = parseFloat(String(req.query.numberOfDays));
 
       // Validate inputs
-      if (!email || !Number.isFinite(numberOfDays)) {
+      if (!email || !Number.isFinite(numberOfDays) || numberOfDays === 0) {
         console.error("Missing or invalid parameters", { email, numberOfDays });
         return res.status(400).json({
           error: "Missing or invalid email or numberOfDays parameter.",
+        });
+      }
+      if (Math.abs(numberOfDays) > 3650) {
+        return res.status(400).json({
+          error: "numberOfDays must be between -3650 and 3650.",
         });
       }
 
@@ -1556,12 +1561,28 @@ exports.paymentCallbackEmail2 = onRequest(
         });
       }
 
-      const paymentStart = admin.firestore.Timestamp.now();
+      const nowTs = admin.firestore.Timestamp.now();
+      const reduceDays = numberOfDays < 0;
 
       // Update businesses with fair renewal logic
       const updatePromises = businessesSnapshot.docs.map((businessDoc) => {
         const business = businessDoc.data();
-        const now = paymentStart.toDate();
+        const now = nowTs.toDate();
+
+        if (reduceDays) {
+          const existingPaymentLast = business.paymentLast
+            ? business.paymentLast.toDate()
+            : now;
+          const paymentLastDate = new Date(
+            existingPaymentLast.getTime() + numberOfDays * 24 * 60 * 60 * 1000
+          );
+          const expired = paymentLastDate <= now;
+          return businessDoc.ref.update({
+            paid: !expired,
+            subscriptionStatus: expired ? "subscription_ended" : "subscription_ok",
+            paymentLast: admin.firestore.Timestamp.fromDate(paymentLastDate),
+          });
+        }
         
         // Check paid subscription end date
         const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
@@ -1590,22 +1611,26 @@ exports.paymentCallbackEmail2 = onRequest(
         return businessDoc.ref.update({
           paid: true,
           subscriptionStatus: "subscription_ok",
-          paymentStart,
+          paymentStart: nowTs,
           paymentLast,
         });
       });
 
       await Promise.all(updatePromises);
-      await recordReferralPaymentEventsForDocs(
-        businessesSnapshot.docs,
-        paymentStart,
-        numberOfDays
-      );
+      if (!reduceDays) {
+        await recordReferralPaymentEventsForDocs(
+          businessesSnapshot.docs,
+          nowTs,
+          numberOfDays
+        );
+      }
       console.log(`Updated businesses with email ${email}`);
 
       return res.status(200).json({
         success: true,
-        message: `Payment processed for all businesses with email: ${email}`,
+        message: reduceDays
+          ? `Reduced ${Math.abs(numberOfDays)} day(s) for ${email}`
+          : `Added ${numberOfDays} day(s) for ${email}`,
       });
     } catch (error) {
       console.error("Error in paymentCallbackEmail2:", error);
