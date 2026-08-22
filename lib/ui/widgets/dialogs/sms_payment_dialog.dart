@@ -140,7 +140,7 @@ class _SmsPaymentDialogContentState extends State<SmsPaymentDialogContent> {
                         (p) => DropdownMenuItem(
                           value: p,
                           child: Text(
-                            '${p.label} — ${p.credits} SMS — ${p.price} TZS',
+                            '${p.label} — ${p.price} TZS',
                           ),
                         ),
                       )

@@ -32,6 +32,10 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../utils/download_helper.dart';
 import '../../../utils/purchases_access.dart';
+import '../../../services/sms_reminder_service.dart';
+import '../../../utils/sms_phone.dart';
+import '../../../utils/sms_settings.dart';
+import '../../widgets/dialogs/sms_recipient_dialog.dart';
 
 class BoughtScreen extends StatefulWidget {
   const BoughtScreen({Key? key}) : super(key: key);
@@ -43,7 +47,10 @@ class BoughtScreen extends StatefulWidget {
 class _boughtControllerState extends State<BoughtScreen> {
   final BoughtController _boughtController = Get.find();
   final ClientController _clientController = Get.find();
-  final SupplierController _supplierController = Get.find();
+  final SupplierController _supplierController =
+      Get.isRegistered<SupplierController>()
+          ? Get.find<SupplierController>()
+          : Get.put(SupplierController());
   final ProductController _productController = Get.find();
   final CartController _cartController = Get.find();
   final BusinessController _businessController = Get.find();
@@ -583,7 +590,9 @@ class _boughtControllerState extends State<BoughtScreen> {
                                       ),
                                     const DashedSeperator(),
                                     const SizedBox(height: 12),
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
                                       children: [
                                         ElevatedButton.icon(
                                           onPressed: () {
@@ -592,13 +601,19 @@ class _boughtControllerState extends State<BoughtScreen> {
                                           icon: const Icon(Icons.print),
                                           label: Text('print'.tr),
                                         ),
-                                        const SizedBox(width: 8),
                                         ElevatedButton.icon(
                                           onPressed: () {
                                             shareInvoice(sale, supplier);
                                           },
                                           icon: const Icon(Icons.share),
                                           label: Text('share'.tr),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
+                                            sendPurchaseListSms(sale, supplier);
+                                          },
+                                          icon: const Icon(Icons.sms_outlined),
+                                          label: Text('sms_send_purchase_list'.tr),
                                         ),
                                       ],
                                     ),
@@ -719,6 +734,35 @@ class _boughtControllerState extends State<BoughtScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> sendPurchaseListSms(sale, Supplier? supplier) async {
+    String? phone;
+    if (supplier != null &&
+        supplier.id.isNotEmpty &&
+        isValidSmsPhone(supplier.phone)) {
+      phone = supplier.phone;
+    } else {
+      phone = await showSmsPhoneOnlyDialog(
+        context: context,
+        title: 'sms_send_purchase_list'.tr,
+      );
+      if (phone == null) return;
+    }
+    try {
+      await SmsReminderService().sendBusinessSms(
+        businessId: _businessController.businessId.value,
+        type: 'purchase_list',
+        phone: phone,
+        supplierId: supplier != null && supplier.id.isNotEmpty ? supplier.id : null,
+        supplierName: (supplier?.name ?? '').isNotEmpty ? supplier!.name : phone,
+        lines: productLinesForSms(sale.products ?? const []),
+        lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+      );
+      successSnackbar('sms_sent_purchase_list'.tr);
+    } catch (e) {
+      errorSnackbar(smsFunctionErrorMessage(e));
+    }
   }
 
   Future<void> printInvoice(invoice, Supplier? supplier) async {

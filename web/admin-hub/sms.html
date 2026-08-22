@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>HesabuMauzo — SMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c1018;
+      --card: #151c28;
+      --border: #2a3544;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #6366f1;
+      --accent-dim: #4f46e5;
+      --danger: #f87171;
+      --ok: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px 16px 48px;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    h2 { font-size: 1rem; margin: 0 0 12px; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 18px; }
+    .nav { margin-bottom: 16px; }
+    .nav a { color: #c7d2fe; text-decoration: none; font-size: 0.9rem; font-weight: 600; }
+    .nav a:hover { text-decoration: underline; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 16px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0e141e;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
+    button {
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.9rem;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover:not(:disabled) { background: var(--accent-dim); }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+    #feedback {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-bottom: 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    #feedback.show { display: block; }
+    #feedback.ok { background: rgba(74, 222, 128, 0.12); color: #86efac; border-color: rgba(74, 222, 128, 0.35); }
+    #feedback.error { background: rgba(248, 113, 113, 0.1); color: #fca5a5; border-color: rgba(248, 113, 113, 0.35); }
+    #feedback.info { background: rgba(99, 102, 241, 0.15); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.35); }
+    .stats {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) {
+      .stats { grid-template-columns: repeat(3, 1fr); }
+    }
+    .stat {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: #0e141e;
+    }
+    .stat .k { color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+    .stat .v { font-size: 1.55rem; font-weight: 700; margin-top: 4px; }
+    .stat .h { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+    .auth-boot { text-align: center; padding: 28px 16px; color: var(--muted); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="nav"><a href="./">← Admin home</a></p>
+    <h1>SMS</h1>
+    <p class="sub">Gateway balance from Mobishastra, credits sitting in shops, and revenue from SMS packs users buy in the app.</p>
+
+    <div id="feedback" role="status" aria-live="polite"></div>
+    <div id="authBootCard" class="card auth-boot">Loading session…</div>
+
+    <div id="loginCard" class="card" hidden>
+      <form id="loginForm">
+        <label for="hubEmail">Email</label>
+        <input id="hubEmail" type="email" autocomplete="username" required />
+        <label for="hubPassword">Password</label>
+        <input id="hubPassword" type="password" autocomplete="current-password" required style="margin-top:8px" />
+        <div class="actions">
+          <button type="submit" class="primary">Sign in</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="mainCard" hidden>
+      <div class="card">
+        <div class="actions" style="margin-top:0">
+          <button type="button" class="primary" id="reloadBtn">Refresh</button>
+          <button type="button" class="ghost" id="logoutBtn">Sign out</button>
+          <span style="color:var(--muted);font-size:0.85rem">Signed in as <strong id="staffEmail"></strong></span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="k">Mobishastra remaining</div>
+          <div class="v" id="gatewayRemaining">—</div>
+          <div class="h" id="gatewayHint">SMS left on the provider account you top up manually.</div>
+        </div>
+        <div class="stat">
+          <div class="k">Credits in shops</div>
+          <div class="v" id="shopsRemaining">—</div>
+          <div class="h" id="shopsHint">Used / purchased shown after load.</div>
+        </div>
+        <div class="stat">
+          <div class="k">SMS purchase revenue</div>
+          <div class="v" id="revenueTzs">—</div>
+          <div class="h" id="revenueHint">Recorded from paid packs in the app.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent purchases &amp; grants</h2>
+        <div id="purchaseTable"></div>
+      </div>
+
+      <div class="card">
+        <h2>Shops with SMS activity</h2>
+        <p class="sub" style="margin-bottom:10px">Grant extra credits from the <a href="./businesses.html" style="color:#c7d2fe">Businesses</a> page.</p>
+        <div id="shopTable"></div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./sms.js"></script>
+</body>
+</html>

@@ -8,16 +8,29 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:flutter_thermal_printer_windows/flutter_thermal_printer_windows.dart'
+    as win;
 import '../models/sale_model.dart';
 import '../models/client_model.dart';
+import '../models/thermal_printer_device.dart';
 import '../utils/sale_line_quantity.dart';
 import '../utils/receipt_footer.dart';
+import 'windows_thermal_bluetooth.dart';
 
 class ThermalPrinterService extends GetxController {
-  final RxList<BluetoothInfo> devices = <BluetoothInfo>[].obs;
-  final Rx<BluetoothInfo?> selectedPrinter = Rx<BluetoothInfo?>(null);
+  final RxList<ThermalPrinterDevice> devices = <ThermalPrinterDevice>[].obs;
+  final Rx<ThermalPrinterDevice?> selectedPrinter = Rx<ThermalPrinterDevice?>(null);
   final RxBool isConnected = false.obs;
   final RxBool isScanning = false.obs;
+
+  /// When true on Windows, print via OS dialog instead of Bluetooth.
+  final RxBool useSystemPrintDialog = false.obs;
+
+  /// Native Windows printer object for the current Bluetooth connection.
+  win.BluetoothPrinter? _windowsPrinter;
+
+  bool get _isWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   @override
   void onInit() {
@@ -27,9 +40,13 @@ class ThermalPrinterService extends GetxController {
 
   /// Check if connected to a printer
   Future<void> _checkConnection() async {
-    // On web and Windows desktop, Bluetooth thermal plugin is not used
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+    if (kIsWeb) {
       isConnected.value = false;
+      return;
+    }
+    if (_isWindows) {
+      isConnected.value =
+          _windowsPrinter != null && selectedPrinter.value != null;
       return;
     }
     try {
@@ -44,24 +61,52 @@ class ThermalPrinterService extends GetxController {
   Future<void> startScan() async {
     isScanning.value = true;
     devices.clear();
-    
+
     try {
-      // On web and Windows desktop, scanning is not supported in this flow
-      if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+      if (kIsWeb) {
         isScanning.value = false;
         Get.snackbar(
-          'Desktop Printing',
-          'On desktop, use the system print dialog when printing a receipt.',
+          'Not supported',
+          'Bluetooth printing is not available on web.',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.blue,
+          backgroundColor: Colors.orange,
           colorText: Colors.white,
-          duration: const Duration(seconds: 3),
         );
         return;
       }
-      // Request Bluetooth permissions
+
+      if (_isWindows) {
+        final results = await WindowsThermalBluetooth.listPrinters();
+        devices.value = results
+            .map(
+              (p) => ThermalPrinterDevice(
+                name: p.name.isNotEmpty ? p.name : 'Printer',
+                address: p.macAddress.isNotEmpty ? p.macAddress : p.id,
+              ),
+            )
+            .toList();
+        // Keep native refs for connect/print
+        _windowsScanCache
+          ..clear()
+          ..addAll({for (final p in results) _windowsKey(p): p});
+
+        if (results.isEmpty) {
+          Get.snackbar(
+            'No Printers Found',
+            'Pair your thermal printer in Windows Bluetooth settings, then scan again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 4),
+          );
+        }
+        isScanning.value = false;
+        return;
+      }
+
+      // —— Mobile (unchanged behavior) ——
       bool permissionGranted = await _requestBluetoothPermissions();
-      
+
       if (!permissionGranted) {
         Get.snackbar(
           'Permission Required',
@@ -74,11 +119,17 @@ class ThermalPrinterService extends GetxController {
         isScanning.value = false;
         return;
       }
-      
-      // Scan for paired Bluetooth devices
+
       final results = await PrintBluetoothThermal.pairedBluetooths;
-      devices.value = results;
-      
+      devices.value = results
+          .map(
+            (b) => ThermalPrinterDevice(
+              name: (b.name ?? '').isNotEmpty ? b.name! : 'Unknown Device',
+              address: b.macAdress,
+            ),
+          )
+          .toList();
+
       if (results.isEmpty) {
         Get.snackbar(
           'No Printers Found',
@@ -101,6 +152,16 @@ class ThermalPrinterService extends GetxController {
     }
     isScanning.value = false;
   }
+
+  /// Stop scanning
+  void stopScan() {
+    isScanning.value = false;
+  }
+
+  final Map<String, win.BluetoothPrinter> _windowsScanCache = {};
+
+  String _windowsKey(win.BluetoothPrinter p) =>
+      p.macAddress.isNotEmpty ? p.macAddress : p.id;
   
   /// Request Bluetooth permissions
   Future<bool> _requestBluetoothPermissions() async {
@@ -422,24 +483,44 @@ class ThermalPrinterService extends GetxController {
     );
   }
 
-  /// Stop scanning
-  void stopScan() {
-    isScanning.value = false;
+  /// Prefer Windows OS print dialog (USB / installed printer drivers).
+  void chooseSystemPrintDialog() {
+    useSystemPrintDialog.value = true;
+    _windowsPrinter = null;
+    selectedPrinter.value = const ThermalPrinterDevice(
+      name: 'Windows print dialog',
+      address: 'system',
+      isSystemDialog: true,
+    );
+    isConnected.value = true;
+    Get.snackbar(
+      'Desktop Printing',
+      'Receipts will use the Windows print dialog.',
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: Colors.blue,
+      colorText: Colors.white,
+      duration: const Duration(seconds: 2),
+    );
   }
 
   /// Select and connect to a printer
-  Future<void> selectPrinter(BluetoothInfo device) async {
-    // On web and Windows desktop, Bluetooth selection is not required
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+  Future<void> selectPrinter(ThermalPrinterDevice device) async {
+    if (kIsWeb) {
       Get.snackbar(
-        'Desktop Printing',
-        'Bluetooth selection is not needed on desktop. Use the print dialog.',
+        'Not supported',
+        'Bluetooth printing is not available on web.',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.blue,
+        backgroundColor: Colors.orange,
         colorText: Colors.white,
       );
       return;
     }
+
+    if (device.isSystemDialog) {
+      chooseSystemPrintDialog();
+      return;
+    }
+
     // Show loading dialog
     Get.dialog(
       const Center(
@@ -459,14 +540,58 @@ class ThermalPrinterService extends GetxController {
       ),
       barrierDismissible: false,
     );
-    
+
     try {
-      print('=== Connecting to printer: ${device.name} (${device.macAdress}) ===');
-      
-      // Check Bluetooth permissions first
+      if (_isWindows) {
+        final native = _windowsScanCache[device.address] ??
+            () {
+              for (final p in _windowsScanCache.values) {
+                if (p.macAddress == device.address || p.id == device.address) {
+                  return p;
+                }
+              }
+              return null;
+            }();
+        if (native == null) {
+          Get.back();
+          Get.snackbar(
+            'Connection Failed',
+            'Printer not found. Scan again, then select it.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red,
+            colorText: Colors.white,
+          );
+          return;
+        }
+        print('=== Windows BT connect: ${native.name} (${native.macAddress}) ===');
+        if (_windowsPrinter != null) {
+          try {
+            await WindowsThermalBluetooth.disconnect(_windowsPrinter!);
+          } catch (_) {}
+        }
+        await WindowsThermalBluetooth.connect(native);
+        Get.back();
+        useSystemPrintDialog.value = false;
+        _windowsPrinter = native;
+        selectedPrinter.value = device;
+        isConnected.value = true;
+        Get.snackbar(
+          'Connected',
+          'Connected to ${device.name}',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 2),
+        );
+        return;
+      }
+
+      // —— Mobile (unchanged) ——
+      print('=== Connecting to printer: ${device.name} (${device.address}) ===');
+
       bool permissionGranted = await _requestBluetoothPermissions();
       if (!permissionGranted) {
-        Get.back(); // Close loading dialog
+        Get.back();
         Get.snackbar(
           'Permission Required',
           'Bluetooth permissions are required to connect',
@@ -476,29 +601,28 @@ class ThermalPrinterService extends GetxController {
         );
         return;
       }
-      
+
       print('Permissions granted');
-      
-      // Disconnect from current printer if connected
+
       if (isConnected.value) {
         print('Disconnecting from current printer...');
         await PrintBluetoothThermal.disconnect;
         await Future.delayed(const Duration(milliseconds: 500));
       }
-      
-      // Connect to new printer
-      print('Attempting connection to ${device.macAdress}...');
-      final connected = await PrintBluetoothThermal.connect(macPrinterAddress: device.macAdress);
+
+      print('Attempting connection to ${device.address}...');
+      final connected =
+          await PrintBluetoothThermal.connect(macPrinterAddress: device.address);
       print('Connection result: $connected');
-      
-      Get.back(); // Close loading dialog
-      
+
+      Get.back();
+
       if (connected == true) {
         selectedPrinter.value = device;
         isConnected.value = true;
-        
+
         print('Successfully connected!');
-        
+
         Get.snackbar(
           'Connected',
           'Connected to ${device.name}',
@@ -513,7 +637,7 @@ class ThermalPrinterService extends GetxController {
       }
     } catch (e) {
       print('Connection error: $e');
-      Get.back(); // Close loading dialog if still open
+      if (Get.isDialogOpen ?? false) Get.back();
       Get.snackbar(
         'Connection Failed',
         'Failed to connect: $e',
@@ -532,22 +656,43 @@ class ThermalPrinterService extends GetxController {
     required Map<String, dynamic> business,
     String? employeeName,
   }) async {
-    // On Windows desktop, use OS printing via PDF (58mm) instead of Bluetooth
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    // Windows: Bluetooth if connected; otherwise OS print dialog (USB / drivers).
+    if (_isWindows) {
       try {
-        await _printReceiptDesktop(
-          sale: sale,
-          client: client,
-          business: business,
-          employeeName: employeeName,
-        );
-        Get.snackbar(
-          'Success',
-          'Receipt sent to printer',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-        );
+        final useBt = !useSystemPrintDialog.value &&
+            _windowsPrinter != null &&
+            selectedPrinter.value != null &&
+            !(selectedPrinter.value!.isSystemDialog);
+        if (useBt) {
+          final bytes = _buildReceiptBytes(
+            sale: sale,
+            client: client,
+            business: business,
+            employeeName: employeeName,
+          );
+          await WindowsThermalBluetooth.printRaw(_windowsPrinter!, bytes);
+          Get.snackbar(
+            'Success',
+            'Receipt printed successfully',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.green,
+            colorText: Colors.white,
+          );
+        } else {
+          await _printReceiptDesktop(
+            sale: sale,
+            client: client,
+            business: business,
+            employeeName: employeeName,
+          );
+          Get.snackbar(
+            'Success',
+            'Receipt sent to printer',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.green,
+            colorText: Colors.white,
+          );
+        }
       } catch (e) {
         Get.snackbar(
           'Print Error',
@@ -572,129 +717,17 @@ class ThermalPrinterService extends GetxController {
     }
 
     try {
-      List<int> bytes = [];
+      final bytes = _buildReceiptBytes(
+        sale: sale,
+        client: client,
+        business: business,
+        employeeName: employeeName,
+      );
 
-      // Header
-      bytes += Uint8List.fromList('\n'.codeUnits);
-      bytes += Uint8List.fromList('${business['name'] ?? 'Business Name'}\n'.codeUnits);
-      bytes += Uint8List.fromList('Phone: ${business['phone'] ?? ''}\n'.codeUnits);
-
-      if (business['tin'] != null && business['tin'].toString().isNotEmpty) {
-        bytes += Uint8List.fromList('TIN: ${business['tin']}\n'.codeUnits);
-      }
-
-      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-      bytes += Uint8List.fromList('RECEIPT\n'.codeUnits);
-      bytes += Uint8List.fromList('\n'.codeUnits);
-
-      // Receipt details
-      final dateTime = sale.date.toDate();
-      bytes += Uint8List.fromList('Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}\n'.codeUnits);
-      bytes += Uint8List.fromList('Date: ${DateFormat('yyyy-MM-dd HH:mm').format(dateTime)}\n'.codeUnits);
-      bytes += Uint8List.fromList('Client: ${client.name}\n'.codeUnits);
-      
-      if (employeeName != null) {
-        bytes += Uint8List.fromList('Served by: $employeeName\n'.codeUnits);
-      }
-
-      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-
-      // Items header with currency
-      final currency = business['mainCurrency'] ?? '';
-      bytes += Uint8List.fromList('\n'.codeUnits);
-      bytes += Uint8List.fromList('Item         Qty  Price($currency)\n'.codeUnits);
-      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-
-      // Items
-      double subtotal = 0;
-
-      for (var product in sale.products) {
-        String productName = '';
-        double quantity = 0;
-        double price = 0;
-
-        if (product is Map<String, dynamic>) {
-          final pm = Map<String, dynamic>.from(product);
-          productName = pm['name']?.toString() ?? '';
-          quantity = saleLineDisplayQuantity(pm);
-          price = double.tryParse(pm['price']?.toString() ?? '0') ?? 0;
-        } else {
-          productName = product.name ?? '';
-          quantity = product.quantity ?? 0;
-          price = product.price ?? 0;
-        }
-
-        final itemTotal = quantity * price;
-        subtotal += itemTotal;
-
-        String line = productName.padRight(12).substring(0, 12);
-        final qtyStr = product is Map<String, dynamic>
-            ? () {
-                final pm = Map<String, dynamic>.from(product as Map);
-                final q = saleLineDisplayQuantity(pm);
-                final lab = saleLineUomLabel(pm);
-                final qs = q == q.roundToDouble()
-                    ? (q == q.truncateToDouble()
-                        ? q.toInt().toString()
-                        : q.toStringAsFixed(2))
-                    : q.toStringAsFixed(2);
-                if (lab != null && lab.isNotEmpty) return '$qs $lab';
-                return qs;
-              }()
-            : quantity.toStringAsFixed(0);
-        line += qtyStr.padLeft(5);
-        line += itemTotal.toStringAsFixed(0).padLeft(11);
-        bytes += Uint8List.fromList('$line\n'.codeUnits);
-      }
-
-      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-
-      // Totals
-      bytes += Uint8List.fromList('Subtotal: $currency ${subtotal.toStringAsFixed(0)}\n'.codeUnits);
-      bytes += Uint8List.fromList('Payment: $currency ${sale.payment.toStringAsFixed(0)}\n'.codeUnits);
-
-      final debt = sale.price - sale.payment;
-      if (debt > 0) {
-        bytes += Uint8List.fromList('Balance Due: $currency ${debt.toStringAsFixed(0)}\n'.codeUnits);
-      } else if (debt < 0) {
-        bytes += Uint8List.fromList('Change: $currency ${(-debt).toStringAsFixed(0)}\n'.codeUnits);
-      }
-
-      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-      bytes += Uint8List.fromList('\n'.codeUnits);
-      final footerText = receiptFooterMessage(business);
-      for (final line in footerText.split('\n')) {
-        bytes += Uint8List.fromList('$line\n'.codeUnits);
-      }
-
-      // Payment details
-      final List paymentDetailsList = (business['invoicePaymentDetails'] as List? ?? [])
-          .where((e) => paymentDetailShowsOnInvoice(
-              paymentDetailMapFromFirestore(e)))
-          .toList();
-      if (paymentDetailsList.isNotEmpty) {
-        bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
-        bytes += Uint8List.fromList('Payment Details:\n'.codeUnits);
-        for (final pd in paymentDetailsList) {
-          final m = Map<String, dynamic>.from(pd as Map);
-          final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
-          final acct = receiptPaymentAccountLine(m,
-              businessForFallback: business);
-          bytes += Uint8List.fromList('$label: ${m['provider']}\n'.codeUnits);
-          if (acct.isNotEmpty) {
-            bytes += Uint8List.fromList('  $acct\n'.codeUnits);
-          }
-          bytes += Uint8List.fromList('  ${m['number']}\n'.codeUnits);
-        }
-      }
-
-      bytes += Uint8List.fromList('\n\n\n'.codeUnits);
-      
-      // Send to printer - print_bluetooth_thermal expects List<int>
       print('Sending ${bytes.length} bytes to printer...');
       await PrintBluetoothThermal.writeBytes(bytes);
       print('Print command sent successfully');
-      
+
       Get.snackbar(
         'Success',
         'Receipt printed successfully',
@@ -713,9 +746,145 @@ class ThermalPrinterService extends GetxController {
     }
   }
 
+  List<int> _buildReceiptBytes({
+    required Sale sale,
+    required Client client,
+    required Map<String, dynamic> business,
+    String? employeeName,
+  }) {
+    List<int> bytes = [];
+
+    bytes += Uint8List.fromList('\n'.codeUnits);
+    bytes += Uint8List.fromList('${business['name'] ?? 'Business Name'}\n'.codeUnits);
+    bytes += Uint8List.fromList('Phone: ${business['phone'] ?? ''}\n'.codeUnits);
+
+    if (business['tin'] != null && business['tin'].toString().isNotEmpty) {
+      bytes += Uint8List.fromList('TIN: ${business['tin']}\n'.codeUnits);
+    }
+
+    bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+    bytes += Uint8List.fromList('RECEIPT\n'.codeUnits);
+    bytes += Uint8List.fromList('\n'.codeUnits);
+
+    final dateTime = sale.date.toDate();
+    bytes += Uint8List.fromList(
+        'Receipt #: ${DateFormat('yyyyMMddHHmm').format(dateTime)}\n'.codeUnits);
+    bytes += Uint8List.fromList(
+        'Date: ${DateFormat('yyyy-MM-dd HH:mm').format(dateTime)}\n'.codeUnits);
+    bytes += Uint8List.fromList('Client: ${client.name}\n'.codeUnits);
+
+    if (employeeName != null) {
+      bytes += Uint8List.fromList('Served by: $employeeName\n'.codeUnits);
+    }
+
+    bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+
+    final currency = business['mainCurrency'] ?? '';
+    bytes += Uint8List.fromList('\n'.codeUnits);
+    bytes += Uint8List.fromList('Item         Qty  Price($currency)\n'.codeUnits);
+    bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+
+    double subtotal = 0;
+
+    for (var product in sale.products) {
+      String productName = '';
+      double quantity = 0;
+      double price = 0;
+
+      if (product is Map<String, dynamic>) {
+        final pm = Map<String, dynamic>.from(product);
+        productName = pm['name']?.toString() ?? '';
+        quantity = saleLineDisplayQuantity(pm);
+        price = double.tryParse(pm['price']?.toString() ?? '0') ?? 0;
+      } else {
+        productName = product.name ?? '';
+        quantity = product.quantity ?? 0;
+        price = product.price ?? 0;
+      }
+
+      final itemTotal = quantity * price;
+      subtotal += itemTotal;
+
+      String line = productName.padRight(12).substring(0, 12);
+      final qtyStr = product is Map<String, dynamic>
+          ? () {
+              final pm = Map<String, dynamic>.from(product as Map);
+              final q = saleLineDisplayQuantity(pm);
+              final lab = saleLineUomLabel(pm);
+              final qs = q == q.roundToDouble()
+                  ? (q == q.truncateToDouble()
+                      ? q.toInt().toString()
+                      : q.toStringAsFixed(2))
+                  : q.toStringAsFixed(2);
+              if (lab != null && lab.isNotEmpty) return '$qs $lab';
+              return qs;
+            }()
+          : quantity.toStringAsFixed(0);
+      line += qtyStr.padLeft(5);
+      line += itemTotal.toStringAsFixed(0).padLeft(11);
+      bytes += Uint8List.fromList('$line\n'.codeUnits);
+    }
+
+    bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+
+    bytes += Uint8List.fromList(
+        'Subtotal: $currency ${subtotal.toStringAsFixed(0)}\n'.codeUnits);
+    bytes += Uint8List.fromList(
+        'Payment: $currency ${sale.payment.toStringAsFixed(0)}\n'.codeUnits);
+
+    final debt = sale.price - sale.payment;
+    if (debt > 0) {
+      bytes += Uint8List.fromList(
+          'Balance Due: $currency ${debt.toStringAsFixed(0)}\n'.codeUnits);
+    } else if (debt < 0) {
+      bytes += Uint8List.fromList(
+          'Change: $currency ${(-debt).toStringAsFixed(0)}\n'.codeUnits);
+    }
+
+    bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+    bytes += Uint8List.fromList('\n'.codeUnits);
+    final footerText = receiptFooterMessage(business);
+    for (final line in footerText.split('\n')) {
+      bytes += Uint8List.fromList('$line\n'.codeUnits);
+    }
+
+    final List paymentDetailsList = (business['invoicePaymentDetails'] as List? ?? [])
+        .where((e) =>
+            paymentDetailShowsOnInvoice(paymentDetailMapFromFirestore(e)))
+        .toList();
+    if (paymentDetailsList.isNotEmpty) {
+      bytes += Uint8List.fromList('--------------------------------\n'.codeUnits);
+      bytes += Uint8List.fromList('Payment Details:\n'.codeUnits);
+      for (final pd in paymentDetailsList) {
+        final m = Map<String, dynamic>.from(pd as Map);
+        final label = m['type'] == 'bank' ? 'Bank' : 'Mobile';
+        final acct =
+            receiptPaymentAccountLine(m, businessForFallback: business);
+        bytes += Uint8List.fromList('$label: ${m['provider']}\n'.codeUnits);
+        if (acct.isNotEmpty) {
+          bytes += Uint8List.fromList('  $acct\n'.codeUnits);
+        }
+        bytes += Uint8List.fromList('  ${m['number']}\n'.codeUnits);
+      }
+    }
+
+    bytes += Uint8List.fromList('\n\n\n'.codeUnits);
+    return bytes;
+  }
+
   /// Disconnect from printer
   Future<void> disconnect() async {
     try {
+      if (_isWindows) {
+        if (_windowsPrinter != null) {
+          await WindowsThermalBluetooth.disconnect(_windowsPrinter!);
+        }
+        _windowsPrinter = null;
+        useSystemPrintDialog.value = false;
+        isConnected.value = false;
+        selectedPrinter.value = null;
+        return;
+      }
       await PrintBluetoothThermal.disconnect;
       isConnected.value = false;
       selectedPrinter.value = null;

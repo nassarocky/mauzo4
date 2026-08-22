@@ -18,6 +18,8 @@ import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
 import '../utils/constants.dart';
 import '../utils/debtors_export.dart';
+import '../services/sms_reminder_service.dart';
+import '../utils/sms_phone.dart';
 import '../utils/download_helper.dart';
 import '../utils/sale_client_name.dart';
 
@@ -119,6 +121,21 @@ class ClientController extends GetxController {
         backgroundColor: Colors.green,
         colorText: Colors.white,
       );
+      if (_businessController.smsSettings.advanceSmsEnabled &&
+          amount > 0 &&
+          isValidSmsPhone(client.phone)) {
+        unawaited(
+          SmsReminderService().tryNotify(
+            businessId: business,
+            type: 'advance',
+            phone: client.phone,
+            clientId: client.id,
+            clientName: client.name,
+            amount: amount,
+            lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+          ),
+        );
+      }
     } catch (e) {
       print('Error updating advance: $e');
       errorSnackbar(e.toString());

@@ -1,0 +1,583 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+import 'package:mauzo/controllers/business_controller.dart';
+import 'package:mauzo/controllers/profile_controller.dart';
+import 'package:mauzo/models/sms_pack_model.dart';
+import 'package:mauzo/services/sms_reminder_service.dart';
+import 'package:mauzo/ui/widgets/dialogs/sms_payment_dialog.dart';
+import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/debt_reminder_message.dart';
+import 'package:mauzo/utils/sms_settings.dart';
+
+class SmsCreditsScreen extends StatefulWidget {
+  const SmsCreditsScreen({Key? key}) : super(key: key);
+
+  @override
+  State<SmsCreditsScreen> createState() => _SmsCreditsScreenState();
+}
+
+class _SmsCreditsScreenState extends State<SmsCreditsScreen> {
+  final BusinessController _businessController = Get.find();
+  final ProfileController _profileController = Get.find();
+  final SmsReminderService _smsService = SmsReminderService();
+
+  List<SmsPack> _packs = SmsPack.defaults;
+  bool _savingSettings = false;
+  late SmsSettings _settings;
+  late final TextEditingController _debtTemplateCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = _businessController.smsSettings;
+    _debtTemplateCtrl = TextEditingController(
+      text: _settings.debtReminderTemplate.isNotEmpty
+          ? _settings.debtReminderTemplate
+          : defaultDebtReminderTemplate(
+              lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+            ),
+    );
+    _smsService.loadPacks().then((packs) {
+      if (mounted) setState(() => _packs = packs);
+    });
+  }
+
+  @override
+  void dispose() {
+    _debtTemplateCtrl.dispose();
+    super.dispose();
+  }
+
+  void _syncTemplateFromSettings(SmsSettings settings) {
+    final lang = Get.locale?.languageCode == 'en' ? 'en' : 'sw';
+    final text = settings.debtReminderTemplate.isNotEmpty
+        ? settings.debtReminderTemplate
+        : defaultDebtReminderTemplate(lang: lang);
+    if (_debtTemplateCtrl.text != text) {
+      _debtTemplateCtrl.text = text;
+    }
+  }
+
+  String get _templateToSave {
+    final lang = Get.locale?.languageCode == 'en' ? 'en' : 'sw';
+    final typed = _debtTemplateCtrl.text.trim();
+    final builtin = defaultDebtReminderTemplate(lang: lang).trim();
+    if (typed.isEmpty || typed == builtin) return '';
+    return typed;
+  }
+
+  bool get _isOwner =>
+      (_profileController.user['role'] ?? '').toString() == 'owner';
+
+  int get _smsCredits {
+    final raw = _businessController.business['smsCredits'];
+    if (raw is num) return raw.toInt();
+    return int.tryParse('${raw ?? 0}') ?? 0;
+  }
+
+  int get _smsCreditsUsed {
+    final raw = _businessController.business['smsCreditsUsed'];
+    if (raw is num) return raw.toInt();
+    return int.tryParse('${raw ?? 0}') ?? 0;
+  }
+
+  int get _smsCreditsPurchased {
+    final raw = _businessController.business['smsCreditsTotalPurchased'];
+    if (raw is num) return raw.toInt();
+    return int.tryParse('${raw ?? 0}') ?? 0;
+  }
+
+  Future<void> _refreshBusiness() async {
+    await _businessController.updateBusinessData();
+    if (mounted) {
+      setState(() {
+        _settings = _businessController.smsSettings;
+        _syncTemplateFromSettings(_settings);
+      });
+    }
+  }
+
+  void _patchLocalSmsSettings(SmsSettings settings) {
+    _businessController.business['smsSettings'] = settings.toMap();
+  }
+
+  Future<void> _saveSettings({bool showSuccess = true}) async {
+    setState(() => _savingSettings = true);
+    final pending = _settings.copyWith(debtReminderTemplate: _templateToSave);
+    try {
+      final sample = buildDebtReminderMessage(
+        clientName: 'Asha',
+        amount: 15000,
+        currency: 'TZS',
+        businessName: 'Duka',
+        dueDateLabel: '28/08/2026',
+        template: pending.debtReminderTemplate,
+        lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+      );
+      if (countSmsSegments(sample) > 4) {
+        errorSnackbar('sms_message_too_long'.tr);
+        return;
+      }
+      final saved = await _smsService.saveSettings(
+        businessId: _businessController.businessId.value,
+        settings: pending,
+      );
+      _patchLocalSmsSettings(saved);
+      if (mounted) {
+        setState(() {
+          _settings = saved;
+          _syncTemplateFromSettings(saved);
+        });
+      }
+      if (showSuccess) successSnackbar('sms_settings_saved'.tr);
+    } catch (e) {
+      errorSnackbar(smsFunctionErrorMessage(e));
+      rethrow;
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
+    }
+  }
+
+  Future<void> _setSwitch({
+    required SmsSettings Function(bool value) update,
+    required bool value,
+  }) async {
+    final previous = _settings;
+    setState(() => _settings = update(value));
+    try {
+      await _saveSettings(showSuccess: false);
+    } catch (_) {
+      if (mounted) setState(() => _settings = previous);
+    }
+  }
+
+  void _showBuyDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('sms_subscribe'.tr),
+        content: SingleChildScrollView(
+          child: SmsPaymentDialogContent(packs: _packs),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('close'.tr),
+          ),
+        ],
+      ),
+    ).then((_) => _refreshBusiness());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('sms_debt_reminders'.tr),
+        actions: [
+          if (_isOwner)
+            TextButton(
+              onPressed: _savingSettings ? null : () => _saveSettings(),
+              child: Text(
+                _savingSettings ? 'saving'.tr : 'sms_save_settings'.tr,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refreshBusiness,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.sms_outlined, color: primaryColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'sms_credits_remaining'.tr,
+                            style: h6(
+                              Theme.of(context).textTheme.bodyLarge!.color,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '$_smsCredits',
+                          style: h5(primaryColor),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${'sms_used'.tr}: $_smsCreditsUsed · ${'sms_purchased'.tr}: $_smsCreditsPurchased',
+                      style: bodyText(textMutedColor),
+                    ),
+                    if (_isOwner) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _showBuyDialog,
+                          icon: const Icon(Icons.shopping_cart_outlined),
+                          label: Text('sms_buy_credits'.tr),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            if (_isOwner) ...[
+              const SizedBox(height: 16),
+              _buildSettingsCard(context),
+            ],
+            const SizedBox(height: 16),
+            Text(
+              'sms_recent'.tr,
+              style: h6(Theme.of(context).textTheme.bodyLarge!.color),
+            ),
+            const SizedBox(height: 8),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _smsService.logs(_businessController.businessId.value),
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Text('sms_log_error'.tr);
+                }
+                final docs = snap.data?.docs ?? [];
+                if (docs.isEmpty) {
+                  return Text(
+                    'sms_no_logs'.tr,
+                    style: bodyText(textMutedColor),
+                  );
+                }
+                return Column(
+                  children: docs.map((doc) {
+                    final d = doc.data();
+                    final status = (d['status'] ?? '').toString();
+                    final when = d['createdAt'] is Timestamp
+                        ? DateFormat('dd/MM HH:mm').format(
+                            (d['createdAt'] as Timestamp).toDate(),
+                          )
+                        : '';
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        status == 'sent'
+                            ? Icons.check_circle
+                            : Icons.error_outline,
+                        color: status == 'sent' ? greenColor : redColor,
+                      ),
+                      title: Text(
+                        (d['clientName'] ?? d['phone'] ?? '').toString(),
+                      ),
+                      subtitle: Text(
+                        '${d['phone'] ?? ''}  $when',
+                        maxLines: 1,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsCard(BuildContext context) {
+    const dayChoices = [0, 1, 2, 3, 5, 7, 14];
+    const afterDayChoices = [1, 2, 3, 5, 7, 14];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'sms_settings'.tr,
+              style: h6(Theme.of(context).textTheme.bodyLarge!.color),
+            ),
+            const SizedBox(height: 8),
+            Text('sms_credit_days'.tr, style: bodyText(textMutedColor)),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: _settings.defaultCreditDays <= 0
+                      ? null
+                      : () => setState(() {
+                            _settings = _settings.copyWith(
+                              defaultCreditDays: _settings.defaultCreditDays - 1,
+                            );
+                          }),
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+                Text('${_settings.defaultCreditDays}'),
+                IconButton(
+                  onPressed: _settings.defaultCreditDays >= 365
+                      ? null
+                      : () => setState(() {
+                            _settings = _settings.copyWith(
+                              defaultCreditDays: _settings.defaultCreditDays + 1,
+                            );
+                          }),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('sms_debt_message_template'.tr, style: bodyText(textMutedColor)),
+            const SizedBox(height: 4),
+            Text(
+              'sms_debt_message_placeholders'.tr,
+              style: const TextStyle(fontSize: 12, color: textMutedColor),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _debtTemplateCtrl,
+              maxLines: 4,
+              enabled: !_savingSettings,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _savingSettings
+                    ? null
+                    : () {
+                        final lang =
+                            Get.locale?.languageCode == 'en' ? 'en' : 'sw';
+                        setState(() {
+                          _debtTemplateCtrl.text =
+                              defaultDebtReminderTemplate(lang: lang);
+                          _settings =
+                              _settings.copyWith(debtReminderTemplate: '');
+                        });
+                      },
+                child: Text('sms_debt_message_reset'.tr),
+              ),
+            ),
+            Text('sms_reminder_days'.tr, style: bodyText(textMutedColor)),
+            Wrap(
+              spacing: 8,
+              children: dayChoices.map((d) {
+                final selected = _settings.reminderDaysBefore.contains(d);
+                return FilterChip(
+                  label: Text(d == 0 ? 'sms_due_day'.tr : '$d'),
+                  selected: selected,
+                  onSelected: (v) {
+                    final next = [..._settings.reminderDaysBefore];
+                    if (v) {
+                      if (!next.contains(d)) next.add(d);
+                    } else {
+                      next.remove(d);
+                    }
+                    setState(() {
+                      _settings = _settings.copyWith(reminderDaysBefore: next);
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            Text('sms_reminder_days_after'.tr, style: bodyText(textMutedColor)),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  label: Text('sms_after_off'.tr),
+                  selected:
+                      _settings.reminderAfterMode == SmsSettings.afterModeOff,
+                  onSelected: (_) => setState(() {
+                    _settings = _settings.copyWith(
+                      reminderAfterMode: SmsSettings.afterModeOff,
+                      reminderDaysAfter: const [],
+                    );
+                  }),
+                ),
+                ChoiceChip(
+                  label: Text('sms_after_days'.tr),
+                  selected:
+                      _settings.reminderAfterMode == SmsSettings.afterModeDays,
+                  onSelected: (_) => setState(() {
+                    _settings = _settings.copyWith(
+                      reminderAfterMode: SmsSettings.afterModeDays,
+                      reminderDaysAfter: _settings.reminderDaysAfter.isEmpty
+                          ? const [1, 3, 7]
+                          : _settings.reminderDaysAfter,
+                    );
+                  }),
+                ),
+                ChoiceChip(
+                  label: Text('sms_after_daily'.tr),
+                  selected: _settings.reminderAfterMode ==
+                      SmsSettings.afterModeDaily,
+                  onSelected: (_) => setState(() {
+                    _settings = _settings.copyWith(
+                      reminderAfterMode: SmsSettings.afterModeDaily,
+                    );
+                  }),
+                ),
+                ChoiceChip(
+                  label: Text('sms_after_weekly'.tr),
+                  selected: _settings.reminderAfterMode ==
+                      SmsSettings.afterModeWeekly,
+                  onSelected: (_) => setState(() {
+                    _settings = _settings.copyWith(
+                      reminderAfterMode: SmsSettings.afterModeWeekly,
+                    );
+                  }),
+                ),
+              ],
+            ),
+            if (_settings.reminderAfterMode == SmsSettings.afterModeDays) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: afterDayChoices.map((d) {
+                  final selected = _settings.reminderDaysAfter.contains(d);
+                  return FilterChip(
+                    label: Text('$d'),
+                    selected: selected,
+                    onSelected: (v) {
+                      final next = [..._settings.reminderDaysAfter];
+                      if (v) {
+                        if (!next.contains(d)) next.add(d);
+                      } else {
+                        next.remove(d);
+                      }
+                      setState(() {
+                        _settings = _settings.copyWith(
+                          reminderAfterMode: SmsSettings.afterModeDays,
+                          reminderDaysAfter: next,
+                        );
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text('sms_reminder_max'.tr, style: bodyText(textMutedColor)),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: _settings.reminderMaxCount <= 1
+                      ? null
+                      : () => setState(() {
+                            _settings = _settings.copyWith(
+                              reminderMaxCount: _settings.reminderMaxCount - 1,
+                            );
+                          }),
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+                Text('${_settings.reminderMaxCount}'),
+                IconButton(
+                  onPressed: _settings.reminderMaxCount >= 30
+                      ? null
+                      : () => setState(() {
+                            _settings = _settings.copyWith(
+                              reminderMaxCount: _settings.reminderMaxCount + 1,
+                            );
+                          }),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+              ],
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('sms_daily_digest'.tr),
+              value: _settings.dailyDigestEnabled,
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => _setSwitch(
+                        value: v,
+                        update: (value) =>
+                            _settings.copyWith(dailyDigestEnabled: value),
+                      ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('sms_expiry_alert'.tr),
+              value: _settings.expiryAlertEnabled,
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => _setSwitch(
+                        value: v,
+                        update: (value) =>
+                            _settings.copyWith(expiryAlertEnabled: value),
+                      ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('sms_low_stock_alert'.tr),
+              value: _settings.lowStockAlertEnabled,
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => _setSwitch(
+                        value: v,
+                        update: (value) =>
+                            _settings.copyWith(lowStockAlertEnabled: value),
+                      ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('sms_advance_notify'.tr),
+              value: _settings.advanceSmsEnabled,
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => _setSwitch(
+                        value: v,
+                        update: (value) =>
+                            _settings.copyWith(advanceSmsEnabled: value),
+                      ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('sms_debt_pay_notify'.tr),
+              value: _settings.debtPaymentSmsEnabled,
+              onChanged: _savingSettings
+                  ? null
+                  : (v) => _setSwitch(
+                        value: v,
+                        update: (value) =>
+                            _settings.copyWith(debtPaymentSmsEnabled: value),
+                      ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _savingSettings ? null : () => _saveSettings(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  _savingSettings ? 'saving'.tr : 'sms_save_settings'.tr,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -51,7 +51,11 @@ service cloud.firestore {
 
       // Clients may update shop fields but cannot grant themselves SMS credits
       allow update: if isBusinessAllowed(businessId) &&
-        smsCreditFieldsUnchanged();
+        smsCreditFieldsUnchanged() &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['smsSettings']) ||
+          isOwner()
+        );
     }
 
     match /smsPricing/{document=**} {
@@ -65,6 +69,14 @@ service cloud.firestore {
         allow read: if isBusinessAllowed(businessId);
         allow write: if false;
       }
+    }
+
+    match /smsPurchases/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /smsAdmin/{document=**} {
+      allow read, write: if false;
     }
 
     // ✅ Products collection - FIXED FOR TRANSFERS

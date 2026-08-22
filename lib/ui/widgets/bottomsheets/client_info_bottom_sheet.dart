@@ -8,7 +8,7 @@ import 'package:mauzo/controllers/sale_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/ui/widgets/dialogs/double_action_dialog.dart';
 import 'package:mauzo/controllers/profile_controller.dart';
-import 'package:mauzo/services/sms_reminder_service.dart';
+import 'package:mauzo/ui/widgets/dialogs/debt_sms_dialog.dart';
 import 'package:mauzo/utils/sms_phone.dart';
 import '../../../utils/constants.dart';
 import '../../screens/client/advance_transaction.dart';
@@ -116,34 +116,13 @@ class ClientInfoBottomSheet extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 8),
                   child: OutlinedButton.icon(
                     onPressed: () async {
-                      final credits =
-                          (businessController.business['smsCredits'] as num?)
-                                  ?.toInt() ??
-                              0;
-                      if (credits <= 0) {
-                        final nav = Navigator.of(context);
-                        nav.pop();
-                        nav.pushNamed('/sms-credits');
-                        errorSnackbar('sms_no_credits'.tr);
-                        return;
-                      }
-                      try {
-                        final lang =
-                            Get.locale?.languageCode == 'en' ? 'en' : 'sw';
-                        final result = await SmsReminderService().sendReminders(
-                          businessId: businessController.businessId.value,
-                          clientIds: [client.id],
-                          lang: lang,
-                        );
-                        await businessController.updateBusinessData();
-                        if ((result['sent'] ?? 0) > 0) {
-                          successSnackbar('sms_sent_one'.tr);
-                        } else {
-                          errorSnackbar('sms_send_failed'.tr);
-                        }
-                      } catch (e) {
-                        errorSnackbar(smsFunctionErrorMessage(e));
-                      }
+                      await showDebtSmsDialog(
+                        context: context,
+                        clientName: client.name,
+                        phone: client.phone,
+                        amount: client.debt,
+                        clientId: client.id,
+                      );
                     },
                     icon: const Icon(Icons.sms_outlined, size: 18),
                     label: Text('sms_send_one'.tr),

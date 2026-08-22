@@ -3,6 +3,7 @@ Admin hub — single sign-in for commission admins, then links to businesses bro
 URL (after Flutter web build + hosting deploy):
   https://YOUR_HOSTING_DOMAIN/admin-hub/
   https://YOUR_HOSTING_DOMAIN/admin-hub/businesses.html
+  https://YOUR_HOSTING_DOMAIN/admin-hub/sms.html
 
 Copy this folder into build/web/admin-hub/ before firebase deploy --only hosting (same as web/support-reset and web/agent-portal).
 

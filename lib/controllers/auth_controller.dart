@@ -13,6 +13,7 @@ import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/app_navigation.dart';
 import '../utils/constants.dart';
+import '../utils/firestore_auth_retry.dart';
 import '../utils/preferences.dart';
 import '../services/referral_attribution_service.dart';
 import '../utils/business_shop_location.dart';
@@ -92,30 +93,16 @@ class AuthController extends GetxController {
   /// Windows/desktop uses the web Firestore channel; the auth token may not be
   /// attached to the first request immediately after sign-in.
   Future<void> _ensureAuthTokenReady(User user) async {
-    await user.getIdToken(true);
-    await _auth.authStateChanges().firstWhere(
-          (u) => u?.uid == user.uid,
-          orElse: () => user,
-        );
+    await ensureFirestoreAuthTokenReady(user);
   }
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _fetchGmanUserDoc(
     String uid,
   ) async {
-    Future<DocumentSnapshot<Map<String, dynamic>>> read() {
-      return _firestore.collection('gmanusers').doc(uid).get();
-    }
-
-    try {
-      return await read();
-    } on FirebaseException catch (e) {
-      if (e.code != 'permission-denied') rethrow;
-      final user = _auth.currentUser;
-      if (user == null || user.uid != uid) rethrow;
-      debugPrint('Firestore permission-denied on gmanusers/$uid; refreshing auth token...');
-      await _ensureAuthTokenReady(user);
-      return await read();
-    }
+    return firestoreGetWithAuthRetry<Map<String, dynamic>>(
+      _firestore.collection('gmanusers').doc(uid),
+      user: _auth.currentUser,
+    );
   }
 
   String _resolveActiveBusinessId(List<dynamic> businessList) {
@@ -809,6 +796,7 @@ class AuthController extends GetxController {
   Future<void> login(String email, String password) async {
     isLoading.value = true;
     loginSuccess.value = false;
+    var signedIn = false;
 
     try {
       // Attempt to sign in the user using Firebase Authentication
@@ -820,6 +808,7 @@ class AuthController extends GetxController {
       if (user == null || user.uid.isEmpty) {
         throw Exception('User ID is missing.');
       }
+      signedIn = true;
       await _ensureAuthTokenReady(user);
       // Fetch the user's document from Firestore using their UID
       DocumentSnapshot userSnapshot = await _fetchGmanUserDoc(user.uid);
@@ -881,6 +870,14 @@ class AuthController extends GetxController {
     } catch (e) {
       // Handle general errors
       debugPrint("General error: ${e.toString()}");
+      if (signedIn) {
+        try {
+          await _auth.signOut();
+        } catch (_) {}
+        await Preferences.clearLoginSession();
+        _profileController.clearUser();
+        _businessController.clearBusiness();
+      }
 
       Get.snackbar(
         'Login Failed',
@@ -901,7 +898,7 @@ class AuthController extends GetxController {
       _profileController.clearUser();
       _businessController.clearBusiness();
       await _auth.signOut();
-      await Preferences.setLoggedIn(false);
+      await Preferences.clearLoginSession();
       _resetAuthBootstrap();
 
       Get.deleteAll();

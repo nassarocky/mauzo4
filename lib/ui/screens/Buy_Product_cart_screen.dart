@@ -32,11 +32,17 @@ class BuyProductCartScreen extends StatefulWidget {
 
 class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
   final CartController _cartController = Get.find();
-  final SupplierController _supplierController = Get.find();
+  final SupplierController _supplierController =
+      Get.isRegistered<SupplierController>()
+          ? Get.find<SupplierController>()
+          : Get.put(SupplierController());
   final ProductController _productController = Get.find();
   final BusinessController _businessController = Get.find();
   final ProfileController _profileController = Get.find();
-  final SupplierDebtController _supplierDebtController = Get.find();
+  final SupplierDebtController _supplierDebtController =
+      Get.isRegistered<SupplierDebtController>()
+          ? Get.find<SupplierDebtController>()
+          : Get.put(SupplierDebtController());
   final TextEditingController _paidController = TextEditingController();
   final FocusNode _paidFocusNode = FocusNode();
 

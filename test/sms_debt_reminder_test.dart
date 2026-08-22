@@ -36,17 +36,32 @@ void main() {
         businessName: 'Shop',
         lang: 'en',
       );
-      expect(msg, contains('you owe 99.50 TZS'));
+      expect(msg, contains('you owe TZS 99.50'));
+    });
+
+    test('custom template replaces placeholders', () {
+      final msg = buildDebtReminderMessage(
+        clientName: 'Asha',
+        amount: 12000,
+        currency: 'TZS',
+        businessName: 'Duka',
+        dueDateLabel: '28/08/2026',
+        template: '{name} deni {amount} {currency} {business} {due}',
+      );
+      expect(msg, 'Asha deni TZS 12000 Duka 28/08/2026');
     });
   });
 
   group('SmsPack', () {
-    test('defaults include billed packs paid to Hesabu Mauzo', () {
-      expect(SmsPack.defaults.length, 4);
-      expect(SmsPack.defaults.first.price, greaterThan(0));
+    test('defaults start at 100 SMS with TZS 30 then 25 from 1000', () {
+      expect(SmsPack.defaults.first.credits, 100);
+      expect(SmsPack.priceForCredits(100), 3000);
+      expect(SmsPack.priceForCredits(1000), 25000);
       final hundred = SmsPack.defaults.firstWhere((p) => p.id == 'sms_100');
       expect(hundred.credits, 100);
-      expect(hundred.price, 5000);
+      expect(hundred.price, 3000);
+      final thousand = SmsPack.defaults.firstWhere((p) => p.id == 'sms_1000');
+      expect(thousand.price, 25000);
     });
   });
 }

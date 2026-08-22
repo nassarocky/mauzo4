@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/models/profile_model.dart';
 import '../utils/constants.dart';
+import '../utils/firestore_auth_retry.dart';
 
 class ProfileController extends GetxController {
   /// Roles that must never access purchases/suppliers, even when Allow Purchases is ON.
@@ -112,10 +113,9 @@ class ProfileController extends GetxController {
       String uid = _auth.currentUser?.uid ?? '';
 
       if (uid.isNotEmpty) {
-        var snapshot = await firestore
-            .collection('gmanusers')
-            .doc(uid) // ✅ correct document reference
-            .get();
+        var snapshot = await firestoreGetWithAuthRetry(
+          firestore.collection('gmanusers').doc(uid),
+        );
 
         if (snapshot.exists) {
           var user = ProfileModel.fromSnapshot(snapshot);

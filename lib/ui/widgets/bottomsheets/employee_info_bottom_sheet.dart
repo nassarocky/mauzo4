@@ -147,13 +147,14 @@ class _EmployeeInfoBottomSheetState extends State<EmployeeInfoBottomSheet> {
                 style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
               ),
               const SizedBox(height: 12),
-              if(widget.employee.role!='owner')
-              Text(
-                widget.employee.password != "" ? widget.employee.password : "no_password".tr,
-                style: bodyText(
-                  Theme.of(context).textTheme.bodyMedium!.color,
+              if (Get.find<ProfileController>().user['role'] == 'owner' &&
+                  widget.employee.role != 'owner')
+                Text(
+                  '${'worker_password'.tr}: ${widget.employee.password != "" ? widget.employee.password : "no_password".tr}',
+                  style: bodyText(
+                    Theme.of(context).textTheme.bodyMedium!.color,
+                  ),
                 ),
-              ),
               const SizedBox(height: 12),
               Text(
                   widget.employee.email != null && widget.employee.email != ''

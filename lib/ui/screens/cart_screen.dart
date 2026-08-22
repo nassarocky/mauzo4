@@ -13,7 +13,9 @@ import '../../controllers/business_controller.dart';
 import '../../models/client_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/preferences.dart';
+import '../../utils/sale_debt_due_date.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
+import '../widgets/debt_due_date_picker.dart';
 import '../widgets/bottomsheets/discount_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
@@ -51,6 +53,7 @@ class _CartScreenState extends State<CartScreen> {
   // Track manual edits and total changes
   bool _userEditedPaid = false;
   double _lastProductsTotal = 0.0;
+  DateTime? _debtDueDate;
 
   @override
   void initState() {
@@ -146,6 +149,15 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   bool get _isDebtAllowed => _businessController.isDebtEnabled;
+
+  DateTime get _saleDayForDebt => SaleDebtDueDate.startOfDay(DateTime.now());
+
+  DateTime get _effectiveDebtDueDate =>
+      _debtDueDate ??
+      SaleDebtDueDate.defaultDueDate(
+        saleDate: _saleDayForDebt,
+        defaultCreditDays: _businessController.smsSettings.defaultCreditDays,
+      );
 
   bool get _isMultiFundEnabled => _businessController.isMultiFundEnabled;
 
@@ -919,6 +931,17 @@ class _CartScreenState extends State<CartScreen> {
                             '${'remaining'.tr}: ${chosenCurrency == _businessController.business['mainCurrency'] ? formatCurrency(_cartController.remaining, chosenCurrency) : formatCurrency(_cartController.remaining / Preferences.getExchangeRateResult(), chosenCurrency)}',
                             style: bodyText(warningColor),
                           ),
+                          const SizedBox(height: 8),
+                          DebtDueDatePicker(
+                            dueDate: _effectiveDebtDueDate,
+                            firstDate: _saleDayForDebt,
+                            lastDate: SaleDebtDueDate.lastSelectableDueDate(
+                              _saleDayForDebt,
+                            ),
+                            onPicked: (picked) {
+                              setState(() => _debtDueDate = picked);
+                            },
+                          ),
                         ],
                       ],
                     ),
@@ -1406,6 +1429,12 @@ class _CartScreenState extends State<CartScreen> {
       'remainingDebtAmount': _cartController.remaining, // Same as initial since no payment made yet
       'paymentRecords': [], // No payments yet
       'dateIncurred': Timestamp.now(),
+      'dueDate': Timestamp.fromDate(_effectiveDebtDueDate),
+      'creditDays': SaleDebtDueDate.creditDaysFrom(
+        saleDate: _saleDayForDebt,
+        dueDate: _effectiveDebtDueDate,
+      ),
+      'smsReminderCount': 0,
       'status': 'PENDING', // Initial status is 'pending'
       'comment': _detailsController.text.trim(),// Add any comment from the cart
     };
@@ -1573,15 +1602,12 @@ class _CartScreenState extends State<CartScreen> {
 
     _flushFundSourceIntoPaymentsBeforePersist();
 
-    // On Windows desktop, skip Bluetooth selection and use system print dialog
-    final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
-      // Show printer selection dialog (Android only)
+    // Ask for printer when none selected (mobile + Windows Bluetooth).
+    if (_thermalPrinter.selectedPrinter.value == null) {
       await showDialog(
         context: context,
         builder: (context) => const PrinterSelectionDialog(),
       );
-      // If still no printer selected, return
       if (_thermalPrinter.selectedPrinter.value == null) {
         return;
       }

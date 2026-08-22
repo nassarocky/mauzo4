@@ -40,6 +40,17 @@ class Preferences {
     await _prefs?.setBool('isLoggedIn', value);
   }
 
+  /// Clears auth-related prefs so the next login cannot reuse another account's business id.
+  static Future<void> clearLoginSession() async {
+    await _prefs?.setBool('isLoggedIn', false);
+    await _prefs?.setString('business', '');
+    await _prefs?.setString('email', '');
+    await _prefs?.setString('phone', '');
+    await _prefs?.setString('password', '');
+    await _prefs?.setString('userId', '');
+    await _prefs?.setString('businessId', '');
+  }
+
   static String getPhone() {
     return _prefs?.getString('phone') ?? '';
   }

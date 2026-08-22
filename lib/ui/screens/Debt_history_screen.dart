@@ -11,6 +11,11 @@ import '../../controllers/profile_controller.dart';
 import '../../models/client_model.dart';
 import '../../models/debtHistory_model.dart';
 import 'package:mauzo/services/ledger_service.dart';
+import 'package:mauzo/services/sms_reminder_service.dart';
+import 'package:mauzo/ui/widgets/dialogs/debt_sms_dialog.dart';
+import 'package:mauzo/utils/sale_debt_due_date.dart';
+import 'package:mauzo/utils/sms_phone.dart';
+import 'package:mauzo/utils/sms_settings.dart';
 
 class DebtHistoryScreen extends StatefulWidget {
   const DebtHistoryScreen({Key? key}) : super(key: key);
@@ -31,6 +36,109 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
     _debtHistoryController.setFilterStatus(["PENDING"]);
   }
 
+  Future<void> _showDefaultLoanPeriodDialog(BuildContext context) async {
+    var days = _businessController.smsSettings.defaultCreditDays;
+    var saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('sms_credit_days'.tr),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'sms_credit_days_hint'.tr,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        onPressed: days <= 0 || saving
+                            ? null
+                            : () => setDialogState(() => days -= 1),
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          '$days',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: days >= 365 || saving
+                            ? null
+                            : () => setDialogState(() => days += 1),
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                    ],
+                  ),
+                  Text('days'.tr, style: TextStyle(color: Colors.grey[600])),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                  child: Text('cancel'.tr),
+                ),
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setDialogState(() => saving = true);
+                          try {
+                            final current = _businessController.smsSettings;
+                            final next = current.copyWith(defaultCreditDays: days);
+                            final saved = await SmsReminderService().saveSettings(
+                              businessId: _businessController.businessId.value,
+                              settings: next,
+                            );
+                            _businessController.business['smsSettings'] =
+                                saved.toMap();
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            Get.snackbar(
+                              'success'.tr,
+                              'sms_settings_saved'.tr,
+                              backgroundColor: Colors.green,
+                              colorText: Colors.white,
+                            );
+                          } catch (e) {
+                            setDialogState(() => saving = false);
+                            Get.snackbar(
+                              'error'.tr,
+                              e.toString(),
+                              backgroundColor: Colors.red,
+                              colorText: Colors.white,
+                            );
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text('save'.tr),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showEditDebtDialog(BuildContext context, DebtHistory debt) {
     if (!_profileController.hasPermission('manage_debt')) {
       Get.snackbar('Access Denied', 'You do not have permission to manage debt payments', backgroundColor: Colors.red, colorText: Colors.white);
@@ -40,6 +148,11 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
     final TextEditingController remainingCtrl = TextEditingController(text: debt.remainingDebtAmount.toStringAsFixed(2));
     final TextEditingController commentCtrl = TextEditingController(text: debt.comment);
     DateTime selectedDate = debt.dateIncurred.toDate();
+    DateTime selectedDueDate = debt.dueDate?.toDate() ??
+        SaleDebtDueDate.defaultDueDate(
+          saleDate: selectedDate,
+          defaultCreditDays: _businessController.smsSettings.defaultCreditDays,
+        );
 
     showDialog(
       context: context,
@@ -90,6 +203,41 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.event, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(selectedDueDate)}',
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () async {
+                              final saleDay =
+                                  SaleDebtDueDate.startOfDay(selectedDate);
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDueDate.isBefore(saleDay)
+                                    ? saleDay
+                                    : selectedDueDate,
+                                firstDate: saleDay,
+                                lastDate:
+                                    SaleDebtDueDate.lastSelectableDueDate(
+                                  selectedDate,
+                                ),
+                              );
+                              if (picked != null) {
+                                selectedDueDate =
+                                    SaleDebtDueDate.startOfDay(picked);
+                                (context as Element).markNeedsBuild();
+                              }
+                            },
+                            icon: const Icon(Icons.edit_calendar),
+                            label: Text('sale_debt_due_date'.tr),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -107,7 +255,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
                     Get.snackbar('Invalid amount', 'Remaining debt must be a non-negative number', backgroundColor: Colors.red, colorText: Colors.white);
                     return;
                   }
-                  await _updateDebtTransaction(context, debt, newRemaining, commentCtrl.text.trim(), Timestamp.fromDate(selectedDate));
+                  await _updateDebtTransaction(context, debt, newRemaining, commentCtrl.text.trim(), Timestamp.fromDate(selectedDate), Timestamp.fromDate(selectedDueDate));
                 },
                 child: Text('Save'.tr),
               ),
@@ -117,7 +265,7 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
     );
   }
 
-  Future<void> _updateDebtTransaction(BuildContext context, DebtHistory debt, double newRemaining, String newComment, Timestamp newDate) async {
+  Future<void> _updateDebtTransaction(BuildContext context, DebtHistory debt, double newRemaining, String newComment, Timestamp newDate, Timestamp newDueDate) async {
     final salesCollection = FirebaseFirestore.instance
         .collection('sales')
         .doc(_businessController.business['id'])
@@ -167,6 +315,11 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
         'remainingDebtAmount': newRemaining,
         'comment': newComment,
         'dateIncurred': newDate,
+        'dueDate': newDueDate,
+        'creditDays': SaleDebtDueDate.creditDaysFrom(
+          saleDate: newDate.toDate(),
+          dueDate: newDueDate.toDate(),
+        ),
         'status': newRemaining <= 0 ? 'PAID' : 'PENDING',
       };
       transaction.update(debtRef, debtUpdates);
@@ -349,6 +502,12 @@ class _DebtHistoryScreenState extends State<DebtHistoryScreen> {
         }),
         iconTheme: const IconThemeData(color: Colors.black),
         actions: [
+          if ((_profileController.user['role'] ?? '') == 'owner')
+            IconButton(
+              tooltip: 'sms_credit_days'.tr,
+              icon: const Icon(Icons.event_available, color: Colors.black),
+              onPressed: () => _showDefaultLoanPeriodDialog(context),
+            ),
           IconButton(
             tooltip: 'export_debtors_excel'.tr,
             icon: Image.asset(
@@ -487,7 +646,7 @@ class DebtCard extends StatelessWidget {
                   ],
                 ),
                 PopupMenuButton<String>(
-                  onSelected: (value) {
+                  onSelected: (value) async {
                     if (value == 'view_orders') {
                       saleController.selectedDateRange = null;
                       saleController.filterSalesById(debt.id);
@@ -496,6 +655,21 @@ class DebtCard extends StatelessWidget {
                       onEditDebt(debt);
                     } else if (value == 'delete_debt') {
                       onDeleteDebt(debt);
+                    } else if (value == 'send_sms') {
+                      final dueLabel = debt.dueDate != null
+                          ? DateFormat('dd/MM/yyyy')
+                              .format(debt.dueDate!.toDate())
+                          : null;
+                      await showDebtSmsDialog(
+                        context: context,
+                        clientName: client.name.isNotEmpty
+                            ? client.name
+                            : debt.name,
+                        phone: client.phone,
+                        amount: debt.remainingDebtAmount,
+                        clientId: debt.client,
+                        dueDateLabel: dueLabel,
+                      );
                     }
                   },
                   itemBuilder: (BuildContext context) {
@@ -505,6 +679,19 @@ class DebtCard extends StatelessWidget {
                         child: Text('View Orders'.tr),
                       ),
                     ];
+                    if (debt.remainingDebtAmount > 0 &&
+                        isValidSmsPhone(client.phone) &&
+                        (_profileController.hasPermission('send_debt_sms') ||
+                            _profileController.hasPermission('manage_debt') ||
+                            (_profileController.user['role'] ?? '') ==
+                                'owner')) {
+                      items.add(
+                        PopupMenuItem<String>(
+                          value: 'send_sms',
+                          child: Text('send_debt_sms'.tr),
+                        ),
+                      );
+                    }
                     if (_profileController.hasPermission('manage_debt')) {
                       items.addAll([
                         PopupMenuItem<String>(
@@ -573,6 +760,19 @@ class DebtCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (debt.dueDate != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.event, color: Colors.grey),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${'sale_debt_due_date'.tr}: ${DateFormat('yyyy-MM-dd').format(debt.dueDate!.toDate())}',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 15),
             Align(
               alignment: Alignment.centerRight,
@@ -887,6 +1087,26 @@ class DebtCard extends StatelessWidget {
         colorText: Colors.white,
         duration: Duration(seconds: 5),
       );
+      if (_businessController.smsSettings.debtPaymentSmsEnabled) {
+        final client = Get.find<ClientController>().getClient(debt.client);
+        final phone = client.phone.isNotEmpty ? client.phone : '';
+        if (isValidSmsPhone(phone)) {
+          unawaited(
+            SmsReminderService().tryNotify(
+              businessId: _businessController.businessId.value,
+              type: 'debt_payment',
+              phone: phone,
+              clientId: debt.client,
+              clientName: debt.name,
+              amount: paymentAmount,
+              remaining: (debt.remainingDebtAmount - paymentAmount)
+                  .clamp(0, double.infinity)
+                  .toDouble(),
+              lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+            ),
+          );
+        }
+      }
       // Post ledger IN for client debt repayment
       try {
         await LedgerService().postSaleIn(

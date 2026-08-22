@@ -20,10 +20,17 @@ class SmsPack {
     );
   }
 
+  static int priceForCredits(int credits) {
+    if (credits < 100) return 0;
+    if (credits >= 1000) return credits * 25;
+    return credits * 30;
+  }
+
   static const List<SmsPack> defaults = [
-    SmsPack(id: 'sms_50', credits: 50, price: 3000, label: 'SMS 50'),
-    SmsPack(id: 'sms_100', credits: 100, price: 5000, label: 'SMS 100'),
-    SmsPack(id: 'sms_500', credits: 500, price: 20000, label: 'SMS 500'),
-    SmsPack(id: 'sms_1000', credits: 1000, price: 35000, label: 'SMS 1000'),
+    SmsPack(id: 'sms_100', credits: 100, price: 3000, label: 'SMS 100'),
+    SmsPack(id: 'sms_200', credits: 200, price: 6000, label: 'SMS 200'),
+    SmsPack(id: 'sms_500', credits: 500, price: 15000, label: 'SMS 500'),
+    SmsPack(id: 'sms_1000', credits: 1000, price: 25000, label: 'SMS 1000'),
+    SmsPack(id: 'sms_2000', credits: 2000, price: 50000, label: 'SMS 2000'),
   ];
 }

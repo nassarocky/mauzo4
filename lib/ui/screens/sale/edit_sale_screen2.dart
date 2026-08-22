@@ -15,7 +15,9 @@ import '../../../models/sale_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/sale_line_quantity.dart';
 import '../../../utils/preferences.dart';
+import '../../../utils/sale_debt_due_date.dart';
 import '../../widgets/bottomsheets/comment_bottom_sheet.dart';
+import '../../widgets/debt_due_date_picker.dart';
 import '../../widgets/bottomsheets/discount_bottom_sheet.dart';
 import '../../widgets/bottomsheets/payment_bottom_sheet.dart';
 import '../../widgets/buttons/primary_button.dart';
@@ -45,10 +47,21 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
   String chosenCurrency = _businessController.business['mainCurrency'];
   final TextEditingController _detailsController = TextEditingController();
   DateTime? selectedDate;
+  DateTime? _debtDueDate;
 
   bool _isLoading = false;
 
   bool get _isDebtAllowed => _businessController.isDebtEnabled;
+
+  DateTime get _saleDayForDebt =>
+      SaleDebtDueDate.startOfDay(selectedDate ?? DateTime.now());
+
+  DateTime get _effectiveDebtDueDate =>
+      _debtDueDate ??
+      SaleDebtDueDate.defaultDueDate(
+        saleDate: _saleDayForDebt,
+        defaultCreditDays: _businessController.smsSettings.defaultCreditDays,
+      );
 
   @override
   void dispose() {
@@ -91,6 +104,7 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
           originalTime.millisecond,
           originalTime.microsecond,
         );
+        _debtDueDate = null;
       });
 
       print('📅 New selected date with preserved time: $selectedDate');
@@ -684,6 +698,22 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
                     ),
                   ),
                 ),
+                if (_isDebtAllowed && _cartController.remaining > 0.01) ...[
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: DebtDueDatePicker(
+                      dueDate: _effectiveDebtDueDate,
+                      firstDate: _saleDayForDebt,
+                      lastDate: SaleDebtDueDate.lastSelectableDueDate(
+                        _saleDayForDebt,
+                      ),
+                      onPicked: (picked) {
+                        setState(() => _debtDueDate = picked);
+                      },
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1040,6 +1070,12 @@ class _EditSaleScreenState extends State<EditSaleScreen2> {
       'remainingDebtAmount': _cartController.remaining, // Same as initial since no payment made yet
       'paymentRecords': [], // No payments yet
       'dateIncurred': Timestamp.now(),
+      'dueDate': Timestamp.fromDate(_effectiveDebtDueDate),
+      'creditDays': SaleDebtDueDate.creditDaysFrom(
+        saleDate: _saleDayForDebt,
+        dueDate: _effectiveDebtDueDate,
+      ),
+      'smsReminderCount': 0,
       'status': 'PENDING', // Initial status is 'pending'
       'comment': _detailsController.text.trim(),// Add any comment from the cart
     };

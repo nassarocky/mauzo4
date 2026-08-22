@@ -9,6 +9,8 @@ class DebtHistory {
   final double remainingDebtAmount; // Remaining debt after payments
   final List<Map<String, dynamic>> paymentRecords; // List of partial payments made by the client
   final Timestamp dateIncurred; // Date when the debt was incurred
+  final Timestamp? dueDate;
+  final int? creditDays;
   final String status; // Debt status (pending, partially paid, paid)
   final String comment; // Optional comment or description for the debt record
 
@@ -21,6 +23,8 @@ class DebtHistory {
     required this.remainingDebtAmount,
     required this.paymentRecords,
     required this.dateIncurred,
+    this.dueDate,
+    this.creditDays,
     required this.status,
     required this.comment,
   });
@@ -38,6 +42,8 @@ class DebtHistory {
       remainingDebtAmount: (data?['remainingDebtAmount'] ?? 0.0).toDouble(),
       paymentRecords: List<Map<String, dynamic>>.from(data?['paymentRecords'] ?? []),
       dateIncurred: data?['dateIncurred'] ?? Timestamp.now(),
+      dueDate: data?['dueDate'] is Timestamp ? data!['dueDate'] as Timestamp : null,
+      creditDays: (data?['creditDays'] as num?)?.toInt(),
       status: data?['status'] ?? 'pending',
       comment: data?['comment'] ?? '',
     );
@@ -53,6 +59,8 @@ class DebtHistory {
       'remainingDebtAmount': remainingDebtAmount,
       'paymentRecords': paymentRecords,
       'dateIncurred': dateIncurred,
+      if (dueDate != null) 'dueDate': dueDate,
+      if (creditDays != null) 'creditDays': creditDays,
       'status': status,
       'comment': comment,
     };

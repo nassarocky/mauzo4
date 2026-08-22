@@ -25,7 +25,8 @@ const AT_USERNAME = defineSecret("AT_USERNAME");
 const MOBISHASTRA_USER = defineSecret("MOBISHASTRA_USER");
 const MOBISHASTRA_PWD = defineSecret("MOBISHASTRA_PWD");
 const MOBISHASTRA_SENDER_ID = defineSecret("MOBISHASTRA_SENDER_ID");
-const { registerSmsFunctions, applySmsPaymentFromCallback } = require("./sms_functions");
+const { createSmsHandlers, applySmsPaymentFromCallback } = require("./sms_functions");
+const smsHelpers = require("./sms_helpers");
 
 const OTP_EXPIRY_MS   = 10 * 60 * 1000; // 10 minutes
 const MAX_OTP_ATTEMPTS = 5;
@@ -246,7 +247,7 @@ async function assertCommissionAgent(request) {
   return { uid: request.auth.uid, data: d.data() || {} };
 }
 
-const smsCloud = registerSmsFunctions({
+const smsHandlers = createSmsHandlers({
   firestore,
   admin,
   fetchImpl: typeof fetch === "function" ? fetch : require("node-fetch"),
@@ -257,9 +258,64 @@ const smsCloud = registerSmsFunctions({
   },
   assertCommissionAdmin,
 });
-exports.sendDebtReminderSms = smsCloud.sendDebtReminderSms;
-exports.makeSmsPayment = smsCloud.makeSmsPayment;
-exports.grantSmsCredits = smsCloud.grantSmsCredits;
+exports.sendDebtReminderSms = onCall(
+  {
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  (request) => smsHandlers.sendDebtReminderSms(request)
+);
+exports.sendBusinessSms = onCall(
+  {
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  (request) => smsHandlers.sendBusinessSms(request)
+);
+exports.updateSmsSettings = onCall(
+  { region: "us-central1" },
+  (request) => smsHandlers.updateSmsSettings(request)
+);
+exports.processScheduledSmsJobs = onSchedule(
+  {
+    schedule: "0 8 * * *",
+    timeZone: "Africa/Nairobi",
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  () => smsHandlers.processScheduledSmsJobs()
+);
+exports.processDailyDigestJobs = onSchedule(
+  {
+    schedule: "0 20 * * *",
+    timeZone: "Africa/Nairobi",
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  () => smsHandlers.processDailyDigestJobs()
+);
+exports.makeSmsPayment = onRequest(
+  { region: "us-central1" },
+  (req, res) => smsHandlers.makeSmsPayment(req, res)
+);
+exports.grantSmsCredits = onCall(
+  { region: "us-central1" },
+  (request) => smsHandlers.grantSmsCredits(request)
+);
+exports.adminGetSmsOverview = onCall(
+  {
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  (request) => smsHandlers.adminGetSmsOverview(request)
+);
+exports.smsTestSend = onRequest(
+  {
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  (req, res) => smsHandlers.testSendSms(req, res)
+);
 
 /** Returns normalized codes; throws if duplicate across other agents. */
 async function assertPromoCodesAvailableForAgent(codes, excludeAgentUid) {
@@ -297,6 +353,81 @@ async function listBusinessSummariesForUserData(data) {
   );
 }
 
+async function findGmanUserByPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  const variants = new Set([String(phone || ""), digits, `+${digits}`]);
+  if (digits.startsWith("255") && digits.length === 12) {
+    variants.add(`0${digits.slice(3)}`);
+  }
+  for (const v of variants) {
+    if (!v) continue;
+    const snap = await firestore.collection("gmanusers").where("phone", "==", v).limit(1).get();
+    if (!snap.empty) return snap.docs[0];
+  }
+  return null;
+}
+
+/**
+ * 4 OTP SMS per month for paying owners. Employees use the password shown to the boss.
+ * Unknown phones (signup) are allowed.
+ */
+async function enforceOwnerOtpMonthlyCap(phone) {
+  const userDoc = await findGmanUserByPhone(phone);
+  const monthKey = smsHelpers.nairobiMonthKey();
+
+  if (!userDoc) {
+    const digits = String(phone || "").replace(/\D/g, "") || "unknown";
+    const usageRef = firestore.collection("otpUsage").doc(`phone_${digits}`);
+    const usageSnap = await usageRef.get();
+    const usage = usageSnap.data() || {};
+    const count = usage.month === monthKey ? Number(usage.count) || 0 : 0;
+    if (count >= 4) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "You have used all 4 OTP SMS for this month."
+      );
+    }
+    return { userId: `phone_${digits}`, monthKey, count, usageRef };
+  }
+
+  const user = userDoc.data() || {};
+  const role = String(user.role || "").toLowerCase();
+  if (role !== "owner") {
+    throw new HttpsError(
+      "permission-denied",
+      "OTP is for the business owner only. Ask the owner for the employee password."
+    );
+  }
+
+  const bizIds = Array.isArray(user.business) ? user.business.filter(Boolean) : [];
+  let paid = false;
+  for (const bizId of bizIds.slice(0, 8)) {
+    const biz = await firestore.collection("businesses").doc(bizId).get();
+    if ((biz.data() || {}).subscriptionStatus === "subscription_ok") {
+      paid = true;
+      break;
+    }
+  }
+  if (!paid) {
+    throw new HttpsError(
+      "failed-precondition",
+      "OTP SMS is available to paying owners (4 per month)."
+    );
+  }
+
+  const usageRef = firestore.collection("otpUsage").doc(userDoc.id);
+  const usageSnap = await usageRef.get();
+  const usage = usageSnap.data() || {};
+  const count = usage.month === monthKey ? Number(usage.count) || 0 : 0;
+  if (count >= 4) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "You have used all 4 OTP SMS for this month."
+    );
+  }
+  return { userId: userDoc.id, monthKey, count, usageRef };
+}
+
 /**
  * sendOtp  –  generates a 6-digit OTP, stores its SHA-256 hash in Firestore,
  * and delivers the plaintext code via Africa's Talking SMS.
@@ -314,6 +445,8 @@ exports.sendOtp = onCall(
         "A valid E.164 phone number is required (e.g. +255712345678)"
       );
     }
+
+    const otpCap = await enforceOwnerOtpMonthlyCap(phone);
 
     // ── Rate-limit: at most one OTP per 60 seconds ──
     const otpRef = firestore.collection("otp_requests").doc(phone);
@@ -358,6 +491,13 @@ exports.sendOtp = onCall(
         // from: "HesabuMz",  // ← uncomment and set your approved AT Sender ID once registered
       });
       console.log(`[sendOtp] OTP sent to ${phone}`);
+      if (otpCap?.userId && otpCap.usageRef) {
+        await otpCap.usageRef.set({
+          month: otpCap.monthKey,
+          count: (otpCap.count || 0) + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
     } catch (smsErr) {
       console.error("[sendOtp] Africa's Talking error:", smsErr);
       await otpRef.delete();
@@ -1174,6 +1314,7 @@ exports.registerUser = onRequest({ region: 'us-central1' }, async (req, res) => 
       role: role || "employee",
       phone: profilePhone,
       name,
+      password: String(password),
       maxBusiness: 2,
       business: [business],
       image: "",
@@ -1495,7 +1636,14 @@ exports.paymentCallbackEmail = onRequest(async (req, res) => {
     const wasSms = await applySmsPaymentFromCallback(
       firestore,
       admin,
-      additionalProps
+      additionalProps,
+      {
+        amount: callbackData.amount || callbackData.transamount,
+        transactionId:
+          callbackData.transactionId ||
+          callbackData.reference ||
+          callbackData.externalId,
+      }
     );
     if (wasSms) {
       console.log(
@@ -3779,6 +3927,9 @@ function serializeAdminBusiness(doc) {
     date: serializeFirestoreTs(b.date),
     paymentStart: serializeFirestoreTs(b.paymentStart),
     paymentLast: serializeFirestoreTs(b.paymentLast),
+    smsCredits: Number(b.smsCredits) || 0,
+    smsCreditsUsed: Number(b.smsCreditsUsed) || 0,
+    smsCreditsTotalPurchased: Number(b.smsCreditsTotalPurchased) || 0,
   };
 }
 

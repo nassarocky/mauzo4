@@ -4,9 +4,11 @@ import '../models/business_model.dart';
 import 'profile_controller.dart';
 import '../services/fund_source_service.dart';
 import '../utils/constants.dart';
+import '../utils/firestore_auth_retry.dart';
 import '../utils/preferences.dart';
 import '../utils/receipt_footer.dart';
 import '../utils/business_shop_location.dart';
+import '../utils/sms_settings.dart';
 
 class BusinessController extends GetxController {
   final Rx<Map<String, dynamic>> _business = Rx<Map<String, dynamic>>({});
@@ -56,6 +58,9 @@ class BusinessController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    // Avoid Firestore reads with a stale business id while signed out
+    // (desktop/web often surfaces that as permission-denied).
+    if (!Preferences.isLoggedIn()) return;
     final id = Preferences.getBusiness();
     if (id.isNotEmpty) {
       businessId.value = id;
@@ -72,6 +77,9 @@ class BusinessController extends GetxController {
   /// Applies to all roles including owner.
   bool get isPurchasesEnabled =>
       (_business.value['purchases']?.toString() ?? 'false') == 'true';
+
+  SmsSettings get smsSettings =>
+      SmsSettings.fromMap(_business.value['smsSettings']);
 
   /// Allow Multiple Fund Sources (`multiFundEnabled` on business).
   bool get isMultiFundEnabled =>
@@ -333,10 +341,9 @@ class BusinessController extends GetxController {
       if (businessId.value.isNotEmpty) {
         print('Fetching business data for ID: ${businessId.value}'); // Debugging
 
-        var snapshot = await firestore
-            .collection('businesses')
-            .doc(businessId.value) // 🔥 direct document access
-            .get();
+        var snapshot = await firestoreGetWithAuthRetry(
+          firestore.collection('businesses').doc(businessId.value),
+        );
 
         if (snapshot.exists) {
           final rawData = snapshot.data() as Map<String, dynamic>;
@@ -374,6 +381,9 @@ class BusinessController extends GetxController {
             'smsCreditsUsed': (rawData['smsCreditsUsed'] as num?)?.toInt() ?? 0,
             'smsCreditsTotalPurchased':
                 (rawData['smsCreditsTotalPurchased'] as num?)?.toInt() ?? 0,
+            'smsSettings': rawData['smsSettings'] is Map
+                ? Map<String, dynamic>.from(rawData['smsSettings'] as Map)
+                : <String, dynamic>{},
             'invoicePaymentDetails': rawData['invoicePaymentDetails'] != null
                 ? List<Map<String, dynamic>>.from(
                     (rawData['invoicePaymentDetails'] as List)

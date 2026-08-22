@@ -965,21 +965,18 @@ class _SalesScreenState extends State<SalesScreen> {
   }
 
   Future<void> _thermalPrint(Sale sale, Client client) async {
-    // On Windows desktop, skip Bluetooth selection and use system print dialog
-    final bool isWindows = !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-    if (!isWindows && _thermalPrinter.selectedPrinter.value == null) {
-      // Show printer selection dialog (Android only)
-      final result = await showDialog(
+    // Ask for printer when none selected (mobile + Windows Bluetooth).
+    // Windows can also choose "Use Windows print dialog" in that sheet.
+    if (_thermalPrinter.selectedPrinter.value == null) {
+      await showDialog(
         context: context,
         builder: (context) => const PrinterSelectionDialog(),
       );
-      // If still no printer selected after dialog, return
       if (_thermalPrinter.selectedPrinter.value == null) {
         return;
       }
     }
 
-    // Print the receipt
     await _thermalPrinter.printReceipt(
       sale: sale,
       client: client,

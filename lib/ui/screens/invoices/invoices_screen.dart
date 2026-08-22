@@ -30,6 +30,10 @@ import '../../../models/sale_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../utils/download_helper.dart';
 import '../../../utils/receipt_footer.dart';
+import '../../../services/sms_reminder_service.dart';
+import '../../../utils/sms_settings.dart';
+import '../../../utils/sms_phone.dart';
+import '../../widgets/dialogs/sms_recipient_dialog.dart';
 
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({Key? key}) : super(key: key);
@@ -520,7 +524,9 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                                       ),
                                     const DashedSeperator(),
                                     const SizedBox(height: 12),
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
                                       children: [
                                         ElevatedButton.icon(
                                           onPressed: () {
@@ -529,7 +535,6 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                                           icon: const Icon(Icons.print),
                                           label: Text('print'.tr),
                                         ),
-                                        const SizedBox(width: 8),
                                         ElevatedButton.icon(
                                           onPressed: () {
                                             shareInvoice(invoice, client);
@@ -537,6 +542,17 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                                           icon: const Icon(Icons.share),
                                           label: Text('share'.tr),
                                         ),
+                                        if (_profileController.hasPermission('share_invoices') ||
+                                            _profileController.hasPermission('send_debt_sms') ||
+                                            _profileController.user['role'] == 'owner' ||
+                                            _profileController.user['role'] == 'manager')
+                                          ElevatedButton.icon(
+                                            onPressed: () {
+                                              sendInvoiceSms(invoice, client);
+                                            },
+                                            icon: const Icon(Icons.sms_outlined),
+                                            label: Text('sms_send_invoice'.tr),
+                                          ),
                                       ],
                                     ),
                                     const SizedBox(height: 12),
@@ -995,6 +1011,34 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> sendInvoiceSms(dynamic invoice, Client client) async {
+    String? phone;
+    if (client.id.isNotEmpty && isValidSmsPhone(client.phone)) {
+      phone = client.phone;
+    } else {
+      phone = await showSmsPhoneOnlyDialog(
+        context: context,
+        title: 'sms_send_invoice'.tr,
+      );
+      if (phone == null) return;
+    }
+    try {
+      await SmsReminderService().sendBusinessSms(
+        businessId: _businessController.businessId.value,
+        type: 'invoice',
+        phone: phone,
+        clientId: client.id.isNotEmpty ? client.id : null,
+        clientName: client.name.isNotEmpty ? client.name : phone,
+        amount: (invoice.price as num?)?.toDouble() ?? 0,
+        lines: productLinesForSms(invoice.products ?? const []),
+        lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+      );
+      successSnackbar('sms_sent_invoice'.tr);
+    } catch (e) {
+      errorSnackbar(smsFunctionErrorMessage(e));
+    }
   }
 
   Future<void> printInvoice(dynamic invoice, Client client) async {

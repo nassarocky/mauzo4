@@ -127,9 +127,12 @@ function renderBusinesses(list) {
       <p><span class="k">Registered:</span> <span class="reg"></span></p>
       <p><span class="k">Payment start:</span> <span class="pstart"></span></p>
       <p><span class="k">Payment last:</span> <span class="plast"></span></p>
+      <p><span class="k">SMS remaining:</span> <span class="sms-left"></span></p>
+      <p><span class="k">SMS used / purchased:</span> <span class="sms-usage"></span></p>
       <span class="badge ${statusBadgeClass(st)}"></span>
       <div class="biz-actions">
         <button type="button" class="ghost tiny pay-btn">Update payment</button>
+        <button type="button" class="ghost tiny sms-btn">Grant SMS</button>
         <button type="button" class="danger tiny del-btn">Delete</button>
         <a class="ghost tiny" style="display:inline-block;text-decoration:none;padding:6px 10px;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-weight:600;font-size:0.8rem"
            href="/support-reset/">Open in Support</a>
@@ -145,8 +148,12 @@ function renderBusinesses(list) {
     card.querySelector(".reg").textContent = formatDateOnly(b.date);
     card.querySelector(".pstart").textContent = formatTs(b.paymentStart);
     card.querySelector(".plast").textContent = formatTs(b.paymentLast);
+    card.querySelector(".sms-left").textContent = String(b.smsCredits ?? 0);
+    card.querySelector(".sms-usage").textContent =
+      `${b.smsCreditsUsed ?? 0} / ${b.smsCreditsTotalPurchased ?? 0}`;
     card.querySelector(".badge").textContent = st || "no status";
     card.querySelector(".pay-btn")?.addEventListener("click", () => openPaymentUpdate(b));
+    card.querySelector(".sms-btn")?.addEventListener("click", () => grantSmsCredits(b));
     card.querySelector(".del-btn")?.addEventListener("click", () => confirmDelete(b));
     grid.appendChild(card);
   }
@@ -238,6 +245,36 @@ async function openPaymentUpdate(b) {
       return;
     }
     setFeedback(bodyText || "Payment updated.", "ok");
+    await loadPage({ reset: false });
+  } catch (e) {
+    setFeedback(e?.message || String(e), "error");
+  }
+}
+
+async function grantSmsCredits(b) {
+  const remaining = b.smsCredits ?? 0;
+  const used = b.smsCreditsUsed ?? 0;
+  const purchased = b.smsCreditsTotalPurchased ?? 0;
+  const raw = prompt(
+    `Grant SMS to "${b.name || b.id}"\nRemaining: ${remaining}\nUsed: ${used}\nPurchased: ${purchased}\n\nEnter number of SMS to add:`
+  );
+  if (raw == null) return;
+  const credits = parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(credits) || credits < 1 || credits > 100000) {
+    setFeedback("Enter a number of SMS between 1 and 100000.", "error");
+    return;
+  }
+  setFeedback("Granting SMS credits…", "info");
+  try {
+    const grantFn = httpsCallable(functions, "grantSmsCredits");
+    const res = await grantFn({
+      businessId: b.id,
+      credits,
+      packId: "admin_grant",
+      note: "admin hub",
+    });
+    const granted = res.data?.credits ?? credits;
+    setFeedback(`Added ${granted} SMS. Remaining will refresh shortly.`, "ok");
     await loadPage({ reset: false });
   } catch (e) {
     setFeedback(e?.message || String(e), "error");
