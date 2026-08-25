@@ -7,25 +7,22 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:mauzo/controllers/client_controller.dart';
-import 'package:mauzo/controllers/product_controller.dart';
-import 'package:mauzo/controllers/store_controller.dart';
 import 'package:mauzo/models/client_model.dart';
-import 'package:mauzo/models/expences.dart';
+import 'package:mauzo/models/stock_transaction.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/download_helper.dart';
+import 'package:mauzo/utils/operation_error_message.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import '../services/firestore_db.dart';
-import '../controllers/profile_controller.dart';
 import 'business_controller.dart';
 import 'package:mauzo/utils/preferences.dart';
+
 class BoughtController extends GetxController {
   final BusinessController _businessController = Get.find();
   final ClientController clientController = Get.find();
-  final ProductController productController = Get.find();
-  final StoreController storeController = Get.find();
 
   final sales = <Sale>[].obs;
   final filteredSales = <Sale>[].obs;
@@ -43,15 +40,18 @@ class BoughtController extends GetxController {
   void bindDefaultPurchasesStream() {
     try {
       _salesSubscription?.cancel();
-      _salesSubscription = FirestoreDb().getBought().listen((data) {
-        sales.value = data;
-        // Do not wipe an active custom date-range query.
-        if (!hasCustomDateRange) {
-          filterSales();
-        }
-      }, onError: (e) {
-        print("Error in purchases stream: $e");
-      });
+      _salesSubscription = FirestoreDb().getBought().listen(
+        (data) {
+          sales.value = data;
+          // Do not wipe an active custom date-range query.
+          if (!hasCustomDateRange) {
+            filterSales();
+          }
+        },
+        onError: (e) {
+          print("Error in purchases stream: $e");
+        },
+      );
     } catch (e) {
       print("Error binding bought sales stream: $e");
     }
@@ -88,7 +88,9 @@ class BoughtController extends GetxController {
 
   /// Open Purchases screen: show reset→today on the date chip and load that period.
   /// Keeps supplier filters when [keepClientFilters] is true.
-  Future<void> ensureDefaultPeriodOnOpen({bool keepClientFilters = false}) async {
+  Future<void> ensureDefaultPeriodOnOpen({
+    bool keepClientFilters = false,
+  }) async {
     selectedDateRange = defaultPeriodRange();
     if (!keepClientFilters) {
       filterClients.clear();
@@ -116,10 +118,37 @@ class BoughtController extends GetxController {
   }
 
   final dates = <DateTime>[].obs;
-void clearBought(){
-  sales.value.clear();
-  filteredSales.clear();
-}
+  void clearBought() {
+    sales.value.clear();
+    filteredSales.clear();
+  }
+
+  Map<String, Map<String, dynamic>> _purchaseStockLines(
+    List<dynamic> rawLines,
+  ) {
+    final lines = <String, Map<String, dynamic>>{};
+    for (final raw in rawLines) {
+      if (raw is! Map) continue;
+      final line = Map<String, dynamic>.from(raw);
+      final id = (line['id'] ?? '').toString().trim();
+      final quantity = line['quantity'] is num
+          ? (line['quantity'] as num).toDouble()
+          : 0.0;
+      if (id.isEmpty ||
+          quantity <= 0 ||
+          (line['itemType'] ?? 'product') == 'service') {
+        continue;
+      }
+      final existing = lines[id];
+      if (existing == null) {
+        lines[id] = line..['quantity'] = quantity;
+      } else {
+        existing['quantity'] = (existing['quantity'] as double) + quantity;
+      }
+    }
+    return lines;
+  }
+
   void deleteSale(Sale sale) async {
     final String? businessId = _businessController.business['id'];
 
@@ -129,92 +158,116 @@ void clearBought(){
     }
 
     try {
-      // Remove the sale from the local list
+      final storeId = _businessController.business['owner']?.toString();
+      final purchaseRef = firestore
+          .collection('recovered')
+          .doc(businessId)
+          .collection('userRecovered')
+          .doc(sale.id);
+      final deleted = await firestore.runTransaction((fireTx) async {
+        final purchaseSnapshot = await fireTx.get(purchaseRef);
+        if (!purchaseSnapshot.exists) return false;
+
+        final purchaseData = purchaseSnapshot.data()!;
+        final destination = (purchaseData['purchaseDestination'] ?? 'shop')
+            .toString();
+        if (destination == 'store' && (storeId == null || storeId.isEmpty)) {
+          throw Exception('Store ID is null');
+        }
+        final rawProducts = purchaseData['products'];
+        final lines = _purchaseStockLines(
+          rawProducts is List ? rawProducts : sale.products,
+        );
+        final inventoryRefs = <DocumentReference<Map<String, dynamic>>>[
+          for (final id in lines.keys)
+            if (destination == 'store')
+              firestore
+                  .collection('store')
+                  .doc(storeId)
+                  .collection('userStore')
+                  .doc(id)
+            else
+              firestore
+                  .collection('products')
+                  .doc(businessId)
+                  .collection('userProducts')
+                  .doc(id),
+        ];
+        final inventorySnapshots = await Future.wait(
+          inventoryRefs.map(fireTx.get),
+        );
+        final timestamp = Timestamp.now();
+        final employeeName = (purchaseData['employeeName'] ?? '').toString();
+
+        for (var i = 0; i < inventoryRefs.length; i++) {
+          final inventorySnapshot = inventorySnapshots[i];
+          if (!inventorySnapshot.exists) {
+            throw Exception(
+              'Inventory product not found: ${lines.keys.elementAt(i)}',
+            );
+          }
+          final line = lines.values.elementAt(i);
+          final quantity = line['quantity'] as double;
+          final rawCurrent = inventorySnapshot.data()?['quantity'];
+          final current = rawCurrent is num ? rawCurrent.toDouble() : 0.0;
+          final next = current - quantity;
+          if (next < 0) {
+            throw Exception(
+              'Cannot delete purchase: insufficient ${destination == 'store' ? 'store' : 'shop'} stock for ${line['name'] ?? lines.keys.elementAt(i)}.',
+            );
+          }
+          fireTx.update(inventoryRefs[i], {'quantity': next, 'total': next});
+
+          final rawPrice =
+              line['price'] ??
+              inventorySnapshot.data()?['buyingPrice'] ??
+              inventorySnapshot.data()?['price'];
+          final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+          final historyRef = firestore
+              .collection('transactions')
+              .doc(businessId)
+              .collection('usersTransactions')
+              .doc();
+          final history =
+              StockTransaction(
+                transactionId: historyRef.id,
+                productId: lines.keys.elementAt(i),
+                quantity: quantity,
+                previousQuantity: current,
+                newQuantity: next,
+                transactionType: 'removal',
+                transactionOrigin: 'Purchase Deleted',
+                timestamp: timestamp,
+                userId: businessId,
+                price: price,
+                referenceId: sale.id,
+                referenceType: 'purchase',
+                employeeName: employeeName,
+                notes: 'Purchase Deleted',
+                totalValue: quantity * price,
+              ).toMap()..addAll({
+                'delta': -quantity,
+                'referenceId': sale.id,
+                'referenceType': 'purchase',
+                'inventoryLocation': destination,
+                'operationId': 'purchase_delete_${sale.id}',
+                'serverTimestamp': FieldValue.serverTimestamp(),
+              });
+          fireTx.set(historyRef, history);
+        }
+        fireTx.delete(purchaseRef);
+        return true;
+      });
+
       sales.remove(sale);
       filteredSales.remove(sale);
-      
-      // Refresh dates list to remove empty date groups
       setSalesByDate();
 
-      // Fetch the products from the sale
-      List products = sale.products;
-      
-      // Fetch purchase destination from Firestore to determine which inventory to update
-      String purchaseDestination = 'shop'; // Default for old purchases without this field
-      final purchaseDoc = await firestore
-          .collection('recovered')
-          .doc(businessId)
-          .collection('userRecovered')
-          .doc(sale.id)
-          .get();
-      
-      if (purchaseDoc.exists) {
-        final purchaseData = purchaseDoc.data();
-        purchaseDestination = purchaseData?['purchaseDestination'] ?? 'shop';
+      if (deleted) {
+        successSnackbar('Purchase ${'deleted'.tr}');
       }
-
-      // Batch all product quantity updates for better offline support
-      final updates = <Future>[];
-
-      // Reverse the product quantities in inventory (subtract purchased amounts)
-      for (var product in products) {
-        String productId = product['id'];
-        // Handle both int and double types from Firestore
-        double quantityToRemove = (product['quantity'] is int)
-            ? (product['quantity'] as int).toDouble()
-            : (product['quantity'] as num).toDouble();
-
-        if (purchaseDestination == 'store') {
-          // Update store inventory
-          var productInStore = storeController.products.firstWhere(
-            (p) => p.id == productId,
-            orElse: () => Product(
-              id: '',
-              name: '',
-              code: '',
-              price: 0,
-              buyingPrice: 0,
-              quantity: 0,
-              category: null,
-              owner: '',
-              image: '',
-              itemType: 'product',
-            ),
-          );
-          
-          if (productInStore.id.isNotEmpty) {
-            double newQuantity = productInStore.quantity! - quantityToRemove;
-            updates.add(storeController.updateProductCount(productInStore, newQuantity));
-          }
-        } else {
-          // Update business inventory (default behavior)
-          var productInInventory = productController.getProduct(productId);
-          
-          if (productInInventory.id.isNotEmpty) {
-            double newQuantity = productInInventory.quantity - quantityToRemove;
-            updates.add(productController.updateProductCount(
-              productInInventory,
-              newQuantity,
-              'Purchase Deleted',
-            ));
-          }
-        }
-      }
-
-      // Wait for all product updates together
-      await Future.wait(updates);
-
-      // Delete the purchase from Firestore
-      await firestore
-          .collection('recovered')
-          .doc(businessId)
-          .collection('userRecovered')
-          .doc(sale.id)
-          .delete();
-
-      successSnackbar('Purchase ${'deleted'.tr}');
     } catch (e) {
-      errorSnackbar(e.toString());
+      errorSnackbar(operationErrorMessage(e));
     }
   }
 
@@ -257,8 +310,9 @@ void clearBought(){
 
   double getLastWeekSales() {
     double lastWeekSales = 0;
-    var date =
-    DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
+    var date = DateUtils.dateOnly(
+      DateTime.now(),
+    ).subtract(const Duration(days: 7));
     var weekDay = date.weekday;
     var firstDayOfWeek = date.subtract(Duration(days: weekDay - 1));
 
@@ -369,8 +423,10 @@ void clearBought(){
     return total;
   }
 
-
-  double getTotalSalesFromTimestamp(Timestamp startTimestamp,Timestamp endDate) {
+  double getTotalSalesFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endDate,
+  ) {
     double totalSales = 0;
     Timestamp currentTimestamp = Timestamp.now();
 
@@ -380,7 +436,8 @@ void clearBought(){
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(endDate) <= 0) {
           totalSales += sale.price;
         }
       } else {
@@ -393,7 +450,6 @@ void clearBought(){
     return totalSales;
   }
 
-
   double getTotalSalesBuyingFromTimestamp(Timestamp startTimestamp) {
     double totalSales = 0;
     Timestamp currentTimestamp = Timestamp.now();
@@ -404,7 +460,8 @@ void clearBought(){
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(currentTimestamp) <= 0) {
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(currentTimestamp) <= 0) {
           totalSales += sale.buyingPrice;
         }
       } else {
@@ -416,6 +473,7 @@ void clearBought(){
 
     return totalSales;
   }
+
   double getTotalPaymentFromTimestamp(Timestamp startTimestamp) {
     double totalPayments = 0;
     Timestamp currentTimestamp = Timestamp.now();
@@ -426,7 +484,8 @@ void clearBought(){
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(currentTimestamp) <= 0) {
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(currentTimestamp) <= 0) {
           totalPayments += sale.payment;
         }
       } else {
@@ -441,21 +500,26 @@ void clearBought(){
 
   // New: Sum of all amounts actually paid to suppliers for purchases in a time window (all methods)
   double getTotalPurchasePaidFromTimestamp(
-      Timestamp startTimestamp, Timestamp endTimestamp) {
+    Timestamp startTimestamp,
+    Timestamp endTimestamp,
+  ) {
     double totalPaid = 0.0;
-    final String mainCurrency = _businessController.business['mainCurrency'] ?? 'TZS';
+    final String mainCurrency =
+        _businessController.business['mainCurrency'] ?? 'TZS';
 
     for (final purchase in sales) {
       if (purchase.date is Timestamp) {
         final Timestamp ts = purchase.date;
-        if (ts.compareTo(startTimestamp) >= 0 && ts.compareTo(endTimestamp) <= 0) {
+        if (ts.compareTo(startTimestamp) >= 0 &&
+            ts.compareTo(endTimestamp) <= 0) {
           if (purchase.payments.isNotEmpty) {
             for (final p in purchase.payments) {
               final dynamic rawAmount = p['amount'];
               final double amt = rawAmount is int
                   ? rawAmount.toDouble()
                   : (rawAmount is num ? rawAmount.toDouble() : 0.0);
-              final String currency = (p['currency'] ?? mainCurrency).toString();
+              final String currency = (p['currency'] ?? mainCurrency)
+                  .toString();
               final double amtMain = currency == mainCurrency
                   ? amt
                   : amt * Preferences.getExchangeRateResult();
@@ -473,14 +537,18 @@ void clearBought(){
 
   // New: Cash-only amounts paid to suppliers for purchases in a time window
   double getTotalPurchaseCashPaidFromTimestamp(
-      Timestamp startTimestamp, Timestamp endTimestamp) {
+    Timestamp startTimestamp,
+    Timestamp endTimestamp,
+  ) {
     double cashPaid = 0.0;
-    final String mainCurrency = _businessController.business['mainCurrency'] ?? 'TZS';
+    final String mainCurrency =
+        _businessController.business['mainCurrency'] ?? 'TZS';
 
     for (final purchase in sales) {
       if (purchase.date is Timestamp) {
         final Timestamp ts = purchase.date;
-        if (ts.compareTo(startTimestamp) >= 0 && ts.compareTo(endTimestamp) <= 0) {
+        if (ts.compareTo(startTimestamp) >= 0 &&
+            ts.compareTo(endTimestamp) <= 0) {
           if (purchase.payments.isNotEmpty) {
             for (final p in purchase.payments) {
               // Treat missing, null, or empty method as 'cash' for backward compatibility
@@ -491,7 +559,8 @@ void clearBought(){
                 final double amt = rawAmount is int
                     ? rawAmount.toDouble()
                     : (rawAmount is num ? rawAmount.toDouble() : 0.0);
-                final String currency = (p['currency'] ?? mainCurrency).toString();
+                final String currency = (p['currency'] ?? mainCurrency)
+                    .toString();
                 final double amtMain = currency == mainCurrency
                     ? amt
                     : amt * Preferences.getExchangeRateResult();
@@ -518,22 +587,17 @@ void clearBought(){
     return format.parseUtc(dateString).toLocal();
   }
 
-
-
-
-
-
-
-
   List<Map<String, dynamic>> getTopProducts(String value) {
     var dateStart = DateUtils.dateOnly(DateTime.now());
-    var dateEnd =
-    DateUtils.dateOnly(DateTime.now()).add(const Duration(days: 1));
+    var dateEnd = DateUtils.dateOnly(
+      DateTime.now(),
+    ).add(const Duration(days: 1));
 
     // * last week
     if (value == 'last_week'.tr) {
-      var date =
-      DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
+      var date = DateUtils.dateOnly(
+        DateTime.now(),
+      ).subtract(const Duration(days: 7));
       var weekDay = date.weekday;
       dateStart = date.subtract(Duration(days: weekDay - 1));
       dateEnd = dateStart.add(const Duration(days: 7));
@@ -571,7 +635,7 @@ void clearBought(){
                 products[i]['price'] =
                     ((product['price'] * product['quantity']) +
                         (products[i]['price'] * products[i]['quantity'])) /
-                        (products[i]['quantity'] + product['quantity']);
+                    (products[i]['quantity'] + product['quantity']);
                 products[i]['quantity'] += product['quantity'];
               }
             }
@@ -595,27 +659,30 @@ void clearBought(){
     if (useCustomRange) {
       await _filteredSalesSubscription?.cancel();
       _filteredSalesSubscription = FirestoreDb()
-          .getBoughtByDateRange(selectedDateRange!.start, selectedDateRange!.end)
+          .getBoughtByDateRange(
+            selectedDateRange!.start,
+            selectedDateRange!.end,
+          )
           .listen((data) {
-        var filtered = data;
-        if (filterClients.isNotEmpty) {
-          filtered = filtered.where((sale) {
-            return filterClients.contains(sale.supplier);
-          }).toList();
-        }
-        if (filterEmployee.isNotEmpty) {
-          filtered = filtered.where((sale) {
-            return filterEmployee.contains(sale.employeeId);
-          }).toList();
-        }
-        if (saleType.value == 'Debt') {
-          filtered = filtered.where((sale) {
-            return sale.debt > 0;
-          }).toList();
-        }
-        filteredSales.value = filtered;
-        setSalesByDate();
-      });
+            var filtered = data;
+            if (filterClients.isNotEmpty) {
+              filtered = filtered.where((sale) {
+                return filterClients.contains(sale.supplier);
+              }).toList();
+            }
+            if (filterEmployee.isNotEmpty) {
+              filtered = filtered.where((sale) {
+                return filterEmployee.contains(sale.employeeId);
+              }).toList();
+            }
+            if (saleType.value == 'Debt') {
+              filtered = filtered.where((sale) {
+                return sale.debt > 0;
+              }).toList();
+            }
+            filteredSales.value = filtered;
+            setSalesByDate();
+          });
     } else {
       await _filteredSalesSubscription?.cancel();
       _filteredSalesSubscription = null;
@@ -644,6 +711,7 @@ void clearBought(){
       setSalesByDate();
     }
   }
+
   void filterSalesById(String saleId) {
     filteredSales.value = sales.where((sale) => sale.id == saleId).toList();
   }
@@ -685,7 +753,8 @@ void clearBought(){
     Sheet sheetObject = excel[defaultSheet];
 
     // Set the selected date range for sales
-    String businessName = _businessController.business['name'] ?? 'Business Name';
+    String businessName =
+        _businessController.business['name'] ?? 'Business Name';
     String dateRange = selectedDateRange != null
         ? '${DateFormat('dd MMM yyyy').format(selectedDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(selectedDateRange!.end)}'
         : 'All Time';
@@ -700,7 +769,14 @@ void clearBought(){
     sheetObject.appendRow([]);
 
     // Define header row with background color (without Buying Price and Debt columns)
-    final headerRow = ['Products', 'Client', 'Date', 'Selling Price', 'Buying Price', 'Comment'];
+    final headerRow = [
+      'Products',
+      'Client',
+      'Date',
+      'Selling Price',
+      'Buying Price',
+      'Comment',
+    ];
 
     // Apply a background color to the header row
     CellStyle headerStyle = CellStyle(
@@ -722,14 +798,18 @@ void clearBought(){
     // Iterate through the list of sales and add each sale as a row in the Excel sheet
     for (Sale sale in filteredSales) {
       Client client = clientController.getClient(sale.client);
-      String productNames = sale.products.map((product) {
-        if (product is Product) {
-          return '${product.quantity} ${product.name}';
-        } else if (product is Map<String, dynamic> && product.containsKey('name') && product.containsKey('quantity')) {
-          return '${product['quantity']} ${product['name']}'; // If product is a Map with 'name' and 'quantity' keys
-        }
-        return '';
-      }).join(", ");
+      String productNames = sale.products
+          .map((product) {
+            if (product is Product) {
+              return '${product.quantity} ${product.name}';
+            } else if (product is Map<String, dynamic> &&
+                product.containsKey('name') &&
+                product.containsKey('quantity')) {
+              return '${product['quantity']} ${product['name']}'; // If product is a Map with 'name' and 'quantity' keys
+            }
+            return '';
+          })
+          .join(", ");
 
       // Accumulate the total price and payment
       totalAmount += sale.price;
@@ -739,7 +819,9 @@ void clearBought(){
       sheetObject.appendRow([
         productNames,
         client.name,
-        DateFormat('dd MMM yyyy').format(sale.date.toDate()), // Convert Timestamp to readable date
+        DateFormat(
+          'dd MMM yyyy',
+        ).format(sale.date.toDate()), // Convert Timestamp to readable date
         sale.price,
         sale.payment,
         sale.comment,
@@ -750,7 +832,8 @@ void clearBought(){
     sheetObject.appendRow([]);
 
     // Add Total rows for Amount and Payment at the bottom
-    var totalsRowIndex = sheetObject.maxRows; // Store the row index for the totals row
+    var totalsRowIndex =
+        sheetObject.maxRows; // Store the row index for the totals row
     sheetObject.appendRow(['', '', 'Totals:', totalAmount, totalPayment, '']);
 
     // Apply a bold style and background color to the Totals row
@@ -783,16 +866,7 @@ void clearBought(){
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);
 
-      await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Purchases Report',
-      );
+      await Share.shareXFiles([XFile(filePath)], text: 'Purchases Report');
     }
   }
-
-
-
-
-
-
 }

@@ -117,6 +117,79 @@ class _boughtControllerState extends State<BoughtScreen> {
     });
   }
 
+  Future<void> _showCreatePurchaseOptions() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'What would you like to create?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Theme.of(context).dividerColor),
+                ),
+                leading: const CircleAvatar(
+                  child: Icon(Icons.shopping_cart_checkout),
+                ),
+                title: const Text('Record Purchase'),
+                subtitle: const Text(
+                  'Receive products into stock and record payment.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(sheetContext, 'purchase'),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Theme.of(context).dividerColor),
+                ),
+                leading: const CircleAvatar(
+                  child: Icon(Icons.playlist_add_check_outlined),
+                ),
+                title: const Text('Create Supplier List'),
+                subtitle: const Text(
+                  'Prepare and share a list without changing stock.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(sheetContext, 'list'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'purchase') {
+      Navigator.pushNamed(context, '/buy');
+    } else if (choice == 'list') {
+      Navigator.pushNamed(context, '/purchase-lists');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool canViewPurchases = _profileController.hasPermission('view_purchases');
@@ -129,9 +202,9 @@ class _boughtControllerState extends State<BoughtScreen> {
           : const Color(0xFFE5E5E5),
       floatingActionButton: canCreatePurchase
           ? FloatingActionButton(
-              onPressed: () {
+              onPressed: () async {
                 if (PurchasesAccess.requireEnabled()) {
-                  Navigator.pushNamed(context, '/buy');
+                  await _showCreatePurchaseOptions();
                 }
               },
               child: const Icon(Icons.add),
@@ -146,6 +219,13 @@ class _boughtControllerState extends State<BoughtScreen> {
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.black),  // Set the back icon color to black
         actions: [
+          IconButton(
+            tooltip: 'Supplier purchase lists',
+            icon: const Icon(Icons.playlist_add_check_outlined),
+            onPressed: () {
+              Navigator.pushNamed(context, '/purchase-lists');
+            },
+          ),
           IconButton(
             icon: Image.asset(
               'assets/images/excel.png',  // Path to your custom Excel icon

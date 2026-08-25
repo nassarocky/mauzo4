@@ -16,17 +16,19 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
+import '../services/inventory_movement_service.dart';
 import '../services/firestore_db.dart';
 import '../services/paired_product_service.dart';
 import '../constants/transaction_constants.dart';
 import 'business_controller.dart';
+
 class ProductController extends GetxController {
-  final ProfileController _profileController=Get.find();
+  final ProfileController _profileController = Get.find();
   final BusinessController _businessController = Get.find();
 
-// Declare a variable to store the number of products
+  // Declare a variable to store the number of products
   final productCount = 0.obs;
-// Add at the top of your class
+  // Add at the top of your class
   StreamSubscription<List<Product>>? _productSubscription;
 
   @override
@@ -106,10 +108,9 @@ class ProductController extends GetxController {
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);
 
-      final result = await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Product Import Template',
-      );
+      final result = await Share.shareXFiles([
+        XFile(filePath),
+      ], text: 'Product Import Template');
 
       if (result.status == ShareResultStatus.success) {
         print('Template shared successfully!');
@@ -272,8 +273,7 @@ class ProductController extends GetxController {
       final quantity = dVal(row, 'quantity');
       final buyingPrice = dVal(row, 'buying price');
       final wholesaleRaw = dVal(row, 'wholesale price');
-      final wholesalePrice =
-          wholesaleRaw > 0 ? wholesaleRaw : price;
+      final wholesalePrice = wholesaleRaw > 0 ? wholesaleRaw : price;
       if (wholesalePrice > price) {
         skipped++;
         continue;
@@ -333,12 +333,17 @@ class ProductController extends GetxController {
           'transactionId': tRef.id,
           'productId': docRef.id,
           'quantity': finalQty,
+          'delta': finalQty,
           'previousQuantity': 0,
+          'newQuantity': finalQty,
           'transactionType': 'addition',
           'transactionOrigin': 'Opening Stock',
           'timestamp': Timestamp.now(),
           'userId': businessId,
           'price': price,
+          'operationId': 'opening_${docRef.id}',
+          'inventoryLocation': 'shop',
+          'serverTimestamp': FieldValue.serverTimestamp(),
         };
         batch.set(tRef, txn);
         ops++;
@@ -357,8 +362,10 @@ class ProductController extends GetxController {
     // Update business categories and units
     if (categoriesToAdd.isNotEmpty || unitsToAdd.isNotEmpty) {
       await firestore.collection('businesses').doc(businessId).update({
-        if (categoriesToAdd.isNotEmpty) 'categories': FieldValue.arrayUnion(categoriesToAdd.toList()),
-        if (unitsToAdd.isNotEmpty) 'additionalList1': FieldValue.arrayUnion(unitsToAdd.toList()),
+        if (categoriesToAdd.isNotEmpty)
+          'categories': FieldValue.arrayUnion(categoriesToAdd.toList()),
+        if (unitsToAdd.isNotEmpty)
+          'additionalList1': FieldValue.arrayUnion(unitsToAdd.toList()),
       });
     }
 
@@ -372,11 +379,14 @@ class ProductController extends GetxController {
     super.onClose();
   }
 
-
-// * CRUD
+  // * CRUD
   final products = <Product>[].obs;
 
-  Future<void> updateInitialTransaction(double count, String id,double price) async {
+  Future<void> updateInitialTransaction(
+    double count,
+    String id,
+    double price,
+  ) async {
     final String? business = _businessController.businessId.value;
 
     if (business == null) {
@@ -390,31 +400,94 @@ class ProductController extends GetxController {
           .collection('transactions')
           .doc(business)
           .collection('usersTransactions')
-          .doc();
+          .doc('opening_$id');
 
       final stockTransaction = StockTransaction(
-          transactionId: transactionRef.id,
-          productId: id,
-          quantity: count,
-          previousQuantity: 0,
-          newQuantity: count,  // NEW: Record final quantity
-          transactionType: TransactionTypes.addition,
-          transactionOrigin: TransactionOrigins.openingStock,
-          timestamp: Timestamp.now(),
-          userId: business,
-          price: price,
-          referenceType: TransactionReferenceTypes.manual,  // NEW
-          employeeName: _profileController.user['name'],     // NEW
-          notes: 'Initial stock entry',                      // NEW
-          totalValue: count * price,                         // NEW
+        transactionId: transactionRef.id,
+        productId: id,
+        quantity: count,
+        delta: count,
+        previousQuantity: 0,
+        newQuantity: count, // NEW: Record final quantity
+        transactionType: TransactionTypes.addition,
+        transactionOrigin: TransactionOrigins.openingStock,
+        timestamp: Timestamp.now(),
+        userId: business,
+        price: price,
+        referenceType: TransactionReferenceTypes.manual, // NEW
+        employeeName: _profileController.user['name'], // NEW
+        notes: 'Initial stock entry', // NEW
+        totalValue: count * price, // NEW
+        operationId: 'opening_$id',
+        inventoryLocation: 'shop',
       );
 
-      transactionRef.set(stockTransaction.toMap());
-
+      final data = stockTransaction.toMap();
+      data['serverTimestamp'] = FieldValue.serverTimestamp();
+      await transactionRef.set(data);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
-
     }
+  }
+
+  void _addOpeningTransactionToBatch({
+    required WriteBatch batch,
+    required String businessId,
+    required String productId,
+    required double quantity,
+    required double price,
+  }) {
+    if (quantity <= 0) return;
+    final operationId = 'opening_$productId';
+    final transactionRef = firestore
+        .collection('transactions')
+        .doc(businessId)
+        .collection('usersTransactions')
+        .doc(operationId);
+    final data = StockTransaction(
+      transactionId: transactionRef.id,
+      productId: productId,
+      quantity: quantity,
+      delta: quantity,
+      previousQuantity: 0,
+      newQuantity: quantity,
+      transactionType: TransactionTypes.addition,
+      transactionOrigin: TransactionOrigins.openingStock,
+      timestamp: Timestamp.now(),
+      userId: businessId,
+      price: price,
+      referenceId: productId,
+      referenceType: TransactionReferenceTypes.manual,
+      employeeName: (_profileController.user['name'] ?? '').toString(),
+      notes: 'Initial stock entry',
+      totalValue: quantity * price,
+      operationId: operationId,
+      inventoryLocation: 'shop',
+    ).toMap();
+    data['serverTimestamp'] = FieldValue.serverTimestamp();
+    batch.set(transactionRef, data);
+  }
+
+  Future<void> createProductWithOpeningStock({
+    required DocumentReference<Map<String, dynamic>> productRef,
+    required Map<String, dynamic> productData,
+    required double quantity,
+    required double price,
+  }) async {
+    final businessId = _businessController.businessId.value;
+    if (businessId.isEmpty) {
+      throw Exception('Business ID is empty.');
+    }
+    final batch = firestore.batch();
+    batch.set(productRef, productData);
+    _addOpeningTransactionToBatch(
+      batch: batch,
+      businessId: businessId,
+      productId: productRef.id,
+      quantity: quantity,
+      price: price,
+    );
+    await batch.commit();
   }
 
   Future<void> updateProductCount(
@@ -437,112 +510,113 @@ class ProductController extends GetxController {
     }
 
     try {
-      final batch = firestore.batch();
-      final ts = Timestamp.now();
-      final employeeName = (_profileController.user['name'] ?? '').toString();
+      final intendedDelta = count - product.quantity;
+      if (intendedDelta == 0 && (pairedTwinQuantityDelta ?? 0) == 0) return;
+      final operationId = firestore.collection('transactions').doc().id;
+      final productRef = firestore
+          .collection('products')
+          .doc(business)
+          .collection('userProducts')
+          .doc(product.id);
+      final twinId = product.twinProductId;
+      final twinRef = twinId != null && twinId.isNotEmpty
+          ? firestore
+                .collection('products')
+                .doc(business)
+                .collection('userProducts')
+                .doc(twinId)
+          : null;
 
-      _addQuantityUpdateToBatch(
-        batch: batch,
-        businessId: business,
-        product: product,
-        newQuantity: count,
-        type: type,
-        timestamp: ts,
-        employeeName: employeeName,
-        referenceId: referenceId,
-        referenceType: referenceType,
-        notes: notes,
-      );
+      await firestore.runTransaction((transaction) async {
+        final productSnapshot = await transaction.get(productRef);
+        if (!productSnapshot.exists) {
+          throw Exception('Product ${product.id} no longer exists.');
+        }
+        final twinSnapshot = twinRef != null
+            ? await transaction.get(twinRef)
+            : null;
 
-      final twinDelta = pairedTwinQuantityDelta ??
-          (PairedProductService.isPairedMain(product)
-              ? PairedProductService.twinDeltaForMainMovement(
-                  main: product,
-                  mainQuantityChange: count - product.quantity,
-                )
-              : null);
+        final liveProduct = Product.fromSnapshot(productSnapshot);
+        final liveQuantity = ((productSnapshot.data()?['quantity'] ?? 0) as num)
+            .toDouble();
+        final newQuantity = liveQuantity + intendedDelta;
+        if (newQuantity < 0) {
+          throw Exception('${liveProduct.name}: insufficient stock.');
+        }
 
-      if (twinDelta != null &&
-          twinDelta != 0 &&
-          product.twinProductId != null &&
-          product.twinProductId!.isNotEmpty) {
-        final twin = getProduct(product.twinProductId!);
-        if (twin.id.isNotEmpty) {
-          final twinNew = (twin.quantity + twinDelta).clamp(0.0, double.infinity);
-          _addQuantityUpdateToBatch(
-            batch: batch,
+        final historyRef = InventoryMovementService.transactionRef(
+          businessId: business,
+          operationId: operationId,
+          productId: liveProduct.id,
+        );
+        transaction.update(productRef, {'quantity': newQuantity});
+        transaction.set(
+          historyRef,
+          InventoryMovementService.historyData(
+            transactionId: historyRef.id,
+            product: liveProduct,
+            delta: intendedDelta,
+            previousQuantity: liveQuantity,
+            origin: type,
             businessId: business,
-            product: twin,
-            newQuantity: twinNew,
-            type: type,
-            timestamp: ts,
-            employeeName: employeeName,
-            referenceId: referenceId,
-            referenceType: referenceType,
-            notes: notes ?? 'Paired twin stock adjustment',
+            operationId: operationId,
+            referenceId: referenceId ?? operationId,
+            referenceType:
+                referenceType ?? TransactionReferenceTypes.adjustment,
+            employeeName: (_profileController.user['name'] ?? '').toString(),
+            notes: notes,
+          ),
+        );
+
+        final twinDelta =
+            pairedTwinQuantityDelta ??
+            (PairedProductService.isPairedMain(liveProduct)
+                ? PairedProductService.twinDeltaForMainMovement(
+                    main: liveProduct,
+                    mainQuantityChange: intendedDelta,
+                  )
+                : null);
+        if (twinDelta != null &&
+            twinDelta != 0 &&
+            twinSnapshot != null &&
+            twinSnapshot.exists) {
+          final liveTwin = Product.fromSnapshot(twinSnapshot);
+          final twinLive = ((twinSnapshot.data()?['quantity'] ?? 0) as num)
+              .toDouble();
+          final twinNew = twinLive + twinDelta;
+          if (twinNew < 0) {
+            throw Exception('${liveTwin.name}: insufficient linked stock.');
+          }
+          final twinHistoryRef = InventoryMovementService.transactionRef(
+            businessId: business,
+            operationId: operationId,
+            productId: liveTwin.id,
+          );
+          transaction.update(twinSnapshot.reference, {'quantity': twinNew});
+          transaction.set(
+            twinHistoryRef,
+            InventoryMovementService.historyData(
+              transactionId: twinHistoryRef.id,
+              product: liveTwin,
+              delta: twinDelta,
+              previousQuantity: twinLive,
+              origin: type,
+              businessId: business,
+              operationId: operationId,
+              referenceId: referenceId ?? operationId,
+              referenceType:
+                  referenceType ?? TransactionReferenceTypes.adjustment,
+              employeeName: (_profileController.user['name'] ?? '').toString(),
+              notes: notes ?? 'Paired twin stock adjustment',
+            ),
           );
         }
-      }
-
-      await batch.commit();
+      });
       search(searchText.value);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
       rethrow;
     }
-  }
-
-  void _addQuantityUpdateToBatch({
-    required WriteBatch batch,
-    required String businessId,
-    required Product product,
-    required double newQuantity,
-    required String type,
-    required Timestamp timestamp,
-    required String employeeName,
-    String? referenceId,
-    String? referenceType,
-    String? notes,
-  }) {
-    final productRef = firestore
-        .collection('products')
-        .doc(businessId)
-        .collection('userProducts')
-        .doc(product.id);
-
-    final currentQuantity = product.quantity;
-    final quantityChange = (newQuantity - currentQuantity).abs();
-
-    batch.update(productRef, {'quantity': newQuantity});
-
-    final transactionRef = firestore
-        .collection('transactions')
-        .doc(businessId)
-        .collection('usersTransactions')
-        .doc();
-
-    batch.set(
-      transactionRef,
-      StockTransaction(
-        transactionId: transactionRef.id,
-        productId: product.id,
-        quantity: quantityChange,
-        previousQuantity: currentQuantity,
-        newQuantity: newQuantity,
-        transactionType: newQuantity < currentQuantity
-            ? TransactionTypes.removal
-            : TransactionTypes.addition,
-        transactionOrigin: type,
-        timestamp: timestamp,
-        userId: businessId,
-        price: product.price,
-        referenceId: referenceId,
-        referenceType: referenceType,
-        notes: notes,
-        employeeName: employeeName,
-        totalValue: quantityChange * product.price,
-      ).toMap(),
-    );
   }
 
   /// Creates main + twin products in one atomic batch.
@@ -592,7 +666,9 @@ class ProductController extends GetxController {
       'buyingPrice': twinBuyingPrice,
       'price': twinSellingPrice,
       'wholesalePrice': twinSellingPrice,
-      'wholesaleMinQuantity': mainData['wholesaleMinQuantity'] ?? Product.defaultWholesaleMinQuantity,
+      'wholesaleMinQuantity':
+          mainData['wholesaleMinQuantity'] ??
+          Product.defaultWholesaleMinQuantity,
       'discount': 0.0,
       'manufacturer': mainData['manufacturer'] ?? '',
       'location': mainData['location'] ?? '',
@@ -613,12 +689,21 @@ class ProductController extends GetxController {
 
     batch.set(mainRef, mainData);
     batch.set(twinRef, twinData);
+    _addOpeningTransactionToBatch(
+      batch: batch,
+      businessId: business,
+      productId: mainRef.id,
+      quantity: initialMainQuantity,
+      price: mainSellingPrice,
+    );
+    _addOpeningTransactionToBatch(
+      batch: batch,
+      businessId: business,
+      productId: twinRef.id,
+      quantity: initialTwinQuantity,
+      price: twinSellingPrice,
+    );
     await batch.commit();
-
-    await updateInitialTransaction(initialMainQuantity, mainRef.id, mainSellingPrice);
-    if (initialTwinQuantity > 0) {
-      await updateInitialTransaction(initialTwinQuantity, twinRef.id, twinSellingPrice);
-    }
     return mainRef.id;
   }
 
@@ -687,11 +772,14 @@ class ProductController extends GetxController {
       'twinProductId': twinRef.id,
       'isTwinProduct': false,
     });
+    _addOpeningTransactionToBatch(
+      batch: batch,
+      businessId: business,
+      productId: twinRef.id,
+      quantity: twinQuantity,
+      price: twinSellingPrice,
+    );
     await batch.commit();
-
-    if (twinQuantity > 0) {
-      await updateInitialTransaction(twinQuantity, twinRef.id, twinSellingPrice);
-    }
     search(searchText.value);
     return twinRef.id;
   }
@@ -707,28 +795,53 @@ class ProductController extends GetxController {
     final String? business = _businessController.businessId.value;
     if (business == null) return;
 
-    final twin = getProduct(twinId);
-    if (twin.id.isEmpty) {
-      errorSnackbar('paired_twin_not_found'.tr);
-      return;
-    }
-
-    await firestore
+    final twinRef = firestore
         .collection('products')
         .doc(business)
         .collection('userProducts')
-        .doc(twinId)
-        .update({
-      'name': name.trim(),
-      'buyingPrice': buyingPrice,
-      'price': sellingPrice,
-      'wholesalePrice': sellingPrice,
-    });
+        .doc(twinId);
+    final operationId = firestore.collection('transactions').doc().id;
 
-    if ((newQuantity - twin.quantity).abs() > 1e-9) {
-      await updateProductCount(twin, newQuantity, TransactionOrigins.manualAdjustment,
-          notes: 'Twin quantity updated from main product edit');
-    }
+    await firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(twinRef);
+      if (!snapshot.exists) {
+        throw Exception('paired_twin_not_found'.tr);
+      }
+      final twin = Product.fromSnapshot(snapshot);
+      final liveQuantity =
+          ((snapshot.data()?['quantity'] ?? 0) as num).toDouble();
+      transaction.update(twinRef, {
+          'name': name.trim(),
+          'buyingPrice': buyingPrice,
+          'price': sellingPrice,
+          'wholesalePrice': sellingPrice,
+          'quantity': newQuantity,
+        });
+      if ((newQuantity - liveQuantity).abs() > 1e-9) {
+        final historyRef = InventoryMovementService.transactionRef(
+          businessId: business,
+          operationId: operationId,
+          productId: twinId,
+        );
+        transaction.set(
+          historyRef,
+          InventoryMovementService.historyData(
+            transactionId: historyRef.id,
+            product: twin,
+            delta: newQuantity - liveQuantity,
+            previousQuantity: liveQuantity,
+            origin: TransactionOrigins.manualAdjustment,
+            businessId: business,
+            operationId: operationId,
+            referenceId: twinId,
+            referenceType: TransactionReferenceTypes.manual,
+            employeeName:
+                (_profileController.user['name'] ?? '').toString(),
+            notes: 'Twin quantity updated from main product edit',
+          ),
+        );
+      }
+    });
     search(searchText.value);
   }
 
@@ -751,7 +864,6 @@ class ProductController extends GetxController {
 
       productRef.update({'storeQuantity': count});
 
-
       search(searchText.value);
     } catch (e) {
       print('Error updating product count and recording transaction: $e');
@@ -771,15 +883,16 @@ class ProductController extends GetxController {
           .doc(business)
           .collection('userProducts')
           .doc(product.id)
-          .update({
-        'total': count,
-      });
+          .update({'total': count});
       search(searchText.value);
       // ignore: empty_catches
     } catch (e) {}
   }
 
-  Future<void> deleteProduct(Product product, {bool deleteLinkedTwin = false}) async {
+  Future<void> deleteProduct(
+    Product product, {
+    bool deleteLinkedTwin = false,
+  }) async {
     final String? business = _businessController.businessId.value;
 
     if (business == null) {
@@ -827,14 +940,16 @@ class ProductController extends GetxController {
       PairedProductService.sortForDisplay(list);
 
   Future<void> resetProductQuantities() async {
-
     final String? business = _businessController.businessId.value;
 
     if (business == null) {
       print('Owner ID is null, cannot delete product.');
       return;
     }
-    final collection = firestore.collection('products').doc(business).collection('userProducts');
+    final collection = firestore
+        .collection('products')
+        .doc(business)
+        .collection('userProducts');
 
     try {
       // Get all documents in a single request
@@ -864,15 +979,14 @@ class ProductController extends GetxController {
     return products.where((p) => p.id == product.id).length;
   }
 
-
   Product getProduct(String productId) {
     return products.firstWhere(
-          (product) => product.id == productId,
+      (product) => product.id == productId,
       orElse: () => Product(
         owner: '',
         id: '',
         name: '',
-        storeId:'',
+        storeId: '',
         price: 0,
         discount: 0,
         quantity: 0,
@@ -886,7 +1000,9 @@ class ProductController extends GetxController {
   double calculateTotalProducts() {
     double total = 0;
     for (Product product in products) {
-      if (product.total != null && product.quantity != null && product.price != null) {
+      if (product.total != null &&
+          product.quantity != null &&
+          product.price != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.total! - product.quantity!) * product.price!;
         total += result;
@@ -901,7 +1017,7 @@ class ProductController extends GetxController {
   double calculateTotalStock() {
     double total = 0;
     for (Product product in products) {
-      if (product.quantity != null  && product.price != null) {
+      if (product.quantity != null && product.price != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.quantity!) * product.price!;
         total += result;
@@ -916,7 +1032,7 @@ class ProductController extends GetxController {
   double calculateTotalStockBuying() {
     double total = 0;
     for (Product product in products) {
-      if (product.quantity != null  && product.buyingPrice != null) {
+      if (product.quantity != null && product.buyingPrice != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.quantity!) * product.buyingPrice!;
         total += result;
@@ -927,14 +1043,15 @@ class ProductController extends GetxController {
     }
     return total;
   }
+
   Product getProductByCode(String code) {
     return products.firstWhere(
-          (product) => product.code == code,
+      (product) => product.code == code,
       orElse: () => Product(
         owner: '',
         id: '',
         name: '',
-        storeId:'',
+        storeId: '',
         price: 0,
         discount: 0,
         quantity: 0,
@@ -951,9 +1068,10 @@ class ProductController extends GetxController {
   final searchText = ''.obs;
   final filteredProducts = <Product>[].obs;
   final filterCategories = <String>[].obs;
-  void resetProducts(){
+  void resetProducts() {
     filteredProducts.value = products;
   }
+
   void filterProducts() {
     // Reset the filteredProducts list to include all products initially
     filteredProducts.value = products;
@@ -961,9 +1079,11 @@ class ProductController extends GetxController {
     // Filter by search text if it's not empty
     if (searchText.value.isNotEmpty) {
       filteredProducts.value = products
-          .where((product) => product.name
-          .toLowerCase()
-          .contains(searchText.value.toLowerCase()))
+          .where(
+            (product) => product.name.toLowerCase().contains(
+              searchText.value.toLowerCase(),
+            ),
+          )
           .toList();
     }
 
@@ -983,31 +1103,32 @@ class ProductController extends GetxController {
   }
 
   void filterProductsByExpireDate(DateTime filterDate) {
-    selectedDate= filterDate;
+    selectedDate = filterDate;
   }
 
   void clearSelectedDateRange() {
     selectedDate = null;
   }
-void clearProducts(){
+
+  void clearProducts() {
     products.value.clear();
     filteredProducts.value.clear();
     filterCategories.value.clear();
     searchProducts.value.clear();
-}
-
+  }
 
   void setFilterCategories(List<String> categories) {
     filterCategories.value = categories;
     filterProducts();
   }
 
-
   void search(String searchValue) {
     searchText.value = searchValue;
     searchProducts.value = products
-        .where((product) =>
-        product.name.toLowerCase().contains(searchValue.toLowerCase()))
+        .where(
+          (product) =>
+              product.name.toLowerCase().contains(searchValue.toLowerCase()),
+        )
         .toList();
     filterProducts();
   }
@@ -1016,27 +1137,30 @@ void clearProducts(){
   void setCategory(String updatedCategory) {
     selectedCategory.value = updatedCategory;
   }
+
   final selectedUnit = 'No unit'.obs;
   void setUnit(String updatedUnit) {
     selectedUnit.value = updatedUnit;
   }
+
   final selectedManufacturer = 'No manufacturer'.obs;
   void setManufacturer(String updatedManufacturer) {
     selectedManufacturer.value = updatedManufacturer;
   }
+
   final selectedLocation = 'No location'.obs;
   void setLocation(String updatedLocation) {
     selectedLocation.value = updatedLocation;
   }
 
-
-//for mobile app
+  //for mobile app
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
     Sheet sheetObject = excel[defaultSheet];
 
-    String businessName = _businessController.business['name'] ?? 'Business Name';
+    String businessName =
+        _businessController.business['name'] ?? 'Business Name';
     String reportTitle = "Product Report";
 
     sheetObject.appendRow([businessName]);
@@ -1104,9 +1228,7 @@ void clearProducts(){
     sheetObject.appendRow(['', '', 'Total Value:', totalValue, '']);
     var totalValueRowIndex = sheetObject.maxRows - 1;
     sheetObject.row(totalValueRowIndex).forEach((cell) {
-      cell?.cellStyle = CellStyle(
-        bold: true,
-      );
+      cell?.cellStyle = CellStyle(bold: true);
     });
 
     final fileBytes = excel.encode();
@@ -1129,10 +1251,9 @@ void clearProducts(){
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);
 
-      final result = await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Product Report',
-      );
+      final result = await Share.shareXFiles([
+        XFile(filePath),
+      ], text: 'Product Report');
 
       if (result.status == ShareResultStatus.success) {
         print('Thank you for sharing the report!');
@@ -1142,8 +1263,8 @@ void clearProducts(){
     }
   }
 
-//for web
-/*
+  //for web
+  /*
   Future<void> generateExcelFromProducts() async {
     var excel = Excel.createExcel();
     String defaultSheet = excel.getDefaultSheet()!;
@@ -1212,16 +1333,18 @@ void clearProducts(){
   }
 */
 
-
-
-
   var isUnderstockFilterActive = false.obs; // Tracking the filter state
 
   // Method to toggle understock filtering
   void toggleUnderstockFilter() {
     // Find products that are understocked
-    var understockedProducts = products.where((product) =>
-    product.quantity != null && product.quantity! < product.understock!).toList();
+    var understockedProducts = products
+        .where(
+          (product) =>
+              product.quantity != null &&
+              product.quantity! < product.understock!,
+        )
+        .toList();
 
     if (understockedProducts.isEmpty) {
       // If there are no understocked products, display a notification
@@ -1230,12 +1353,12 @@ void clearProducts(){
         'There are no products that are currently understock.'.tr,
         snackPosition: SnackPosition.BOTTOM,
         duration: Duration(seconds: 3),
-        backgroundColor: Colors.black,  // Set the background color to black
-        colorText: Colors.white,  // Set the text color to white
-        snackStyle: SnackStyle.FLOATING,  // Optional: makes the snackbar float above the content
-        margin: EdgeInsets.all(16),  // Optional: adds margin around the snackbar
+        backgroundColor: Colors.black, // Set the background color to black
+        colorText: Colors.white, // Set the text color to white
+        snackStyle: SnackStyle
+            .FLOATING, // Optional: makes the snackbar float above the content
+        margin: EdgeInsets.all(16), // Optional: adds margin around the snackbar
       );
-
     } else {
       if (isUnderstockFilterActive.value) {
         // If the filter is active, reset to show all products
@@ -1250,16 +1373,15 @@ void clearProducts(){
     }
   }
 
-
   Future<void> copyProductToStore(String productId) async {
-  final  String businessOwner=_businessController.business['owner'];
+    final String businessOwner = _businessController.business['owner'];
     try {
       // Firestore instance
       FirebaseFirestore firestore = FirebaseFirestore.instance;
       DocumentReference productDocRef = firestore
-        .collection('products')
-        .doc(_businessController.businessId.value)
-        .collection('userProducts')
+          .collection('products')
+          .doc(_businessController.businessId.value)
+          .collection('userProducts')
           .doc(productId);
 
       // Retrieve the product document
@@ -1267,7 +1389,8 @@ void clearProducts(){
 
       if (productSnapshot.exists) {
         // Get the product data
-        Map<String, dynamic> productData = productSnapshot.data() as Map<String, dynamic>;
+        Map<String, dynamic> productData =
+            productSnapshot.data() as Map<String, dynamic>;
 
         // Set the quantity field to 0.00 for the store collection
         productData['quantity'] = 0.00;
@@ -1285,14 +1408,15 @@ void clearProducts(){
         // Write the modified product data to the store collection
         await storeDocRef.set(productData);
         _showSnackbar('Product copied successfully!');
-        print('Product copied successfully to store collection with quantity set to 0.00.');
+        print(
+          'Product copied successfully to store collection with quantity set to 0.00.',
+        );
       } else {
         print('Product with ID $productId does not exist.');
       }
     } catch (e) {
       print('Error copying product to store collection: $e');
     }
-
   }
 
   /// Keeps store catalog (Bidhaa zilizo store) in sync when main inventory product is edited.
@@ -1347,7 +1471,7 @@ void clearProducts(){
       print('syncProductMetadataToStore error for $productId: $e');
     }
   }
-  
+
   /// Whether a purchase already created a shop stock movement for [productId].
   Future<bool> hasPurchaseStockTransaction({
     required String businessId,
@@ -1415,6 +1539,9 @@ void clearProducts(){
         transactionId: transactionRef.id,
         productId: productId,
         quantity: quantityChange,
+        delta: transactionType == TransactionTypes.removal
+            ? -quantityChange
+            : quantityChange,
         previousQuantity: previousQuantity,
         newQuantity: newQuantity,
         transactionType: transactionType,
@@ -1427,19 +1554,22 @@ void clearProducts(){
         employeeName: _profileController.user['name'],
         notes: notes,
         totalValue: quantityChange * price,
+        operationId: transactionRef.id,
+        inventoryLocation: 'shop',
       );
 
-      await transactionRef.set(stockTransaction.toMap());
+      final data = stockTransaction.toMap();
+      data['serverTimestamp'] = FieldValue.serverTimestamp();
+      await transactionRef.set(data);
     } catch (e) {
       print('Error creating stock transaction: $e');
+      rethrow;
     }
   }
-  
+
   void _showSnackbar(String message) {
-    ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-      SnackBar(
-        content: Text(message),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context as BuildContext,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }

@@ -18,8 +18,11 @@ import '../constants/transaction_constants.dart';
 import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import '../utils/sale_line_quantity.dart';
+import '../utils/operation_error_message.dart';
 import '../services/firestore_db.dart';
+import '../services/inventory_movement_service.dart';
 import '../services/ledger_service.dart';
+import '../services/paired_product_service.dart';
 import 'business_controller.dart';
 import 'expence_controller.dart';
 
@@ -42,15 +45,18 @@ class SaleController extends GetxController {
   void bindDefaultSalesStream() {
     try {
       _saleSubscription?.cancel();
-      _saleSubscription = FirestoreDb().getSales().listen((data) {
-        sales.value = data;
-        // Do not wipe an active custom date-range query.
-        if (!hasCustomDateRange) {
-          filterSales();
-        }
-      }, onError: (e) {
-        print("Error in sales stream: $e");
-      });
+      _saleSubscription = FirestoreDb().getSales().listen(
+        (data) {
+          sales.value = data;
+          // Do not wipe an active custom date-range query.
+          if (!hasCustomDateRange) {
+            filterSales();
+          }
+        },
+        onError: (e) {
+          print("Error in sales stream: $e");
+        },
+      );
     } catch (e) {
       print("Error initializing SaleController: $e");
     }
@@ -118,80 +124,114 @@ class SaleController extends GetxController {
     }
 
     try {
-      // Remove the sale from the local list
-      sales.remove(sale);
-      filteredSales.remove(sale);
-      
-      // Refresh dates list to remove empty date groups
-      setSalesByDate();
+      final saleRef = firestore
+          .collection('sales')
+          .doc(businessId)
+          .collection('userSales')
+          .doc(sale.id);
+      final operationId = firestore.collection('transactions').doc().id;
 
-      // Fetch the products from the sale
-      List products = sale.products;
-
-      // Batch all product quantity updates for better offline support
-      final updates = <Future>[];
-      
-      for (var product in products) {
-        // Skip quantity update for services
-        String itemType = 'product';
-        if (product is Map<String, dynamic> && product.containsKey('itemType')) {
-          itemType = product['itemType'] ?? 'product';
-        } else if (product is Product) {
-          itemType = product.itemType;
+      await firestore.runTransaction((transaction) async {
+        final saleSnapshot = await transaction.get(saleRef);
+        if (!saleSnapshot.exists) {
+          throw Exception('Sale ${sale.id} no longer exists.');
         }
-        if (itemType == 'service') continue;
-        String productId;
-        double quantityToAdd = 0.0;
-
-        if (product is Map<String, dynamic>) {
-          productId = (product['id'] ?? '').toString();
-          quantityToAdd = saleLineBaseQuantity(product);
-        } else if (product is Product) {
-          productId = product.id ?? '';
-          final dynamic q = product.quantity;
-          if (q is int) {
-            quantityToAdd = q.toDouble();
-          } else if (q is double) {
-            quantityToAdd = q;
-          } else if (q is num) {
-            quantityToAdd = q.toDouble();
-          } else {
-            quantityToAdd = 0.0;
+        final saleData = Map<String, dynamic>.from(saleSnapshot.data() as Map);
+        final productLines = List<dynamic>.from(
+          saleData['products'] ?? const [],
+        );
+        final quantities = <String, double>{};
+        for (final raw in productLines) {
+          final line = Map<String, dynamic>.from(raw as Map);
+          if ((line['itemType'] ?? 'product').toString() == 'service') {
+            continue;
           }
-        } else {
-          continue;
+          final id = (line['id'] ?? '').toString();
+          if (id.isEmpty) continue;
+          quantities[id] = (quantities[id] ?? 0.0) + saleLineBaseQuantity(line);
         }
 
-        // Fetch the product from the product controller
-        var productInInventory = productController.getProduct(productId);
+        final allIds = <String>{...quantities.keys};
+        for (final id in quantities.keys) {
+          final cached = productController.getProduct(id);
+          if (PairedProductService.isPairedMain(cached) &&
+              cached.twinProductId != null) {
+            allIds.add(cached.twinProductId!);
+          }
+        }
 
-        // Add update to batch
-        if (productInInventory.id.isNotEmpty) {
-          final double baseQty = productInInventory.quantity;
-          double newQuantity = baseQty + quantityToAdd;
-          updates.add(
-            productController.updateProductCount(
-              productInInventory,
-              newQuantity,
-              TransactionOrigins.saleDeleted,
+        final productIds = allIds.toList();
+        final productRefs = [
+          for (final id in productIds)
+            firestore
+                .collection('products')
+                .doc(businessId)
+                .collection('userProducts')
+                .doc(id),
+        ];
+        final snapshots = await Future.wait(
+          productRefs.map(transaction.get),
+        );
+        final productSnapshots =
+            <String, DocumentSnapshot<Map<String, dynamic>>>{
+              for (var i = 0; i < productIds.length; i++)
+                productIds[i]: snapshots[i],
+            };
+
+        final movements = <String, double>{};
+        for (final entry in quantities.entries) {
+          movements[entry.key] = (movements[entry.key] ?? 0.0) + entry.value;
+          final cached = productController.getProduct(entry.key);
+          if (PairedProductService.isPairedMain(cached) &&
+              cached.twinProductId != null) {
+            final twinId = cached.twinProductId!;
+            movements[twinId] = (movements[twinId] ?? 0.0) - entry.value;
+          }
+        }
+
+        for (final movement in movements.entries) {
+          final snapshot = productSnapshots[movement.key];
+          if (snapshot == null || !snapshot.exists) {
+            throw Exception('Product ${movement.key} no longer exists.');
+          }
+          final product = Product.fromSnapshot(snapshot);
+          final live = ((snapshot.data()?['quantity'] ?? 0) as num).toDouble();
+          final next = live + movement.value;
+          if (next < 0) {
+            throw Exception(
+              '${product.name}: cannot reverse this sale because linked stock is insufficient.',
+            );
+          }
+          final historyRef = InventoryMovementService.transactionRef(
+            businessId: businessId,
+            operationId: operationId,
+            productId: product.id,
+          );
+          transaction.update(snapshot.reference, {'quantity': next});
+          transaction.set(
+            historyRef,
+            InventoryMovementService.historyData(
+              transactionId: historyRef.id,
+              product: product,
+              delta: movement.value,
+              previousQuantity: live,
+              origin: TransactionOrigins.saleDeleted,
+              businessId: businessId,
+              operationId: operationId,
               referenceId: sale.id,
               referenceType: TransactionReferenceTypes.sale,
+              employeeName: sale.employeeName,
               notes: 'Stock restored after the sale was deleted.',
             ),
           );
         }
-      }
-      
-      // Wait for all product updates together
-      await Future.wait(updates);
 
-      // Delete the sale from Firestore
-      await firestore
-          .collection('sales')
-          .doc(businessId)
-          .collection('userSales')
-          .doc(sale.id)
-          .delete();
+        transaction.delete(saleRef);
+      });
+
+      sales.remove(sale);
+      filteredSales.remove(sale);
+      setSalesByDate();
 
       // Remove corresponding ledger entries
       try {
@@ -201,12 +241,14 @@ class SaleController extends GetxController {
           postedAt: sale.date,
         );
       } catch (e) {
-        print('⚠️ SaleController.deleteSale: ledger cleanup failed for ${sale.id}: $e');
+        print(
+          '⚠️ SaleController.deleteSale: ledger cleanup failed for ${sale.id}: $e',
+        );
       }
 
       successSnackbar('Sale ${'deleted'.tr}');
     } catch (e) {
-      errorSnackbar(e.toString());
+      errorSnackbar(operationErrorMessage(e));
     }
   }
 
@@ -255,8 +297,9 @@ class SaleController extends GetxController {
 
   double getLastWeekSales() {
     double lastWeekSales = 0;
-    var date =
-    DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
+    var date = DateUtils.dateOnly(
+      DateTime.now(),
+    ).subtract(const Duration(days: 7));
     var weekDay = date.weekday;
     var firstDayOfWeek = date.subtract(Duration(days: weekDay - 1));
 
@@ -375,8 +418,10 @@ class SaleController extends GetxController {
     return total;
   }
 
-
-  double getTotalSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
+  double getTotalSalesFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endTimestamp,
+  ) {
     double totalSales = 0;
     Timestamp currentTimestamp = Timestamp.now();
 
@@ -385,13 +430,14 @@ class SaleController extends GetxController {
       if (sale.saleType == 'debt_repayment') {
         continue;
       }
-      
+
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endTimestamp) <= 0) {
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(endTimestamp) <= 0) {
           totalSales += sale.price;
         }
       } else {
@@ -404,9 +450,10 @@ class SaleController extends GetxController {
     return totalSales;
   }
 
-
-  double getTotalSalesBuyingFromTimestamp(Timestamp startTimestamp,Timestamp endDate) {
-
+  double getTotalSalesBuyingFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endDate,
+  ) {
     double totalSales = 0;
     Timestamp currentTimestamp = Timestamp.now();
 
@@ -419,17 +466,22 @@ class SaleController extends GetxController {
       if (sale.saleType == 'debt_repayment') {
         continue;
       }
-      
+
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
-          print('✅ Sale ${sale.id} - Date: ${saleTimestamp.toDate()}, BuyingPrice: ${sale.buyingPrice}');
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(endDate) <= 0) {
+          print(
+            '✅ Sale ${sale.id} - Date: ${saleTimestamp.toDate()}, BuyingPrice: ${sale.buyingPrice}',
+          );
           totalSales += sale.buyingPrice;
         } else {
-          print('⏭️ Sale ${sale.id} - Outside range (${saleTimestamp.toDate()})');
+          print(
+            '⏭️ Sale ${sale.id} - Outside range (${saleTimestamp.toDate()})',
+          );
         }
       } else {
         // If the date is not in a recognized format, log an error and skip
@@ -442,10 +494,10 @@ class SaleController extends GetxController {
     return totalSales;
   }
 
-
-
-  double getTotalPaymentFromTimestamp(Timestamp startTimestamp,Timestamp endDate) {
-
+  double getTotalPaymentFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endDate,
+  ) {
     double totalPayments = 0;
     Timestamp currentTimestamp = Timestamp.now();
 
@@ -454,13 +506,14 @@ class SaleController extends GetxController {
       if (sale.saleType == 'debt_repayment') {
         continue;
       }
-      
+
       // Ensure sale.date is of type Timestamp
       if (sale.date is Timestamp) {
         Timestamp saleTimestamp = sale.date;
 
         // Check if the saleTimestamp is within the specified range (INCLUSIVE boundaries)
-        if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endDate) <= 0) {
+        if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+            saleTimestamp.compareTo(endDate) <= 0) {
           totalPayments += sale.payment;
         }
       } else {
@@ -473,27 +526,34 @@ class SaleController extends GetxController {
     return totalPayments;
   }
 
-  double getDebtCollectedFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
+  double getDebtCollectedFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endTimestamp,
+  ) {
     double debtCollected = 0;
-    
+
     for (var sale in sales) {
       // Only count debt repayment sales - these are collections on old debts
       if (sale.saleType == 'debt_repayment') {
         if (sale.date is Timestamp) {
           Timestamp saleTimestamp = sale.date;
-          
+
           // Check if the saleTimestamp is within the specified range
-          if (saleTimestamp.compareTo(startTimestamp) >= 0 && saleTimestamp.compareTo(endTimestamp) <= 0) {
+          if (saleTimestamp.compareTo(startTimestamp) >= 0 &&
+              saleTimestamp.compareTo(endTimestamp) <= 0) {
             debtCollected += sale.payment;
           }
         }
       }
     }
-    
+
     return debtCollected;
   }
 
-  double getTotalServiceSalesFromTimestamp(Timestamp startTimestamp, Timestamp endTimestamp) {
+  double getTotalServiceSalesFromTimestamp(
+    Timestamp startTimestamp,
+    Timestamp endTimestamp,
+  ) {
     double totalServiceSales = 0;
     const double debtTol = 0.01;
 
@@ -517,7 +577,8 @@ class SaleController extends GetxController {
 
       for (var product in sale.products) {
         String itemType = 'product';
-        if (product is Map<String, dynamic> && product.containsKey('itemType')) {
+        if (product is Map<String, dynamic> &&
+            product.containsKey('itemType')) {
           itemType = (product['itemType'] ?? 'product').toString();
         } else if (product is Product) {
           itemType = product.itemType;
@@ -529,7 +590,9 @@ class SaleController extends GetxController {
           final dynamic rawP = product['price'];
           final double price = rawP is int
               ? rawP.toDouble()
-              : (rawP is num ? rawP.toDouble() : double.tryParse(rawP?.toString() ?? '0') ?? 0.0);
+              : (rawP is num
+                    ? rawP.toDouble()
+                    : double.tryParse(rawP?.toString() ?? '0') ?? 0.0);
           final double quantity = saleLineBaseQuantity(product);
           totalServiceSales += price * quantity;
         } else if (product is Product) {
@@ -548,22 +611,17 @@ class SaleController extends GetxController {
     return format.parseUtc(dateString).toLocal();
   }
 
-
-
-
-
-
-
-
   List<Map<String, dynamic>> getTopProducts(String value) {
     var dateStart = DateUtils.dateOnly(DateTime.now());
-    var dateEnd =
-    DateUtils.dateOnly(DateTime.now()).add(const Duration(days: 1));
+    var dateEnd = DateUtils.dateOnly(
+      DateTime.now(),
+    ).add(const Duration(days: 1));
 
     // * last week
     if (value == 'last_week'.tr) {
-      var date =
-      DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 7));
+      var date = DateUtils.dateOnly(
+        DateTime.now(),
+      ).subtract(const Duration(days: 7));
       var weekDay = date.weekday;
       dateStart = date.subtract(Duration(days: weekDay - 1));
       dateEnd = dateStart.add(const Duration(days: 7));
@@ -601,7 +659,7 @@ class SaleController extends GetxController {
                 products[i]['price'] =
                     ((product['price'] * product['quantity']) +
                         (products[i]['price'] * products[i]['quantity'])) /
-                        (products[i]['quantity'] + product['quantity']);
+                    (products[i]['quantity'] + product['quantity']);
                 products[i]['quantity'] += product['quantity'];
               }
             }
@@ -629,25 +687,25 @@ class SaleController extends GetxController {
       _filteredSaleSubscription = FirestoreDb()
           .getSalesByDateRange(selectedDateRange!.start, selectedDateRange!.end)
           .listen((data) {
-        var filtered = data;
-        if (filterClients.isNotEmpty) {
-          filtered = filtered.where((sale) {
-            return filterClients.contains(sale.client);
-          }).toList();
-        }
-        if (filterEmployee.isNotEmpty) {
-          filtered = filtered.where((sale) {
-            return filterEmployee.contains(sale.employeeId);
-          }).toList();
-        }
-        if (saleType.value == 'Debt') {
-          filtered = filtered.where((sale) {
-            return sale.debt > 0;
-          }).toList();
-        }
-        filteredSales.value = filtered;
-        setSalesByDate();
-      });
+            var filtered = data;
+            if (filterClients.isNotEmpty) {
+              filtered = filtered.where((sale) {
+                return filterClients.contains(sale.client);
+              }).toList();
+            }
+            if (filterEmployee.isNotEmpty) {
+              filtered = filtered.where((sale) {
+                return filterEmployee.contains(sale.employeeId);
+              }).toList();
+            }
+            if (saleType.value == 'Debt') {
+              filtered = filtered.where((sale) {
+                return sale.debt > 0;
+              }).toList();
+            }
+            filteredSales.value = filtered;
+            setSalesByDate();
+          });
     } else {
       await _filteredSaleSubscription?.cancel();
       _filteredSaleSubscription = null;
@@ -677,6 +735,7 @@ class SaleController extends GetxController {
       setSalesByDate();
     }
   }
+
   void filterSalesById(String saleId) async {
     filteredSales.value = sales.where((sale) => sale.id == saleId).toList();
     if (filteredSales.isNotEmpty) {
@@ -742,9 +801,9 @@ class SaleController extends GetxController {
     _filteredSaleSubscription?.cancel();
     super.onClose();
   }
-//for mobile app
+  //for mobile app
 
-/*
+  /*
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -895,7 +954,7 @@ class SaleController extends GetxController {
 
   }*/
 
-//for web app
+  //for web app
 
   Future<void> generateExcelFromSales() async {
     // Create a new Excel document
@@ -909,7 +968,8 @@ class SaleController extends GetxController {
     expenceController.selectedDateRange = selectedDateRange;
 
     // Add the business name and date range as the first row (heading)
-    String businessName = _businessController.business['name'] ?? 'Business Name';
+    String businessName =
+        _businessController.business['name'] ?? 'Business Name';
     String dateRange = selectedDateRange != null
         ? '${DateFormat('dd MMM yyyy').format(selectedDateRange!.start)} - ${DateFormat('dd MMM yyyy').format(selectedDateRange!.end)}'
         : 'All Time';
@@ -924,7 +984,16 @@ class SaleController extends GetxController {
     sheetObject.appendRow([]);
 
     // Define header row with background color
-    final headerRow = ['Products', 'Client', 'Date', 'Price', 'Buying Price', 'Payment', 'Debt', 'Comment'];
+    final headerRow = [
+      'Products',
+      'Client',
+      'Date',
+      'Price',
+      'Buying Price',
+      'Payment',
+      'Debt',
+      'Comment',
+    ];
 
     // Apply a background color to the header row
     CellStyle headerStyle = CellStyle(
@@ -950,14 +1019,18 @@ class SaleController extends GetxController {
     // Iterate through the list of sales and add each sale as a row in the Excel sheet
     for (Sale sale in filteredSales) {
       Client client = clientController.resolveClientForSale(sale);
-      String productNames = sale.products.map((product) {
-        if (product is Product) {
-          return '${product.quantity} ${product.name}';
-        } else if (product is Map<String, dynamic> && product.containsKey('name') && product.containsKey('quantity')) {
-          return '${product['quantity']} ${product['name']}'; // If product is a Map with 'name' and 'quantity' keys
-        }
-        return '';
-      }).join(", ");
+      String productNames = sale.products
+          .map((product) {
+            if (product is Product) {
+              return '${product.quantity} ${product.name}';
+            } else if (product is Map<String, dynamic> &&
+                product.containsKey('name') &&
+                product.containsKey('quantity')) {
+              return '${product['quantity']} ${product['name']}'; // If product is a Map with 'name' and 'quantity' keys
+            }
+            return '';
+          })
+          .join(", ");
 
       // Accumulate the total price, payment, debt, and buying price
       totalAmount += sale.price;
@@ -969,7 +1042,9 @@ class SaleController extends GetxController {
       sheetObject.appendRow([
         productNames,
         client.name,
-        DateFormat('dd MMM yyyy').format(sale.date.toDate()), // Convert Timestamp to readable date
+        DateFormat(
+          'dd MMM yyyy',
+        ).format(sale.date.toDate()), // Convert Timestamp to readable date
         sale.price,
         sale.buyingPrice, // Add Buying Price
         sale.payment,
@@ -987,10 +1062,20 @@ class SaleController extends GetxController {
     sheetObject.appendRow([]);
 
     // Add Total rows for Amount, Buying Price, Payment, and Debt at the bottom
-    var totalsRowIndex = sheetObject.maxRows; // Store the row index for the totals row
-    sheetObject.appendRow(['', '', 'Totals:', totalAmount, totalBuyingAmount, totalPayment, totalDebt, '']);
+    var totalsRowIndex =
+        sheetObject.maxRows; // Store the row index for the totals row
+    sheetObject.appendRow([
+      '',
+      '',
+      'Totals:',
+      totalAmount,
+      totalBuyingAmount,
+      totalPayment,
+      totalDebt,
+      '',
+    ]);
 
-// Apply a bold style and background color to the Totals row
+    // Apply a bold style and background color to the Totals row
     var totalsStyle = CellStyle(
       bold: true,
       backgroundColorHex: '#ADD8E6', // Light blue color for the totals row
@@ -1000,16 +1085,20 @@ class SaleController extends GetxController {
       cell?.cellStyle = totalsStyle;
     });
 
-// Calculate estimated profit: totalAmount - totalBuyingAmount - totalExpense
+    // Calculate estimated profit: totalAmount - totalBuyingAmount - totalExpense
     double estimatedProfit = totalAmount - totalBuyingAmount - totalExpense;
 
-// Add a report section for estimated profit and how it was calculated
+    // Add a report section for estimated profit and how it was calculated
     sheetObject.appendRow(['']);
     sheetObject.appendRow(['', '', 'Total Expenses:', totalExpense]);
     sheetObject.appendRow(['', '', 'Estimated Profit:', estimatedProfit]);
-    sheetObject.appendRow(['', '', 'Calculation: Estimated Profit = Total Selling Price - Total Buying Price - Total Expenses']);
+    sheetObject.appendRow([
+      '',
+      '',
+      'Calculation: Estimated Profit = Total Selling Price - Total Buying Price - Total Expenses',
+    ]);
 
-// Apply a bold style and background color to the Total rows and profit rows
+    // Apply a bold style and background color to the Total rows and profit rows
     var totalRows = [
       sheetObject.maxRows - 4, // Expense row
       sheetObject.maxRows - 3, // Estimated profit row
@@ -1017,12 +1106,13 @@ class SaleController extends GetxController {
     ];
 
     for (var rowIndex in totalRows) {
-      sheetObject.row(rowIndex+1).forEach((cell) {
-        cell?.cellStyle = CellStyle(bold: true, backgroundColorHex: '#D3D3D3'); // Light gray color for other rows
+      sheetObject.row(rowIndex + 1).forEach((cell) {
+        cell?.cellStyle = CellStyle(
+          bold: true,
+          backgroundColorHex: '#D3D3D3',
+        ); // Light gray color for other rows
       });
     }
-
-
 
     final fileBytes = excel.encode();
     if (fileBytes == null) {
@@ -1044,17 +1134,13 @@ class SaleController extends GetxController {
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);
 
-      await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Sales Report',
-      );
+      await Share.shareXFiles([XFile(filePath)], text: 'Sales Report');
     }
   }
 
-  void clearSales(){
+  void clearSales() {
     sales.value.clear();
     filteredSales.value.clear();
     filterClients.value.clear();
   }
-
 }

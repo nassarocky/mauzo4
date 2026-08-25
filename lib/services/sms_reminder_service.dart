@@ -67,6 +67,7 @@ class SmsReminderService {
     String? supplierId,
     String? clientName,
     String? supplierName,
+    String? referenceId,
     double? amount,
     double? remaining,
     List<Map<String, dynamic>>? lines,
@@ -81,6 +82,8 @@ class SmsReminderService {
       if (supplierId != null && supplierId.isNotEmpty) 'supplierId': supplierId,
       if (clientName != null) 'clientName': clientName,
       if (supplierName != null) 'supplierName': supplierName,
+      if (referenceId != null && referenceId.isNotEmpty)
+        'referenceId': referenceId,
       if (amount != null) 'amount': amount,
       if (remaining != null) 'remaining': remaining,
       if (lines != null) 'lines': lines,

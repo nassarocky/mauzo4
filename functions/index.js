@@ -3065,6 +3065,210 @@ function suggestCommand(message) {
   return commands.filter(cmd => cmd.includes(message.split(' ')[0])).slice(0, 2);
 }
 
+function transferHistoryId(transferRequestId, productId, direction) {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${transferRequestId}:${productId}:${direction}`)
+    .digest('hex');
+  return `transfer_${direction}_${digest}`;
+}
+
+function transferRequestRef(businessId, transferRequestId) {
+  return firestore
+    .collection('product_transfer_requests').doc(businessId)
+    .collection('userTransferRequests').doc(transferRequestId);
+}
+
+function productRef(businessId, productId) {
+  return firestore
+    .collection('products').doc(businessId)
+    .collection('userProducts').doc(productId);
+}
+
+function transferHistoryRef(businessId, transferRequestId, productId, direction) {
+  return firestore
+    .collection('transactions').doc(businessId)
+    .collection('usersTransactions')
+    .doc(transferHistoryId(transferRequestId, productId, direction));
+}
+
+function transferHistoryData({
+  historyRef,
+  productId,
+  quantity,
+  previousQuantity,
+  delta,
+  origin,
+  userId,
+  price,
+  transferRequestId,
+  timestamp,
+}) {
+  return {
+    transactionId: historyRef.id,
+    productId,
+    delta,
+    quantity: Math.abs(quantity),
+    previousQuantity,
+    newQuantity: previousQuantity + delta,
+    transactionType: delta < 0 ? 'removal' : 'addition',
+    transactionOrigin: origin,
+    timestamp,
+    createdAt: timestamp,
+    userId,
+    price: price || 0.0,
+    referenceId: transferRequestId,
+    referenceType: 'product_transfer',
+    inventoryLocation: 'shop',
+  };
+}
+
+async function assertTransferRecipientMembership(userId, toBusinessId) {
+  const userSnap = await firestore.collection('gmanusers').doc(userId).get();
+  const businesses = userSnap.exists && Array.isArray(userSnap.data().business)
+    ? userSnap.data().business
+    : [];
+  if (!businesses.includes(toBusinessId)) {
+    throw new HttpsError(
+      'permission-denied',
+      'User is not a member of the destination business'
+    );
+  }
+}
+
+async function acceptInventoryTransfer({
+  fromBusinessId,
+  toBusinessId,
+  transferRequestId,
+  products,
+  userId,
+  sourceOrigin,
+  destinationOrigin,
+}) {
+  const destinationRequestRef = transferRequestRef(toBusinessId, transferRequestId);
+  const sourceRequestRef = transferRequestRef(fromBusinessId, transferRequestId);
+
+  return firestore.runTransaction(async (transaction) => {
+    // Firestore requires transaction reads before writes. Read the request first so
+    // retries that observe "accepted" return without applying stock a second time.
+    const [destinationRequestSnap, sourceRequestSnap] = await transaction.getAll(
+      destinationRequestRef,
+      sourceRequestRef
+    );
+
+    if (!destinationRequestSnap.exists) {
+      throw new HttpsError('not-found', 'Transfer request not found');
+    }
+    if (destinationRequestSnap.data().status === 'accepted') {
+      return { alreadyAccepted: true };
+    }
+
+    const movementRefs = products.flatMap((product) => [
+      productRef(fromBusinessId, product.id),
+      productRef(toBusinessId, product.id),
+    ]);
+    const movementSnaps = await transaction.getAll(...movementRefs);
+    const timestamp = admin.firestore.Timestamp.now();
+
+    products.forEach((product, index) => {
+      const sourceProductRef = movementRefs[index * 2];
+      const destinationProductRef = movementRefs[index * 2 + 1];
+      const sourceProductSnap = movementSnaps[index * 2];
+      const destinationProductSnap = movementSnaps[index * 2 + 1];
+      const productName = product.name || product.id;
+
+      if (!sourceProductSnap.exists) {
+        throw new HttpsError(
+          'not-found',
+          products.length === 1
+            ? 'Product not found in sender business'
+            : `Product ${productName} not found in sender business`
+        );
+      }
+
+      const sourceProductData = sourceProductSnap.data();
+      const sourceQuantity = Number(sourceProductData.quantity) || 0;
+      const destinationQuantity = destinationProductSnap.exists
+        ? Number(destinationProductSnap.data().quantity) || 0
+        : 0;
+
+      if (sourceQuantity < product.quantity) {
+        throw new HttpsError(
+          'failed-precondition',
+          products.length === 1
+            ? 'Not enough stock in sender business'
+            : `Not enough stock for ${productName}. Available: ${sourceQuantity}, Requested: ${product.quantity}`
+        );
+      }
+
+      transaction.update(sourceProductRef, {
+        quantity: sourceQuantity - product.quantity,
+      });
+      if (destinationProductSnap.exists) {
+        transaction.update(destinationProductRef, {
+          quantity: destinationQuantity + product.quantity,
+        });
+      } else {
+        transaction.set(destinationProductRef, {
+          ...sourceProductData,
+          quantity: product.quantity,
+          owner: toBusinessId,
+          id: product.id,
+        });
+      }
+
+      const sourceHistoryRef = transferHistoryRef(
+        fromBusinessId,
+        transferRequestId,
+        product.id,
+        'out'
+      );
+      const destinationHistoryRef = transferHistoryRef(
+        toBusinessId,
+        transferRequestId,
+        product.id,
+        'in'
+      );
+      transaction.set(sourceHistoryRef, transferHistoryData({
+        historyRef: sourceHistoryRef,
+        productId: product.id,
+        quantity: product.quantity,
+        previousQuantity: sourceQuantity,
+        delta: -product.quantity,
+        origin: sourceOrigin,
+        userId,
+        price: sourceProductData.price,
+        transferRequestId,
+        timestamp,
+      }));
+      transaction.set(destinationHistoryRef, transferHistoryData({
+        historyRef: destinationHistoryRef,
+        productId: product.id,
+        quantity: product.quantity,
+        previousQuantity: destinationQuantity,
+        delta: product.quantity,
+        origin: destinationOrigin,
+        userId,
+        price: sourceProductData.price,
+        transferRequestId,
+        timestamp,
+      }));
+    });
+
+    const statusUpdate = {
+      status: 'accepted',
+      respondedByUserId: userId,
+      respondedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    transaction.update(destinationRequestRef, statusUpdate);
+    if (sourceRequestSnap.exists) {
+      transaction.update(sourceRequestRef, statusUpdate);
+    }
+
+    return { alreadyAccepted: false };
+  });
+}
+
 exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (request) => {
   const context = request.auth;
   if (!context) {
@@ -3072,139 +3276,37 @@ exports.acceptTransferRequestV2 = onCall({ region: "us-central1" }, async (reque
   }
 
   const { fromBusinessId, toBusinessId, productId, transferRequestId, quantity } = request.data;
-  if (!fromBusinessId || !toBusinessId || !productId || !transferRequestId || !quantity) {
+  const normalizedQuantity = Number(quantity);
+  if (
+    !fromBusinessId ||
+    !toBusinessId ||
+    !productId ||
+    !transferRequestId ||
+    !Number.isFinite(normalizedQuantity) ||
+    normalizedQuantity <= 0
+  ) {
     throw new HttpsError('invalid-argument', 'Missing required fields');
   }
 
   try {
-    // 1. Update transfer request status to 'accepted' in the receiver's business
-    await firestore
-      .collection('product_transfer_requests').doc(toBusinessId)
-      .collection('userTransferRequests').doc(transferRequestId)
-      .update({ status: 'accepted', respondedAt: admin.firestore.FieldValue.serverTimestamp() });
-
-    // Declare variables to capture data from transactions
-    let fromProductData = null;
-    let fromQty = 0;
-    let toQty = 0;
-
-    // 2. Update product stock in sender (fromBusinessId): decrement quantity
-    const fromProductRef = firestore
-      .collection('products').doc(fromBusinessId)
-      .collection('userProducts').doc(productId);
-    await firestore.runTransaction(async (transaction) => {
-      const fromProductSnap = await transaction.get(fromProductRef);
-      if (!fromProductSnap.exists) {
-        throw new HttpsError('not-found', 'Product not found in sender business');
-      }
-      fromProductData = fromProductSnap.data();
-      fromQty = fromProductData.quantity || 0;
-      if (fromQty < quantity) {
-        throw new HttpsError('failed-precondition', 'Not enough stock in sender business');
-      }
-      transaction.update(fromProductRef, { quantity: fromQty - quantity });
-    });
-
-    // 3. Update product stock in receiver (toBusinessId): increment quantity
-    const toProductRef = firestore
-      .collection('products').doc(toBusinessId)
-      .collection('userProducts').doc(productId);
-    await firestore.runTransaction(async (transaction) => {
-      const toProductSnap = await transaction.get(toProductRef);
-      if (!toProductSnap.exists) {
-        // Product doesn't exist in destination - use the source product data we already have
-        if (fromProductData) {
-          const newProductData = {
-            ...fromProductData,
-            quantity: quantity,
-            owner: toBusinessId,
-            id: productId
-          };
-          transaction.set(toProductRef, newProductData);
-          console.log(`Created new product ${fromProductData.name} in destination with quantity: ${quantity}`);
-        } else {
-          // Fallback: create minimal product data (should rarely happen)
-          const minimalProductData = {
-            id: productId,
-            name: 'Unknown Product',
-            quantity: quantity,
-            owner: toBusinessId,
-            itemType: 'product',
-            price: 0.0,
-            buyingPrice: 0.0,
-            storeId: '',
-            code: '',
-            discount: 0.0,
-            manufacturer: '',
-            location: '',
-            details: '',
-            understock: 0.0,
-            category: '',
-            total: 0.0,
-            count: 0.0
-          };
-          transaction.set(toProductRef, minimalProductData);
-          console.log(`Created minimal product ${productId} in destination`);
-        }
-        toQty = 0; // New product, so previous quantity is 0
-      } else {
-        // Product exists in destination - increment quantity
-        toQty = toProductSnap.data().quantity || 0;
-        transaction.update(toProductRef, { quantity: toQty + quantity });
-        console.log(`Increased product in destination: ${toQty} -> ${toQty + quantity}`);
-      }
-    });
-
-    // 4. Record transaction in sender business (removal)
-    const sourceTransactionRef = firestore
-      .collection('transactions')
-      .doc(fromBusinessId)
-      .collection('usersTransactions')
-      .doc();
-
-    const sourceTransaction = {
-      transactionId: sourceTransactionRef.id,
-      productId: productId,
-      quantity: fromQty - quantity, // New quantity after removal
-      previousQuantity: fromQty,
-      transactionType: 'removal',
-      transactionOrigin: 'Product Transfer Out',
-      timestamp: admin.firestore.Timestamp.now(),
+    await assertTransferRecipientMembership(context.uid, toBusinessId);
+    await acceptInventoryTransfer({
+      fromBusinessId,
+      toBusinessId,
+      transferRequestId,
+      products: [{ id: productId, quantity: normalizedQuantity }],
       userId: context.uid,
-      price: fromProductData?.price || 0.0
-    };
-
-    await sourceTransactionRef.set(sourceTransaction);
-
-    // 5. Record transaction in receiver business (addition)
-    const destTransactionRef = firestore
-      .collection('transactions')
-      .doc(toBusinessId)
-      .collection('usersTransactions')
-      .doc();
-
-    const destTransaction = {
-      transactionId: destTransactionRef.id,
-      productId: productId,
-      quantity: toQty + quantity, // New quantity after addition
-      previousQuantity: toQty,
-      transactionType: 'addition',
-      transactionOrigin: 'Product Transfer In',
-      timestamp: admin.firestore.Timestamp.now(),
-      userId: context.uid,
-      price: fromProductData?.price || 0.0
-    };
-
-    await destTransactionRef.set(destTransaction);
-
+      sourceOrigin: 'Product Transfer Out',
+      destinationOrigin: 'Product Transfer In',
+    });
     return { success: true };
   } catch (error) {
     console.error('acceptTransferRequestV2 error:', error);
+    if (error instanceof HttpsError) throw error;
     throw new HttpsError('internal', error.message || 'Unknown error occurred');
   }
 });
 
-// New Cloud Function for batch transfer requests
 exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (request) => {
   const context = request.auth;
   if (!context) {
@@ -3212,183 +3314,104 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
   }
 
   const { fromBusinessId, toBusinessId, transferRequestId, products } = request.data;
-  if (!fromBusinessId || !toBusinessId || !transferRequestId || !products || !Array.isArray(products)) {
+  if (!fromBusinessId || !toBusinessId || !transferRequestId || !Array.isArray(products)) {
     throw new HttpsError('invalid-argument', 'Missing required fields or invalid products array');
   }
-
   if (products.length === 0) {
     throw new HttpsError('invalid-argument', 'Products array cannot be empty');
   }
 
+  const productsById = new Map();
+  for (const product of products) {
+    const normalizedQuantity = Number(product.quantity);
+    if (!product.id || !Number.isFinite(normalizedQuantity) || normalizedQuantity <= 0) {
+      throw new HttpsError('invalid-argument', `Invalid product data: ${JSON.stringify(product)}`);
+    }
+    const existing = productsById.get(product.id);
+    productsById.set(product.id, {
+      ...product,
+      quantity: normalizedQuantity + (existing?.quantity || 0),
+      name: existing?.name || product.name,
+    });
+  }
+
+  const normalizedProducts = [...productsById.values()];
+  // Two request writes plus four writes per unique product must fit Firestore's
+  // 500-write transaction limit.
+  if (normalizedProducts.length > 124) {
+    throw new HttpsError(
+      'invalid-argument',
+      'A batch transfer cannot contain more than 124 unique products'
+    );
+  }
+
   try {
     console.log(`[Batch Transfer] Processing ${products.length} products from ${fromBusinessId} to ${toBusinessId}`);
-    
-    // Process each product in the batch transfer
-    for (const product of products) {
-      const { id: productId, quantity, name: productName } = product;
-      
-      if (!productId || !quantity || quantity <= 0) {
-        throw new HttpsError('invalid-argument', `Invalid product data: ${JSON.stringify(product)}`);
-      }
-
-      console.log(`[Batch Transfer] Processing product: ${productName} (${productId}), quantity: ${quantity}`);
-
-      let fromProductData = null;
-      let fromQty = 0;
-      let toQty = 0;
-
-      // 1. Update product stock in sender (fromBusinessId): decrement quantity
-      const fromProductRef = firestore
-        .collection('products').doc(fromBusinessId)
-        .collection('userProducts').doc(productId);
-        
-      await firestore.runTransaction(async (transaction) => {
-        const fromProductSnap = await transaction.get(fromProductRef);
-        if (!fromProductSnap.exists) {
-          throw new HttpsError('not-found', `Product ${productName} not found in sender business`);
-        }
-        
-        fromProductData = fromProductSnap.data();
-        fromQty = fromProductData.quantity || 0;
-        
-        if (fromQty < quantity) {
-          throw new HttpsError('failed-precondition', `Not enough stock for ${productName}. Available: ${fromQty}, Requested: ${quantity}`);
-        }
-        
-        // Decrease quantity in source business
-        transaction.update(fromProductRef, { quantity: fromQty - quantity });
-        console.log(`[Batch Transfer] Decreased ${productName} in source: ${fromQty} -> ${fromQty - quantity}`);
-      });
-
-      // 2. Update product stock in receiver (toBusinessId): increment quantity or create product
-      const toProductRef = firestore
-        .collection('products').doc(toBusinessId)
-        .collection('userProducts').doc(productId);
-        
-      await firestore.runTransaction(async (transaction) => {
-        const toProductSnap = await transaction.get(toProductRef);
-        
-        if (!toProductSnap.exists) {
-          // Product doesn't exist in destination - get full product data from source
-          const fromProductSnap = await transaction.get(fromProductRef);
-          if (fromProductSnap.exists) {
-            const sourceProductData = fromProductSnap.data();
-            const newProductData = {
-              ...sourceProductData,
-              quantity: quantity,
-              owner: toBusinessId,
-              id: productId
-            };
-            transaction.set(toProductRef, newProductData);
-            console.log(`[Batch Transfer] Created new product ${productName} in destination with quantity: ${quantity}`);
-            toQty = 0;
-          } else {
-            // Fallback: create minimal product data
-            const minimalProductData = {
-              id: productId,
-              name: productName || 'Unknown Product',
-              quantity: quantity,
-              owner: toBusinessId,
-              itemType: product.itemType || 'product',
-              price: 0.0,
-              buyingPrice: 0.0,
-              storeId: '',
-              code: '',
-              discount: 0.0,
-              manufacturer: '',
-              location: '',
-              details: '',
-              understock: 0.0,
-              category: '',
-              total: 0.0,
-              count: 0.0
-            };
-            transaction.set(toProductRef, minimalProductData);
-            console.log(`[Batch Transfer] Created minimal product ${productName} in destination`);
-            toQty = 0;
-          }
-        } else {
-          // Product exists in destination - increment quantity
-          toQty = toProductSnap.data().quantity || 0;
-          transaction.update(toProductRef, { quantity: toQty + quantity });
-          console.log(`[Batch Transfer] Increased ${productName} in destination: ${toQty} -> ${toQty + quantity}`);
-        }
-      });
-
-      // 3. Record transaction in sender business (removal)
-      const sourceTransactionRef = firestore
-        .collection('transactions')
-        .doc(fromBusinessId)
-        .collection('usersTransactions')
-        .doc();
-
-      const sourceTransaction = {
-        transactionId: sourceTransactionRef.id,
-        productId: productId,
-        quantity: fromQty - quantity, // New quantity after removal
-        previousQuantity: fromQty,
-        transactionType: 'removal',
-        transactionOrigin: 'Batch Transfer Out',
-        timestamp: admin.firestore.Timestamp.now(),
-        userId: context.uid,
-        price: fromProductData?.price || 0.0
-      };
-
-      await sourceTransactionRef.set(sourceTransaction);
-
-      // 4. Record transaction in receiver business (addition)
-      const destTransactionRef = firestore
-        .collection('transactions')
-        .doc(toBusinessId)
-        .collection('usersTransactions')
-        .doc();
-
-      const destTransaction = {
-        transactionId: destTransactionRef.id,
-        productId: productId,
-        quantity: toQty + quantity, // New quantity after addition
-        previousQuantity: toQty,
-        transactionType: 'addition',
-        transactionOrigin: 'Batch Transfer In',
-        timestamp: admin.firestore.Timestamp.now(),
-        userId: context.uid,
-        price: fromProductData?.price || 0.0
-      };
-
-      await destTransactionRef.set(destTransaction);
-    }
-
-    // 5. Update transfer request status to 'accepted' in both businesses
-    const updateData = {
-      status: 'accepted',
-      respondedByUserId: context.uid,
-      respondedAt: admin.firestore.FieldValue.serverTimestamp()
-    };
-
-    // Update in destination business
-    await firestore
-      .collection('product_transfer_requests').doc(toBusinessId)
-      .collection('userTransferRequests').doc(transferRequestId)
-      .update(updateData);
-
-    // Update in source business
-    await firestore
-      .collection('product_transfer_requests').doc(fromBusinessId)
-      .collection('userTransferRequests').doc(transferRequestId)
-      .update(updateData);
+    await assertTransferRecipientMembership(context.uid, toBusinessId);
+    await acceptInventoryTransfer({
+      fromBusinessId,
+      toBusinessId,
+      transferRequestId,
+      products: normalizedProducts,
+      userId: context.uid,
+      sourceOrigin: 'Batch Transfer Out',
+      destinationOrigin: 'Batch Transfer In',
+    });
 
     console.log(`[Batch Transfer] Successfully completed batch transfer of ${products.length} products`);
-    return { 
-      success: true, 
+    return {
+      success: true,
       message: `Successfully transferred ${products.length} products from ${fromBusinessId} to ${toBusinessId}`,
       processedProducts: products.length
     };
-    
   } catch (error) {
     console.error('acceptBatchTransferRequestV2 error:', error);
+    if (error instanceof HttpsError) throw error;
     throw new HttpsError('internal', error.message || 'Unknown error occurred during batch transfer');
   }
 });
+
+exports.reconcileNegativeShopStockV2 = onDocumentWritten(
+  {
+    document: 'products/{businessId}/userProducts/{productId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const { businessId, productId } = event.params;
+    const beforeData = event.data.before.exists ? event.data.before.data() : null;
+    const afterData = event.data.after.exists ? event.data.after.data() : null;
+    const beforeQuantity = beforeData ? Number(beforeData.quantity) || 0 : null;
+    const afterQuantity = afterData ? Number(afterData.quantity) || 0 : null;
+    const alertRef = firestore
+      .collection('inventory_reconciliation_alerts').doc(businessId)
+      .collection('alerts').doc(productId);
+
+    if (afterData && afterQuantity < 0) {
+      const eventTimestamp = event.time
+        ? admin.firestore.Timestamp.fromDate(new Date(event.time))
+        : admin.firestore.Timestamp.now();
+      const alert = {
+        type: 'negative_stock',
+        status: 'open',
+        businessId,
+        productId,
+        productName: afterData.name || '',
+        inventoryLocation: 'shop',
+        quantity: afterQuantity,
+        updatedAt: eventTimestamp,
+      };
+      if (beforeQuantity === null || beforeQuantity >= 0) {
+        alert.createdAt = eventTimestamp;
+      }
+      await alertRef.set(alert, { merge: true });
+      return;
+    }
+
+    if ((!afterData && beforeQuantity < 0) || (beforeQuantity < 0 && afterQuantity >= 0)) {
+      await alertRef.delete();
+    }
+  }
+);
 
 exports.updateUserDetailsV2 = onCall(async (request) => {
   try {

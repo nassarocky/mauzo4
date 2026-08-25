@@ -7,11 +7,13 @@ class PrimaryButton extends StatelessWidget {
     required this.text,
     required this.onPressed,
     this.color = primaryColor,
+    this.isLoading = false,
   }) : super(key: key);
 
   final String text;
   final VoidCallback? onPressed;
   final Color color;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -20,18 +22,28 @@ class PrimaryButton extends StatelessWidget {
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
+          disabledBackgroundColor: color.withOpacity(0.75),
           elevation: 0,
         ),
-        onPressed: onPressed,
-        child: Text(
-          text,
-          style: const TextStyle(
-            overflow: TextOverflow.ellipsis,
-            color: whiteColor,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        onPressed: isLoading ? null : onPressed,
+        child: isLoading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: whiteColor,
+                ),
+              )
+            : Text(
+                text,
+                style: const TextStyle(
+                  overflow: TextOverflow.ellipsis,
+                  color: whiteColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
       ),
     );
   }

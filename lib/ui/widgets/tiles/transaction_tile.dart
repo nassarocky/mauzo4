@@ -3,20 +3,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
-import 'package:mauzo/controllers/profile_controller.dart';
 import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/models/stock_transaction.dart';
 import 'package:mauzo/models/product_model.dart';
-import 'package:mauzo/utils/preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../../../constants/transaction_constants.dart';
-import '../../../utils/constants.dart';
 import '../../dialogs/transaction_detail_dialog.dart';
 
 class TransactionTile extends StatelessWidget {
   const TransactionTile({
     Key? key,
-    required this.transaction, required this.product
+    required this.transaction,
+    required this.product,
   }) : super(key: key);
 
   final StockTransaction transaction;
@@ -32,11 +30,11 @@ class TransactionTile extends StatelessWidget {
     final formatCurrency = NumberFormat.currency(symbol: '', decimalDigits: 0);
     return formatCurrency.format(amount);
   }
-  
+
   String getTimeAgo(Timestamp timestamp) {
     return timeago.format(timestamp.toDate(), locale: 'en_short');
   }
-  
+
   Color getTransactionColor(String type, String origin) {
     if (origin == TransactionOrigins.saleDeleted) {
       return Colors.deepOrange;
@@ -52,7 +50,7 @@ class TransactionTile extends StatelessWidget {
     // Other reductions (damaged, expired, stolen, etc.) are red
     return Colors.red;
   }
-  
+
   IconData getTransactionIcon(String type, String origin) {
     if (origin == TransactionOrigins.saleDeleted) {
       return Icons.delete_sweep_outlined;
@@ -64,31 +62,46 @@ class TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final BusinessController businessController = Get.find();
     final currency = businessController.business['mainCurrency'] ?? 'TZS';
-    
+
     // Calculate values
-    final isAddition = transaction.transactionType == 'addition';
+    final isAddition = transaction.delta != null
+        ? transaction.delta! >= 0
+        : transaction.transactionType == 'addition';
     final beforeQty = transaction.previousQuantity;
 
     // Cloud Function transactions store the new stock level in 'quantity' instead of the
     // change amount. Detect and recalculate for those origins.
     final bool isCFTransferTransaction =
         transaction.transactionOrigin == 'Product Transfer Out' ||
-        transaction.transactionOrigin == 'Product Transfer In';
+        transaction.transactionOrigin == 'Product Transfer In' ||
+        transaction.transactionOrigin == 'Batch Transfer Out' ||
+        transaction.transactionOrigin == 'Batch Transfer In';
 
     final double quantityChange;
     final double afterQty;
-    if (isCFTransferTransaction) {
+    if (transaction.delta != null) {
+      quantityChange = transaction.delta!.abs();
+      afterQty = transaction.newQuantity ?? beforeQty + transaction.delta!;
+    } else if (isCFTransferTransaction) {
       afterQty = transaction.newQuantity ?? transaction.quantity;
       quantityChange = (beforeQty - afterQty).abs();
     } else {
       quantityChange = transaction.quantity;
-      afterQty = transaction.newQuantity ??
-          (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+      afterQty =
+          transaction.newQuantity ??
+          (isAddition
+              ? beforeQty + quantityChange
+              : beforeQty - quantityChange);
     }
 
-    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
-    final transactionColor = getTransactionColor(transaction.transactionType, transaction.transactionOrigin);
-    
+    final totalValue =
+        transaction.totalValue ?? (quantityChange * transaction.price);
+    final estimatePrefix = transaction.quantityEstimated ? '~' : '';
+    final transactionColor = getTransactionColor(
+      transaction.transactionType,
+      transaction.transactionOrigin,
+    );
+
     return GestureDetector(
       onTap: () {
         showDialog(
@@ -153,7 +166,7 @@ class TransactionTile extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          'Before: ${beforeQty.toStringAsFixed(1)}',
+                          'Before: $estimatePrefix${beforeQty.toStringAsFixed(1)}',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[600],
@@ -165,7 +178,7 @@ class TransactionTile extends StatelessWidget {
                           color: transactionColor,
                         ),
                         Text(
-                          'After: ${afterQty.toStringAsFixed(1)}',
+                          'After: $estimatePrefix${afterQty.toStringAsFixed(1)}',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
@@ -188,7 +201,10 @@ class TransactionTile extends StatelessWidget {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: transactionColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
@@ -214,14 +230,40 @@ class TransactionTile extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if ((transaction.inventoryLocation ?? 'shop') ==
+                            'store') ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'Store',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    if (transaction.employeeName != null || transaction.notes != null) ...[
+                    if (transaction.employeeName != null ||
+                        transaction.notes != null) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
                           if (transaction.employeeName != null) ...[
-                            Icon(Icons.person, size: 12, color: Colors.grey[600]),
+                            Icon(
+                              Icons.person,
+                              size: 12,
+                              color: Colors.grey[600],
+                            ),
                             const SizedBox(width: 2),
                             Text(
                               transaction.employeeName!,
@@ -269,14 +311,14 @@ class TransactionTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     getTimeAgo(transaction.timestamp),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 4),
                   Icon(
-                    getTransactionIcon(transaction.transactionType, transaction.transactionOrigin),
+                    getTransactionIcon(
+                      transaction.transactionType,
+                      transaction.transactionOrigin,
+                    ),
                     color: transactionColor,
                     size: 20,
                   ),

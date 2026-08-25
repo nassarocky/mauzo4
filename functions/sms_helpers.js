@@ -117,9 +117,9 @@ function formatInvoiceSmsLine(line, currency) {
   if (!(price > 0)) return `${name} x${qty}`;
   const unit = formatSmsMoney(price, currency);
   if (qty > 1) {
-    return `${name} x${qty} @ ${unit} (${formatSmsMoney(price * qty, currency)})`;
+    return `${name} x${qty} ${unit} (${formatSmsMoney(price * qty, currency)})`;
   }
-  return `${name} x${qty} @ ${unit}`;
+  return `${name} x${qty} ${unit}`;
 }
 
 function startOfDay(date) {

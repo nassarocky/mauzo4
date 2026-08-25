@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -15,19 +13,17 @@ import 'services/referral_attribution_service.dart';
 import 'dart:async';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  await runZonedGuarded<Future<void>>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  // Capture Flutter framework errors
-  FlutterError.onError = (FlutterErrorDetails details) {
-    // Log or handle Flutter errors
-    print('Flutter Error: ${details.exceptionAsString()}');
-    print('Stack trace: ${details.stack}');
-    FlutterError.presentError(details);
-  };
+      // Capture Flutter framework errors in the same zone as runApp.
+      FlutterError.onError = (FlutterErrorDetails details) {
+        print('Flutter Error: ${details.exceptionAsString()}');
+        print('Stack trace: ${details.stack}');
+        FlutterError.presentError(details);
+      };
 
-  // Capture Dart runtime errors (async errors)
-  runZonedGuarded(
-        () async {
       await Preferences.init().then((value) {
        // Get.put(ProfileController(), permanent: true);
         print("ProfileController initialized");
@@ -48,7 +44,7 @@ Future<void> main() async {
 
       runApp(const MyApp());
     },
-        (error, stackTrace) {
+    (error, stackTrace) {
       // Log or handle Dart errors
       print('Dart Error: $error');
       print('Stack trace: $stackTrace');

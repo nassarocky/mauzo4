@@ -12,7 +12,6 @@ import 'package:mauzo/controllers/business_controller.dart';
 import 'package:mauzo/models/client_model.dart';
 import 'package:mauzo/ui/screens/cart_screen.dart';
 import 'package:mauzo/utils/preferences.dart';
-import 'package:mauzo/ui/screens/sale/edit_sale.screen.dart';
 import 'package:mauzo/ui/widgets/dashed_seperator.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sticky_headers/sticky_headers/widget.dart';
@@ -1117,7 +1116,7 @@ class _SalesScreenState extends State<SalesScreen> {
     Navigator.push(
       context,
       CupertinoPageRoute(
-        builder: (context) => EditSaleScreen(
+        builder: (context) => EditSaleScreen2(
           sale: sale,
           title:
           ('${'sale'.tr} ${DateFormat("dd.MM.yyyy", 'en_US').format(time)} ${DateFormat("hh:mm a", 'en_US').format(time)}'),

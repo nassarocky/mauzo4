@@ -34,6 +34,7 @@ import '../ui/screens/Debt_history_screen.dart';
 import '../ui/screens/auth/reset_password_screen.dart';
 import '../ui/screens/buy/bought_screen.dart';
 import '../ui/screens/buy/buy_product_screen.dart';
+import '../ui/screens/buy/purchase_lists_screen.dart';
 import '../ui/screens/closed_books_screen.dart';
 import '../ui/screens/employee/add_employee_screen.dart';
 import '../ui/screens/employee/employee_screen.dart';
@@ -121,6 +122,8 @@ class AppRouter {
         return _page(ResetPasswordScreen(), backToHome: false);
       case '/bought':
         return _page(const BoughtScreen());
+      case '/purchase-lists':
+        return _page(const PurchaseListsScreen());
       case '/products':
         return _page(const ProductsScreen());
       case '/product/add':

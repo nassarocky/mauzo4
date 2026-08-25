@@ -13,6 +13,7 @@ import '../../models/supplier_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/purchases_access.dart';
 import '../../utils/preferences.dart';
+import '../../utils/operation_error_message.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
@@ -1040,7 +1041,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                       wasEdit ? 'purchase_updated'.tr : 'order_created'.tr,
                                     );
                                   } catch (e) {
-                                    errorSnackbar(e.toString());
+                                    errorSnackbar(operationErrorMessage(e));
                                   }
                               } finally {
                                   if (mounted) {
@@ -1220,6 +1221,33 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     };
   }
 
+  Future<void> _convertSourceDraftInTransaction(
+    Transaction fireTx,
+    String businessId,
+    String purchaseId,
+  ) async {
+    final draftId = _cartController.purchaseListDraftId.trim();
+    if (draftId.isEmpty) return;
+    final draftRef = firestore
+        .collection('purchaseLists')
+        .doc(businessId)
+        .collection('drafts')
+        .doc(draftId);
+    final draftSnap = await fireTx.get(draftRef);
+    if (!draftSnap.exists) {
+      throw Exception('The source purchase list no longer exists.');
+    }
+    if ((draftSnap.data()?['status'] ?? 'draft') == 'converted') {
+      throw Exception('This purchase list was already converted.');
+    }
+    fireTx.update(draftRef, {
+      'status': 'converted',
+      'convertedPurchaseId': purchaseId,
+      'convertedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> _commitNewPurchaseShop(
     DocumentReference<Map<String, dynamic>> saleRef,
     Map<String, dynamic> saleData,
@@ -1232,6 +1260,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     if (stockLines.isEmpty && lines.isNotEmpty) {
       // Services-only purchase: persist purchase doc only.
       await firestore.runTransaction((fireTx) async {
+        await _convertSourceDraftInTransaction(
+          fireTx,
+          businessId,
+          saleRef.id,
+        );
         final persistedSale = Map<String, dynamic>.from(saleData);
         persistedSale['id'] = saleRef.id;
         persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
@@ -1254,6 +1287,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
               .doc(line.id),
       ];
       final reads = await _txGetAll(fireTx, prefs);
+      await _convertSourceDraftInTransaction(
+        fireTx,
+        businessId,
+        saleRef.id,
+      );
       final persistedSale = Map<String, dynamic>.from(saleData);
       persistedSale['id'] = saleRef.id;
       persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
@@ -1281,6 +1319,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           transactionId: tRef.id,
           productId: line.id,
           quantity: delta,
+          delta: delta,
           previousQuantity: curD,
           newQuantity: next,
           transactionType: TransactionTypes.addition,
@@ -1293,6 +1332,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           employeeName: employeeName,
           notes: TransactionOrigins.purchase,
           totalValue: delta * pr,
+          operationId: tRef.id,
+          inventoryLocation: 'shop',
         ).toMap());
       }
     });
@@ -1310,6 +1351,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     final stockLines = lines.where((l) => l.itemType != 'service').toList();
     if (stockLines.isEmpty && lines.isNotEmpty) {
       await firestore.runTransaction((fireTx) async {
+        await _convertSourceDraftInTransaction(
+          fireTx,
+          businessId,
+          saleRef.id,
+        );
         final persistedSale = Map<String, dynamic>.from(saleData);
         persistedSale['id'] = saleRef.id;
         persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
@@ -1332,6 +1378,11 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
               .doc(line.id),
       ];
       final reads = await _txGetAll(fireTx, srefs);
+      await _convertSourceDraftInTransaction(
+        fireTx,
+        businessId,
+        saleRef.id,
+      );
       final persistedSale = Map<String, dynamic>.from(saleData);
       persistedSale['id'] = saleRef.id;
       persistedSale['date'] = _coerceFirestoreTimestamp(saleData['date']);
@@ -1386,6 +1437,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           transactionId: tRef.id,
           productId: line.id,
           quantity: delta,
+          delta: delta,
           previousQuantity: prev,
           newQuantity: prev + delta,
           transactionType: TransactionTypes.addition,
@@ -1398,6 +1450,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           employeeName: employeeName,
           notes: 'Purchase to Store',
           totalValue: delta * unitPrice,
+          operationId: tRef.id,
+          inventoryLocation: 'store',
         ).toMap());
       }
     });
@@ -1504,6 +1558,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           transactionId: tRef.id,
           productId: productId,
           quantity: change,
+          delta: isAdd ? change : -change,
           previousQuantity: prev,
           newQuantity: next,
           transactionType: isAdd ? TransactionTypes.addition : TransactionTypes.removal,
@@ -1516,6 +1571,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           employeeName: employeeName,
           notes: origin,
           totalValue: change * price,
+          operationId: tRef.id,
+          inventoryLocation: 'shop',
         ).toMap());
       }
 
@@ -1616,6 +1673,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           transactionId: tRef.id,
           productId: productId,
           quantity: change,
+          delta: isAdd ? change : -change,
           previousQuantity: prev,
           newQuantity: next,
           transactionType: isAdd ? TransactionTypes.addition : TransactionTypes.removal,
@@ -1628,6 +1686,8 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
           employeeName: employeeName,
           notes: origin,
           totalValue: change * price,
+          operationId: tRef.id,
+          inventoryLocation: 'store',
         ).toMap());
       }
 
@@ -1707,6 +1767,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     _cartController.clearDiscount();
     _cartController.clearPayments();
     _cartController.passedArgument='NOT';
+    _cartController.purchaseListDraftId = '';
   }
 }
 

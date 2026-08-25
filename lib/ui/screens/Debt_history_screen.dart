@@ -15,6 +15,7 @@ import 'package:mauzo/services/sms_reminder_service.dart';
 import 'package:mauzo/ui/widgets/dialogs/debt_sms_dialog.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
+import 'package:mauzo/utils/operation_error_message.dart';
 import 'package:mauzo/utils/sale_debt_due_date.dart';
 import 'package:mauzo/utils/sms_phone.dart';
 import 'package:mauzo/utils/sms_settings.dart';
@@ -1241,12 +1242,18 @@ class DebtCard extends StatelessWidget {
                 if (!_debtHistoryController.isLoading.value)
                   ElevatedButton(
                     style: _debtPrimaryButtonStyle,
-                    onPressed: () {
+                    onPressed: () async {
+                      if (_debtHistoryController.isLoading.value) return;
                       final double paymentAmount =
                           double.tryParse(paymentController.text) ?? 0.0;
                       if (paymentAmount > 0 &&
                           paymentAmount <= debt.remainingDebtAmount) {
-                        _processDebtPayment(context, debt, paymentAmount, paymentMethod);
+                        await _processDebtPayment(
+                          context,
+                          debt,
+                          paymentAmount,
+                          paymentMethod,
+                        );
                       } else {
                         Get.snackbar('Invalid Payment'.tr,
                             'Please enter a valid payment amount'.tr);
@@ -1262,7 +1269,8 @@ class DebtCard extends StatelessWidget {
     );
   }
 
-  void _processDebtPayment(BuildContext context, DebtHistory debt, double paymentAmount, String paymentMethod) async {
+  Future<void> _processDebtPayment(BuildContext context, DebtHistory debt,
+      double paymentAmount, String paymentMethod) async {
     final salesCollection = FirebaseFirestore.instance
         .collection('sales')
         .doc(_businessController.business['id'])
@@ -1280,7 +1288,8 @@ class DebtCard extends StatelessWidget {
 
     _debtHistoryController.isLoading.value = true;
 
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
       final oldSaleRef = salesCollection.doc(debt.id);
       final debtHistoryRef = debtHistoryCollection.doc(debt.id);
       final clientRef = clientCollection.doc(debt.client);
@@ -1353,8 +1362,7 @@ class DebtCard extends StatelessWidget {
       final double currentClientDebt = (clientSnapshot.get('debt') ?? 0.0).toDouble();
       final double newClientDebt = currentClientDebt - paymentAmount;
       transaction.update(clientRef, {'debt': newClientDebt});
-    }).then((_) async {
-      _debtHistoryController.isLoading.value = false;
+      });
       // Refresh the filtered list and switch to the Paid tab
       _debtHistoryController.filteredDebtHistoriesList();
       _debtHistoryController.setFilterStatus(["PAID"]);
@@ -1403,16 +1411,18 @@ class DebtCard extends StatelessWidget {
       } catch (e) {
         print('⚠️ Ledger postSaleIn (client debt payment) failed for sale ${debt.id}: $e');
       }
-    }).catchError((error) {
+    } catch (error) {
       Get.snackbar(
         'Error',
-        'Failed to process payment: $error',
+        operationErrorMessage(error),
         backgroundColor: Colors.redAccent,
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
         duration: Duration(seconds: 15),
         margin: const EdgeInsets.all(10),
       );
-    });
+    } finally {
+      _debtHistoryController.isLoading.value = false;
+    }
   }
 }

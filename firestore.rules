@@ -279,6 +279,24 @@ match /inventoryLosses/{businessId} {
       }
     }
 
+    // Supplier purchase-list drafts. These are intentionally separate from
+    // recovered purchases so they never affect stock, debt, ledger or reports.
+    match /purchaseLists/{businessId} {
+      allow get, list: if isBusinessAllowed(businessId);
+
+      match /drafts/{draftId} {
+        allow read, delete: if isBusinessAllowed(businessId);
+        allow create: if isBusinessAllowed(businessId)
+          && request.resource.data.businessId == businessId
+          && request.resource.data.owner == businessId
+          && request.resource.data.status == 'draft';
+        allow update: if isBusinessAllowed(businessId)
+          && request.resource.data.businessId == businessId
+          && request.resource.data.owner == businessId
+          && request.resource.data.status in ['draft', 'converted'];
+      }
+    }
+
     // ✅ Pay Roles collection - Manager/Owner access
     match /payRoles/{payRoleId} {
       // Allow listing for users with payroll permission
@@ -359,6 +377,12 @@ match /inventoryLosses/{businessId} {
 
     match /referralPaymentEvents/{eventId} {
       allow read, write: if false;
+    }
+
+    // Server-managed alerts created when synchronized shop stock is negative.
+    match /inventory_reconciliation_alerts/{businessId}/alerts/{productId} {
+      allow read: if isBusinessAllowed(businessId);
+      allow write: if false;
     }
 
     // ❌ Deny everything else explicitly

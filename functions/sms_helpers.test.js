@@ -19,6 +19,7 @@ const {
   isLowStockProduct,
   buildLowStockAlertSms,
   buildInvoiceSms,
+  buildPurchaseListSms,
 } = require("./sms_helpers");
 
 test("normalizeSmsPhone converts TZ local formats", () => {
@@ -62,7 +63,8 @@ test("buildInvoiceSms puts currency first and includes item prices", () => {
     lines: [{ name: "Sugar", qty: 2, price: 1500 }],
     lang: "en",
   });
-  assert.ok(msg.includes("Sugar x2 @ TZS 1500 (TZS 3000)"));
+  assert.ok(msg.includes("Sugar x2 TZS 1500 (TZS 3000)"));
+  assert.ok(!msg.includes("@"));
   assert.ok(msg.includes("Total TZS 3000"));
   assert.ok(!msg.includes(" = "));
   assert.ok(!msg.includes("3000 TZS"));
@@ -77,9 +79,24 @@ test("buildInvoiceSms puts currency first and includes item prices", () => {
     ],
     lang: "en",
   });
-  assert.ok(multi.includes("Sugar x2 @ TZS 1500 (TZS 3000)"));
-  assert.ok(multi.includes("Rice x1 @ TZS 1500"));
+  assert.ok(multi.includes("Sugar x2 TZS 1500 (TZS 3000)"));
+  assert.ok(multi.includes("Rice x1 TZS 1500"));
   assert.ok(multi.includes("Total TZS 4500"));
+});
+
+test("buildPurchaseListSms includes every selected name and quantity", () => {
+  const message = buildPurchaseListSms({
+    supplierName: "Mtoa Bidhaa",
+    businessName: "Duka",
+    lines: [
+      { name: "Sugar", qty: 4 },
+      { name: "Rice", qty: 2 },
+    ],
+    lang: "en",
+  });
+  assert.ok(message.includes("Sugar x4"));
+  assert.ok(message.includes("Rice x2"));
+  assert.ok(!message.includes("@"));
 });
 
 test("getSmsPackById resolves default packs", () => {

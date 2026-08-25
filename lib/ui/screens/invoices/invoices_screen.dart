@@ -1031,6 +1031,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         phone: phone,
         clientId: client.id.isNotEmpty ? client.id : null,
         clientName: client.name.isNotEmpty ? client.name : phone,
+        referenceId: invoice.id,
         amount: (invoice.price as num?)?.toDouble() ?? 0,
         lines: productLinesForSms(invoice.products ?? const []),
         lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',

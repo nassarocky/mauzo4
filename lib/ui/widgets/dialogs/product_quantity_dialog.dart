@@ -8,6 +8,7 @@ import '../../widgets/buttons/secondary_button.dart';
 import '../../../models/product_model.dart';
 import '../../screens/product/edit_product_screen.dart';
 import '../../../utils/constants.dart';
+import '../../../utils/operation_error_message.dart';
 
 // ignore: must_be_immutable
 class ProductQuantityDialog extends StatefulWidget {
@@ -22,6 +23,7 @@ class ProductQuantityDialog extends StatefulWidget {
 class _ProductQuantityDialog extends State<ProductQuantityDialog> {
   final ProductController _productController = Get.find();
   late TextEditingController quantityController;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -46,15 +48,11 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
         children: [
           Text(
             widget.product.name,
-            style: bodyText(
-              Theme.of(context).textTheme.bodyMedium!.color,
-            ),
+            style: bodyText(Theme.of(context).textTheme.bodyMedium!.color),
           ),
           Text(
             'stock_in_out'.tr,
-            style: h6(
-              Theme.of(context).textTheme.bodyLarge!.color,
-            ),
+            style: h6(Theme.of(context).textTheme.bodyLarge!.color),
           ),
         ],
       ),
@@ -72,14 +70,18 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
                   borderRadius: BorderRadius.circular(100),
                 ),
                 child: IconButton(
-                  onPressed: () {
-                    setState(() {
-                      if (-widget.product.quantity! < widget.itemCounter) {
-                        widget.itemCounter--;
-                        quantityController.text = widget.itemCounter.toString();
-                      }
-                    });
-                  },
+                  onPressed: _isSubmitting
+                      ? null
+                      : () {
+                          setState(() {
+                            if (-widget.product.quantity! <
+                                widget.itemCounter) {
+                              widget.itemCounter--;
+                              quantityController.text = widget.itemCounter
+                                  .toString();
+                            }
+                          });
+                        },
                   icon: Icon(
                     Icons.remove,
                     color: Preferences.getTheme() ? whiteColor : primaryColor,
@@ -88,6 +90,7 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
               ),
               Expanded(
                 child: TextField(
+                  enabled: !_isSubmitting,
                   onChanged: (value) {
                     final parsedValue = double.tryParse(value);
                     if (parsedValue != null) {
@@ -103,9 +106,7 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
                   textAlign: TextAlign.center,
                   controller: quantityController,
                   keyboardType: TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                  ),
+                  decoration: const InputDecoration(border: InputBorder.none),
                 ),
               ),
               Container(
@@ -116,12 +117,15 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
                   borderRadius: BorderRadius.circular(100),
                 ),
                 child: IconButton(
-                  onPressed: () {
-                    setState(() {
-                      widget.itemCounter++;
-                      quantityController.text = widget.itemCounter.toString();
-                    });
-                  },
+                  onPressed: _isSubmitting
+                      ? null
+                      : () {
+                          setState(() {
+                            widget.itemCounter++;
+                            quantityController.text = widget.itemCounter
+                                .toString();
+                          });
+                        },
                   icon: Icon(
                     Icons.add,
                     color: Preferences.getTheme() ? whiteColor : primaryColor,
@@ -149,17 +153,15 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
                   borderSide: BorderSide(
-                    color:
-                    Preferences.getTheme() ? lightGrayColor : borderColor,
+                    color: Preferences.getTheme()
+                        ? lightGrayColor
+                        : borderColor,
                     width: 1,
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(
-                    color: borderColor,
-                    width: 1,
-                  ),
+                  borderSide: const BorderSide(color: borderColor, width: 1),
                 ),
                 prefix: Row(
                   children: [
@@ -180,11 +182,7 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
                     ),
                   ],
                 ),
-                suffix: const Icon(
-                  Icons.edit,
-                  color: iconGrayColor,
-                  size: 18,
-                ),
+                suffix: const Icon(Icons.edit, color: iconGrayColor, size: 18),
                 labelText: 'total'.tr,
                 labelStyle: TextStyle(
                   fontSize: 14,
@@ -205,6 +203,7 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
               child: SecondaryButton(
                 text: 'cancel'.tr,
                 onPressed: () {
+                  if (_isSubmitting) return;
                   Navigator.pop(context);
                 },
               ),
@@ -213,14 +212,23 @@ class _ProductQuantityDialog extends State<ProductQuantityDialog> {
             Expanded(
               child: PrimaryButton(
                 text: 'save'.tr,
-                onPressed: () {
-                  _productController.updateProductCount(
-                    widget.product,
-                    (widget.itemCounter + widget.product.quantity),
-                    '${widget.itemCounter < 0 ? 'Stock Reduced' : 'Stock Added'}',
-                  );
-
-                  Navigator.of(context).pop();
+                isLoading: _isSubmitting,
+                onPressed: () async {
+                  if (_isSubmitting) return;
+                  setState(() => _isSubmitting = true);
+                  try {
+                    await _productController.updateProductCount(
+                      widget.product,
+                      (widget.itemCounter + widget.product.quantity),
+                      '${widget.itemCounter < 0 ? 'Stock Reduced' : 'Stock Added'}',
+                    );
+                    if (context.mounted) Navigator.of(context).pop();
+                  } catch (e) {
+                    if (mounted) {
+                      setState(() => _isSubmitting = false);
+                    }
+                    errorSnackbar(operationErrorMessage(e));
+                  }
                 },
               ),
             ),

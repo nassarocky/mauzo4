@@ -5,15 +5,14 @@ import '../models/inventory_loss_model.dart';
 import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import 'business_controller.dart';
-import 'product_controller.dart';
 import 'profile_controller.dart';
 import '../constants/transaction_constants.dart';
 import '../utils/constants.dart';
+import '../utils/operation_error_message.dart';
 
 class InventoryLossController extends GetxController {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final BusinessController _businessController = Get.find();
-  final ProductController _productController = Get.find();
   final ProfileController _profileController = Get.find();
 
   final losses = <InventoryLoss>[].obs;
@@ -82,25 +81,28 @@ class InventoryLossController extends GetxController {
         .collection('inventoryLosses')
         .doc(businessId)
         .collection('userLosses')
-        .orderBy('dateOccurred', descending: true);
+        .orderBy('dateRecorded', descending: true);
 
     // Apply reset_time filter if not showing all time
     if (!showAllTime.value) {
       final resetTime = _businessController.business['reset_time'];
       if (resetTime != null) {
         print('📅 Filtering from reset_time: $resetTime');
-        query = query.where('dateOccurred', isGreaterThanOrEqualTo: resetTime);
+        query = query.where('dateRecorded', isGreaterThanOrEqualTo: resetTime);
       }
     }
 
-    _lossSubscription = query.snapshots().map((snapshot) {
-      print('✅ Received ${snapshot.docs.length} loss records');
-      return snapshot.docs
-          .map((doc) => InventoryLoss.fromSnapshot(doc))
-          .toList();
-    }).listen((lossData) {
-      losses.value = lossData;
-    });
+    _lossSubscription = query
+        .snapshots()
+        .map((snapshot) {
+          print('✅ Received ${snapshot.docs.length} loss records');
+          return snapshot.docs
+              .map((doc) => InventoryLoss.fromSnapshot(doc))
+              .toList();
+        })
+        .listen((lossData) {
+          losses.value = lossData;
+        });
   }
 
   // Record a new inventory loss
@@ -129,93 +131,105 @@ class InventoryLossController extends GetxController {
         return false;
       }
 
-      if (quantity > product.quantity!) {
-        errorSnackbar('Loss quantity cannot exceed available stock (${product.quantity})');
-        return false;
-      }
-
-      // Calculate loss value
-      final double totalValue = quantity * product.buyingPrice;
-
-      // Create loss record
       final lossRef = _firestore
           .collection('inventoryLosses')
           .doc(businessId)
           .collection('userLosses')
           .doc();
-
-      final loss = InventoryLoss(
-        id: lossRef.id,
-        businessId: businessId,
-        productId: product.id,
-        productName: product.name,
-        productCode: product.code,
-        quantity: quantity,
-        unitPrice: product.buyingPrice,
-        totalValue: totalValue,
-        lossType: lossType,
-        reason: reason,
-        imageUrl: imageUrl,
-        dateOccurred: dateOccurred,
-        dateRecorded: DateTime.now(),
-        recordedBy: userId,
-        recordedByName: userName ?? 'Unknown',
-        transactionId: null, // Will be set after transaction creation
-      );
-
-      // Save loss record
-      await lossRef.set(loss.toFirestore());
-      print('✅ Loss record created: ${lossRef.id}');
-
-      // Reduce product quantity and create transaction
-      final newQuantity = product.quantity! - quantity;
-      
-      // Create transaction record
       final transactionRef = _firestore
           .collection('transactions')
           .doc(businessId)
           .collection('usersTransactions')
           .doc();
-
-      final transaction = StockTransaction(
-        transactionId: transactionRef.id,
-        productId: product.id,
-        quantity: quantity,
-        previousQuantity: product.quantity!,
-        newQuantity: newQuantity,
-        transactionType: TransactionTypes.removal,
-        transactionOrigin: _getTransactionOrigin(lossType),
-        timestamp: Timestamp.fromDate(dateOccurred),
-        userId: userId,
-        price: product.buyingPrice,
-        employeeName: userName ?? 'Unknown',
-        notes: reason,
-        referenceId: lossRef.id,
-        referenceType: 'inventory_loss',
-        totalValue: quantity * product.buyingPrice,
-      );
-
-      await transactionRef.set(transaction.toFirestore());
-      print('✅ Transaction created: ${transactionRef.id}');
-
-      // Update loss record with transaction ID
-      await lossRef.update({'transactionId': transactionRef.id});
-
-      // Update product quantity
-      await _firestore
+      final productRef = _firestore
           .collection('products')
           .doc(businessId)
           .collection('userProducts')
-          .doc(product.id)
-          .update({'quantity': newQuantity});
+          .doc(product.id);
+      final createdAt = DateTime.now();
+      final createdTimestamp = Timestamp.fromDate(createdAt);
+      final occurredTimestamp = Timestamp.fromDate(dateOccurred);
 
-      print('✅ Product quantity updated: ${product.name} - $newQuantity');
+      await _firestore.runTransaction((fireTx) async {
+        final productSnapshot = await fireTx.get(productRef);
+        if (!productSnapshot.exists) {
+          throw Exception('Product no longer exists');
+        }
+        final productData = productSnapshot.data()!;
+        final rawQuantity = productData['quantity'];
+        final currentQuantity = rawQuantity is num
+            ? rawQuantity.toDouble()
+            : 0.0;
+        if (quantity > currentQuantity) {
+          throw Exception(
+            'Loss quantity cannot exceed available stock ($currentQuantity)',
+          );
+        }
+        final rawBuyingPrice =
+            productData['buyingPrice'] ?? product.buyingPrice;
+        final buyingPrice = rawBuyingPrice is num
+            ? rawBuyingPrice.toDouble()
+            : 0.0;
+        final newQuantity = currentQuantity - quantity;
+        final totalValue = quantity * buyingPrice;
+        final loss = InventoryLoss(
+          id: lossRef.id,
+          businessId: businessId,
+          productId: product.id,
+          productName: (productData['name'] ?? product.name).toString(),
+          productCode: (productData['code'] ?? product.code).toString(),
+          quantity: quantity,
+          unitPrice: buyingPrice,
+          totalValue: totalValue,
+          lossType: lossType,
+          reason: reason,
+          imageUrl: imageUrl,
+          dateOccurred: dateOccurred,
+          dateRecorded: createdAt,
+          recordedBy: userId,
+          recordedByName: userName ?? 'Unknown',
+          transactionId: transactionRef.id,
+        );
+        final history =
+            StockTransaction(
+              transactionId: transactionRef.id,
+              productId: product.id,
+              quantity: quantity,
+              previousQuantity: currentQuantity,
+              newQuantity: newQuantity,
+              transactionType: TransactionTypes.removal,
+              transactionOrigin: _getTransactionOrigin(lossType),
+              timestamp: createdTimestamp,
+              userId: userId,
+              price: buyingPrice,
+              employeeName: userName ?? 'Unknown',
+              notes: reason,
+              referenceId: lossRef.id,
+              referenceType: 'inventory_loss',
+              totalValue: totalValue,
+            ).toMap()..addAll({
+              'delta': -quantity,
+              'referenceId': lossRef.id,
+              'referenceType': 'inventory_loss',
+              'inventoryLocation': 'shop',
+              'occurredAt': occurredTimestamp,
+              'operationId': lossRef.id,
+              'serverTimestamp': FieldValue.serverTimestamp(),
+            });
+
+        fireTx.update(productRef, {
+          'quantity': newQuantity,
+          'total': newQuantity,
+        });
+        fireTx.set(lossRef, loss.toFirestore());
+        fireTx.set(transactionRef, history);
+      });
 
       successSnackbar('Loss recorded successfully');
       return true;
     } catch (e) {
       print('❌ Error recording loss: $e');
-      errorSnackbar('Failed to record loss: ${e.toString()}');
+      errorSnackbar(operationErrorMessage(e));
       return false;
     } finally {
       isLoading.value = false;
@@ -276,8 +290,8 @@ class InventoryLossController extends GetxController {
   // Get losses within date range
   List<InventoryLoss> getLossesByDateRange(DateTime start, DateTime end) {
     return losses.where((loss) {
-      return loss.dateOccurred.isAfter(start) && 
-             loss.dateOccurred.isBefore(end.add(Duration(days: 1)));
+      return loss.dateOccurred.isAfter(start) &&
+          loss.dateOccurred.isBefore(end.add(Duration(days: 1)));
     }).toList();
   }
 
@@ -295,21 +309,23 @@ class InventoryLossController extends GetxController {
 
   // Calculate total loss value within date range
   double getLossValueByDateRange(DateTime start, DateTime end) {
-    return getLossesByDateRange(start, end)
-        .fold(0.0, (sum, loss) => sum + loss.totalValue);
+    return getLossesByDateRange(
+      start,
+      end,
+    ).fold(0.0, (sum, loss) => sum + loss.totalValue);
   }
 
   // Get loss statistics
   Map<String, dynamic> getLossStatistics() {
     final totalLosses = losses.length;
     final totalValue = getTotalLossValue();
-    
+
     final Map<String, int> countByType = {};
     final Map<String, double> valueByType = {};
-    
+
     for (var loss in losses) {
       countByType[loss.lossType] = (countByType[loss.lossType] ?? 0) + 1;
-      valueByType[loss.lossType] = 
+      valueByType[loss.lossType] =
           (valueByType[loss.lossType] ?? 0) + loss.totalValue;
     }
 

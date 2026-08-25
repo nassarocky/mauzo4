@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,6 +14,7 @@ import '../../../controllers/product_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/preferences.dart';
+import '../../../utils/operation_error_message.dart';
 import '../../widgets/bottomsheets/product_category_bottom_sheet.dart';
 import '../../widgets/bottomsheets/product_location_bottom_sheet.dart';
 import '../../widgets/bottomsheets/product_manufacturer_bottom_sheet.dart';
@@ -35,10 +37,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
-  final TextEditingController _wholesalePriceController = TextEditingController();
+  final TextEditingController _wholesalePriceController =
+      TextEditingController();
   final TextEditingController _wholesaleMinQtyController =
       TextEditingController(
-          text: Product.defaultWholesaleMinQuantity.toString());
+        text: Product.defaultWholesaleMinQuantity.toString(),
+      );
   final TextEditingController _categoryController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
@@ -55,16 +59,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isPriceEmpty = false;
   //final Connectivity _connectivity = Connectivity();
   bool _isBuyingPriceEmpty = false;
-  bool showAdditionalFields = false; // State to track visibility of additional fields
+  bool showAdditionalFields =
+      false; // State to track visibility of additional fields
   File? imageFile;
   UploadTask? uploadTask;
   bool isUploading = false;
   String _selectedUnit = 'unit'; // Default selected unit
-  List<String> _units = ['piece','meter','cm','unit', 'kg', 'g','pair','set']; // Example units
+  List<String> _units = [
+    'piece',
+    'meter',
+    'cm',
+    'unit',
+    'kg',
+    'g',
+    'pair',
+    'set',
+  ]; // Example units
   bool _isUpdating = false;
   List<String> allUnits = [];
   List<String> uniqueUnits = [];
-  final TextEditingController _totalBuyingPriceController = TextEditingController();
+  final TextEditingController _totalBuyingPriceController =
+      TextEditingController();
 
   bool _isTypingPerItem = false;
   bool _isTypingTotal = false;
@@ -73,16 +88,20 @@ class _AddProductScreenState extends State<AddProductScreen> {
   String _selectedItemType = 'product'; // Default to 'product'
   String _selectedProductType = 'normal';
   final TextEditingController _twinNameController = TextEditingController();
-  final TextEditingController _twinBuyingPriceController = TextEditingController();
-  final TextEditingController _twinSellingPriceController = TextEditingController();
+  final TextEditingController _twinBuyingPriceController =
+      TextEditingController();
+  final TextEditingController _twinSellingPriceController =
+      TextEditingController();
   final TextEditingController _twinQuantityController = TextEditingController();
   @override
   void initState() {
     super.initState();
-    
+
     // CRITICAL SECURITY CHECK: Verify user has permission to edit products
     if (!_profileController.hasPermission('edit_products')) {
-      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddProductScreen without edit_products permission');
+      print(
+        '🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access AddProductScreen without edit_products permission',
+      );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         Get.snackbar(
@@ -96,9 +115,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
       });
       return;
     }
-    
+
     requestPermissions();
-    
+
     // Load custom units from business data
     _loadCustomUnits();
 
@@ -174,21 +193,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return value.toStringAsFixed(2); // Keep two decimals for non-integers
   }
 
-
   void _updateBothPrices() {
     _updateTotalBuyingPrice();
     _updateBuyingPricePerItem();
   }
 
-
   void _loadCustomUnits() {
     // Load custom units from business 'units' field
     print('=== LOADING CUSTOM UNITS ===');
     print('Business units field: ${_businessController.business['units']}');
-    
+
     // Try 'units' field first (seems to be the actual field name)
     if (_businessController.business['units'] != null) {
-      List<String> customUnits = List<String>.from(_businessController.business['units']);
+      List<String> customUnits = List<String>.from(
+        _businessController.business['units'],
+      );
       print('Custom units found: $customUnits');
       setState(() {
         // Add custom units to the _units list if not already present
@@ -200,10 +219,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
         }
         print('Final _units list: $_units');
       });
-    } 
+    }
     // Fallback to additionalList1 if units field doesn't exist
     else if (_businessController.business['additionalList1'] != null) {
-      List<String> customUnits = List<String>.from(_businessController.business['additionalList1']);
+      List<String> customUnits = List<String>.from(
+        _businessController.business['additionalList1'],
+      );
       print('Custom units found in additionalList1: $customUnits');
       setState(() {
         for (String unit in customUnits) {
@@ -243,9 +264,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     super.dispose();
   }
 
-
-
-
   Future<String?> uploadFile(String folder, File file) async {
     try {
       final path = '$folder/${DateTime.now().millisecondsSinceEpoch}.png';
@@ -255,7 +273,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
       final url = await snapshot.ref.getDownloadURL();
       return url;
     } catch (e) {
-      _showSnackbar('Upload failed: $e');
       throw Exception('File upload failed: $e');
     }
   }
@@ -265,7 +282,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
-
         imageFile = File(pickedFile.path);
         // _showSnackbar('Image picked from gallery: ${pickedFile.path}');
       });
@@ -291,11 +307,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
   String _payment = _businessController.business['mainCurrency'];
 
   void _showSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _clearFields() {
@@ -303,8 +317,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _codeController.clear();
     _priceController.clear();
     _wholesalePriceController.clear();
-    _wholesaleMinQtyController.text =
-        Product.defaultWholesaleMinQuantity.toString();
+    _wholesaleMinQtyController.text = Product.defaultWholesaleMinQuantity
+        .toString();
     _categoryController.clear();
     _quantityController.clear();
     _detailsController.clear();
@@ -326,6 +340,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _productController.setManufacturer('No manufacturer'.tr);
     _productController.setLocation('No location'.tr);
   }
+
   List<String> removeDuplicateUnits(List<String> allUnits) {
     final seen = <String>{}; // Use a Set for efficient duplicate checking
     final uniqueUnits = <String>[];
@@ -339,31 +354,37 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
     return uniqueUnits;
   }
+
   @override
   Widget build(BuildContext context) {
     _categoryController.text = _productController.selectedCategory.value;
     allUnits = [..._units];
-    uniqueUnits=removeDuplicateUnits(allUnits);
+    uniqueUnits = removeDuplicateUnits(allUnits);
     return WillPopScope(
       onWillPop: () async => isUploading ? false : true,
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor:
-          Preferences.getTheme() ? darkGrayColor : primaryUltraLightColor,
+          backgroundColor: Preferences.getTheme()
+              ? darkGrayColor
+              : primaryUltraLightColor,
           elevation: 0,
           leading: isUploading
               ? Container()
               : IconButton(
-            icon: Icon(Icons.close,
-                color: Theme.of(context).textTheme.bodyLarge!.color),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-          ),
+                  icon: Icon(
+                    Icons.close,
+                    color: Theme.of(context).textTheme.bodyLarge!.color,
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                ),
           title: Text(
             'new_product'.tr,
             style: TextStyle(
-              color: Preferences.getTheme() ? primaryUltraLightColor : textDarkColor,
+              color: Preferences.getTheme()
+                  ? primaryUltraLightColor
+                  : textDarkColor,
             ),
           ),
         ),
@@ -389,7 +410,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       child: Column(
                                         children: [
                                           ListTile(
-                                            leading: const Icon(Icons.collections),
+                                            leading: const Icon(
+                                              Icons.collections,
+                                            ),
                                             title: Text('gallery'.tr),
                                             onTap: () async {
                                               await pickImageFromGallery();
@@ -424,23 +447,23 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 borderRadius: BorderRadius.circular(4),
                                 child: imageFile != null
                                     ? Image.file(
-                                  imageFile!,
-                                  width: 86,
-                                  height: 86,
-                                  fit: BoxFit.cover,
-                                )
+                                        imageFile!,
+                                        width: 86,
+                                        height: 86,
+                                        fit: BoxFit.cover,
+                                      )
                                     : Container(
-                                  width: 86,
-                                  height: 86,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF80B2FF),
-                                  ),
-                                  child: const Icon(
-                                    Icons.camera_alt,
-                                    color: Colors.white,
-                                    size: 36,
-                                  ),
-                                ),
+                                        width: 86,
+                                        height: 86,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF80B2FF),
+                                        ),
+                                        child: const Icon(
+                                          Icons.camera_alt,
+                                          color: Colors.white,
+                                          size: 36,
+                                        ),
+                                      ),
                               ),
                             ),
                           ),
@@ -450,7 +473,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             child: TextField(
                               controller: _nameController,
                               decoration: InputDecoration(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
                                 labelText: '${'name'.tr}*',
                                 labelStyle: bodyText(textPlaceholderColor),
                                 border: OutlineInputBorder(
@@ -459,13 +484,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(4),
                                   borderSide: BorderSide(
-                                    color: _isNameEmpty ? Colors.red : Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                    color: _isNameEmpty
+                                        ? Colors.red
+                                        : Preferences.getTheme()
+                                        ? mediumGrayColor
+                                        : borderColor,
                                   ),
                                 ),
                               ),
                             ),
                           ),
-
 
                           const SizedBox(height: 24),
                           Row(
@@ -479,30 +507,49 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       controller: _quantityController,
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                         labelText: '${'quantity'.tr}*',
-                                        labelStyle: bodyText(textPlaceholderColor),
+                                        labelStyle: bodyText(
+                                          textPlaceholderColor,
+                                        ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                           borderSide: BorderSide(
-                                            color: _isQuantityEmpty ? Colors.red : Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                            color: _isQuantityEmpty
+                                                ? Colors.red
+                                                : Preferences.getTheme()
+                                                ? mediumGrayColor
+                                                : borderColor,
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 8), // Space between TextField and Dropdown
+                                const SizedBox(
+                                  width: 8,
+                                ), // Space between TextField and Dropdown
                                 // Unit Dropdown
                                 Container(
                                   height: 44,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
                                   decoration: BoxDecoration(
                                     border: Border.all(
-                                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      color: Preferences.getTheme()
+                                          ? mediumGrayColor
+                                          : borderColor,
                                     ),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
@@ -519,20 +566,34 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       }
                                     },
                                     items: [
-                                      ...uniqueUnits.map<DropdownMenuItem<String>>((String value) {
-                                        return DropdownMenuItem<String>(
-                                          value: value,
-                                          child: Text(value),
-                                        );
-                                      }).toList(),
+                                      ...uniqueUnits
+                                          .map<DropdownMenuItem<String>>((
+                                            String value,
+                                          ) {
+                                            return DropdownMenuItem<String>(
+                                              value: value,
+                                              child: Text(value),
+                                            );
+                                          })
+                                          .toList(),
                                       // Add "Add New Unit" option
                                       DropdownMenuItem<String>(
                                         value: 'add_new_unit',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.add_circle_outline, size: 18, color: Colors.blue),
+                                            Icon(
+                                              Icons.add_circle_outline,
+                                              size: 18,
+                                              color: Colors.blue,
+                                            ),
                                             SizedBox(width: 8),
-                                            Text('Add New Unit'.tr, style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                            Text(
+                                              'Add New Unit'.tr,
+                                              style: TextStyle(
+                                                color: Colors.blue,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -560,12 +621,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     },
                                     child: TextField(
                                       controller: _buyingPriceController,
-                                      enabled: _isQuantityEntered, // Disable if Quantity is empty
+                                      enabled:
+                                          _isQuantityEntered, // Disable if Quantity is empty
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -591,12 +658,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     },
                                     child: TextField(
                                       controller: _totalBuyingPriceController,
-                                      enabled: _isQuantityEntered, // Disable if Quantity is empty
+                                      enabled:
+                                          _isQuantityEntered, // Disable if Quantity is empty
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -620,16 +693,25 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     controller: _priceController,
                                     keyboardType: TextInputType.number,
                                     decoration: InputDecoration(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                          ),
                                       labelText: _payment,
-                                      labelStyle: bodyText(textPlaceholderColor),
+                                      labelStyle: bodyText(
+                                        textPlaceholderColor,
+                                      ),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       enabledBorder: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(4),
                                         borderSide: BorderSide(
-                                          color: _isPriceEmpty ? Colors.red : Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                          color: _isPriceEmpty
+                                              ? Colors.red
+                                              : Preferences.getTheme()
+                                              ? mediumGrayColor
+                                              : borderColor,
                                         ),
                                       ),
                                     ),
@@ -641,25 +723,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           SizedBox(
                             height: 44,
                             width: double.infinity,
-                            child:Container(
-                                padding: const EdgeInsets.only(top: 20),
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      showAdditionalFields = !showAdditionalFields;
-                                    });
-                                  },
-                                  style: ButtonStyle(
-                                    backgroundColor: MaterialStateProperty.all<Color>(
-                                        const Color(0xFF808080)),
-                                  ),
-                                  child: Text(
-                                    showAdditionalFields
-                                        ? 'Hide Additional Details'.tr
-                                        : 'Add Additional Details'.tr,
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                )
+                            child: Container(
+                              padding: const EdgeInsets.only(top: 20),
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  setState(() {
+                                    showAdditionalFields =
+                                        !showAdditionalFields;
+                                  });
+                                },
+                                style: ButtonStyle(
+                                  backgroundColor:
+                                      MaterialStateProperty.all<Color>(
+                                        const Color(0xFF808080),
+                                      ),
+                                ),
+                                child: Text(
+                                  showAdditionalFields
+                                      ? 'Hide Additional Details'.tr
+                                      : 'Add Additional Details'.tr,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 24),
@@ -681,15 +766,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
                                         contentPadding:
-                                            const EdgeInsets.symmetric(horizontal: 10),
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                         labelText: _payment,
-                                        hintText: 'wholesale_price_leave_empty'.tr,
-                                        labelStyle: bodyText(textPlaceholderColor),
+                                        hintText:
+                                            'wholesale_price_leave_empty'.tr,
+                                        labelStyle: bodyText(
+                                          textPlaceholderColor,
+                                        ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                           borderSide: BorderSide(
                                             color: Preferences.getTheme()
                                                 ? mediumGrayColor
@@ -722,18 +816,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       decoration: InputDecoration(
                                         contentPadding:
                                             const EdgeInsets.symmetric(
-                                                horizontal: 10),
+                                              horizontal: 10,
+                                            ),
                                         hintText:
                                             'wholesale_min_quantity_hint'.tr,
-                                        labelStyle:
-                                            bodyText(textPlaceholderColor),
+                                        labelStyle: bodyText(
+                                          textPlaceholderColor,
+                                        ),
                                         border: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         enabledBorder: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                           borderSide: BorderSide(
                                             color: Preferences.getTheme()
                                                 ? mediumGrayColor
@@ -827,12 +925,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       child: SizedBox(
                                         height: 44,
                                         child: TextField(
-                                          controller: _twinBuyingPriceController,
+                                          controller:
+                                              _twinBuyingPriceController,
                                           keyboardType: TextInputType.number,
                                           decoration: InputDecoration(
-                                            labelText: 'twin_product_buying_price'.tr,
+                                            labelText:
+                                                'twin_product_buying_price'.tr,
                                             border: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                           ),
                                         ),
@@ -843,12 +944,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       child: SizedBox(
                                         height: 44,
                                         child: TextField(
-                                          controller: _twinSellingPriceController,
+                                          controller:
+                                              _twinSellingPriceController,
                                           keyboardType: TextInputType.number,
                                           decoration: InputDecoration(
-                                            labelText: 'twin_product_selling_price'.tr,
+                                            labelText:
+                                                'twin_product_selling_price'.tr,
                                             border: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                           ),
                                         ),
@@ -882,7 +986,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   controller: _underStockController,
                                   keyboardType: TextInputType.number,
                                   decoration: InputDecoration(
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
                                     labelText: 'Under stock Value'.tr,
                                     labelStyle: bodyText(textPlaceholderColor),
                                     border: OutlineInputBorder(
@@ -910,17 +1016,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       context: context,
-                                      builder: (context) => ProductManufacturerBottomSheet(
-                                        refresh: () {
-                                          _manufacturerController.text = _productController.selectedManufacturer.value;
-                                        },
-                                      ),
+                                      builder: (context) =>
+                                          ProductManufacturerBottomSheet(
+                                            refresh: () {
+                                              _manufacturerController.text =
+                                                  _productController
+                                                      .selectedManufacturer
+                                                      .value;
+                                            },
+                                          ),
                                     );
                                   },
                                   controller: _manufacturerController,
                                   decoration: InputDecoration(
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                    labelText: 'manufacturer'.tr, // Label for the manufacturer field
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                    labelText: 'manufacturer'
+                                        .tr, // Label for the manufacturer field
                                     labelStyle: bodyText(textPlaceholderColor),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(4),
@@ -928,7 +1041,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     enabledBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(4),
                                       borderSide: BorderSide(
-                                        color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                        color: Preferences.getTheme()
+                                            ? mediumGrayColor
+                                            : borderColor,
                                       ),
                                     ),
                                   ),
@@ -946,17 +1061,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       context: context,
-                                      builder: (context) => ProductLocationBottomSheet(
-                                        refresh: () {
-                                          _locationController.text = _productController.selectedLocation.value;
-                                        },
-                                      ),
+                                      builder: (context) =>
+                                          ProductLocationBottomSheet(
+                                            refresh: () {
+                                              _locationController.text =
+                                                  _productController
+                                                      .selectedLocation
+                                                      .value;
+                                            },
+                                          ),
                                     );
                                   },
                                   controller: _locationController,
                                   decoration: InputDecoration(
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                    labelText: 'location'.tr, // Label for the manufacturer field
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
+                                    labelText: 'location'
+                                        .tr, // Label for the manufacturer field
                                     labelStyle: bodyText(textPlaceholderColor),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(4),
@@ -964,7 +1086,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     enabledBorder: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(4),
                                       borderSide: BorderSide(
-                                        color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                        color: Preferences.getTheme()
+                                            ? mediumGrayColor
+                                            : borderColor,
                                       ),
                                     ),
                                   ),
@@ -980,7 +1104,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 controller: _discountController,
                                 keyboardType: TextInputType.number,
                                 decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   labelText: 'discount'.tr,
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
@@ -1002,8 +1128,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             SizedBox(
                               height: 44,
                               child: TextField(
-                                controller: _expireDateController, // Create a TextEditingController for this field
-                                readOnly: true, // Make the field read-only to use a date picker
+                                controller:
+                                    _expireDateController, // Create a TextEditingController for this field
+                                readOnly:
+                                    true, // Make the field read-only to use a date picker
                                 onTap: () async {
                                   // Show DatePicker when the field is tapped
                                   DateTime? pickedDate = await showDatePicker(
@@ -1014,11 +1142,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   );
                                   if (pickedDate != null) {
                                     _expireDateController.text =
-                                    "${pickedDate.year}-${pickedDate.month.toString().padLeft(2, '0')}-${pickedDate.day.toString().padLeft(2, '0')}"; // Format the date
+                                        "${pickedDate.year}-${pickedDate.month.toString().padLeft(2, '0')}-${pickedDate.day.toString().padLeft(2, '0')}"; // Format the date
                                   }
                                 },
                                 decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   labelText: 'Expire Date'.tr,
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
@@ -1047,16 +1177,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     context: context,
-                                    builder: (context) => ProductCategoryBottomSheet(
-                                      refresh: () {
-                                        _categoryController.text = _productController.selectedCategory.value;
-                                      },
-                                    ),
+                                    builder: (context) =>
+                                        ProductCategoryBottomSheet(
+                                          refresh: () {
+                                            _categoryController.text =
+                                                _productController
+                                                    .selectedCategory
+                                                    .value;
+                                          },
+                                        ),
                                   );
                                 },
                                 controller: _categoryController,
                                 decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   labelText: 'category'.tr,
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
@@ -1065,7 +1201,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(4),
                                     borderSide: BorderSide(
-                                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      color: Preferences.getTheme()
+                                          ? mediumGrayColor
+                                          : borderColor,
                                     ),
                                   ),
                                 ),
@@ -1083,18 +1221,25 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     context: context,
-                                    builder: (context) => ProductManufacturerBottomSheet(
-                                      // Assuming the bottom sheet for Manufacturer operates similarly
-                                      refresh: () {
-                                        _manufacturerController.text = _productController.selectedManufacturer.value;
-                                      },
-                                    ),
+                                    builder: (context) =>
+                                        ProductManufacturerBottomSheet(
+                                          // Assuming the bottom sheet for Manufacturer operates similarly
+                                          refresh: () {
+                                            _manufacturerController.text =
+                                                _productController
+                                                    .selectedManufacturer
+                                                    .value;
+                                          },
+                                        ),
                                   );
                                 },
                                 controller: _manufacturerController,
                                 decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                  labelText: 'manufacturer'.tr, // Label for the manufacturer field
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  labelText: 'manufacturer'
+                                      .tr, // Label for the manufacturer field
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(4),
@@ -1102,7 +1247,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(4),
                                     borderSide: BorderSide(
-                                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      color: Preferences.getTheme()
+                                          ? mediumGrayColor
+                                          : borderColor,
                                     ),
                                   ),
                                 ),
@@ -1120,18 +1267,25 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     context: context,
-                                    builder: (context) => ProductLocationBottomSheet(
-                                      // Assuming the bottom sheet for Manufacturer operates similarly
-                                      refresh: () {
-                                        _locationController.text = _productController.selectedLocation.value;
-                                      },
-                                    ),
+                                    builder: (context) =>
+                                        ProductLocationBottomSheet(
+                                          // Assuming the bottom sheet for Manufacturer operates similarly
+                                          refresh: () {
+                                            _locationController.text =
+                                                _productController
+                                                    .selectedLocation
+                                                    .value;
+                                          },
+                                        ),
                                   );
                                 },
                                 controller: _locationController,
                                 decoration: InputDecoration(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                                  labelText: 'location'.tr, // Label for the manufacturer field
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  labelText: 'location'
+                                      .tr, // Label for the manufacturer field
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(4),
@@ -1139,7 +1293,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   enabledBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(4),
                                     borderSide: BorderSide(
-                                      color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                      color: Preferences.getTheme()
+                                          ? mediumGrayColor
+                                          : borderColor,
                                     ),
                                   ),
                                 ),
@@ -1155,16 +1311,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     child: TextField(
                                       controller: _codeController,
                                       decoration: InputDecoration(
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                         labelText: 'Qr/Bar code'.tr,
-                                        labelStyle: bodyText(textPlaceholderColor),
+                                        labelStyle: bodyText(
+                                          textPlaceholderColor,
+                                        ),
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                         ),
                                         enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
                                           borderSide: BorderSide(
-                                            color: Preferences.getTheme() ? mediumGrayColor : borderColor,
+                                            color: Preferences.getTheme()
+                                                ? mediumGrayColor
+                                                : borderColor,
                                           ),
                                         ),
                                       ),
@@ -1178,13 +1345,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       icon: const Icon(Icons.qr_code_scanner),
                                       tooltip: 'Scan QR/Barcode',
                                       onPressed: () async {
-                                        final scannedCode = await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => BarcodeScannerScreen(),
-                                          ),
-                                        );
-                                        if (scannedCode != null && scannedCode is String) {
+                                        final scannedCode =
+                                            await Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    BarcodeScannerScreen(),
+                                              ),
+                                            );
+                                        if (scannedCode != null &&
+                                            scannedCode is String) {
                                           setState(() {
                                             _codeController.text = scannedCode;
                                           });
@@ -1202,8 +1372,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 controller: _detailsController,
                                 maxLines: 4,
                                 decoration: InputDecoration(
-                                  contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 10),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   labelText: 'Enter details'.tr,
                                   labelStyle: bodyText(textPlaceholderColor),
                                   border: OutlineInputBorder(
@@ -1226,13 +1397,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             height: 44,
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: () async {
+                              onPressed: isUploading
+                                  ? null
+                                  : () async {
                                 setState(() {
                                   _isNameEmpty = _nameController.text.isEmpty;
                                   _isPriceEmpty = _priceController.text.isEmpty;
-                                  _isBuyingPriceEmpty = _buyingPriceController.text.isEmpty;
+                                  _isBuyingPriceEmpty =
+                                      _buyingPriceController.text.isEmpty;
                                   if (_selectedItemType == 'product') {
-                                    _isQuantityEmpty = _quantityController.text.isEmpty;
+                                    _isQuantityEmpty =
+                                        _quantityController.text.isEmpty;
                                   } else {
                                     _isQuantityEmpty = false;
                                   }
@@ -1242,15 +1417,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 if (!_isNameEmpty &&
                                     !_isPriceEmpty &&
                                     !_isBuyingPriceEmpty &&
-                                    (_selectedItemType == 'service' || !_isQuantityEmpty)) {
-                                  double buyingPrice = double.parse(_buyingPriceController.text.replaceAll(',', ''));
-                                  double sellingPrice = double.parse(_priceController.text.replaceAll(',', ''));
-                                  final wholesaleRaw =
-                                      _wholesalePriceController.text.trim().replaceAll(',', '');
+                                    (_selectedItemType == 'service' ||
+                                        !_isQuantityEmpty)) {
+                                  double buyingPrice = double.parse(
+                                    _buyingPriceController.text.replaceAll(
+                                      ',',
+                                      '',
+                                    ),
+                                  );
+                                  double sellingPrice = double.parse(
+                                    _priceController.text.replaceAll(',', ''),
+                                  );
+                                  final wholesaleRaw = _wholesalePriceController
+                                      .text
+                                      .trim()
+                                      .replaceAll(',', '');
                                   double wholesalePrice = 0.0;
                                   if (wholesaleRaw.isNotEmpty) {
-                                    wholesalePrice =
-                                        double.parse(wholesaleRaw.replaceAll(',', ''));
+                                    wholesalePrice = double.parse(
+                                      wholesaleRaw.replaceAll(',', ''),
+                                    );
                                   }
 
                                   if (wholesalePrice > sellingPrice) {
@@ -1258,16 +1444,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     return;
                                   }
                                   if (buyingPrice >= sellingPrice) {
-                                    _showSnackbar('Buying price must be less than selling price.'.tr);
+                                    _showSnackbar(
+                                      'Buying price must be less than selling price.'
+                                          .tr,
+                                    );
                                     return;
                                   }
                                   if (wholesalePrice > 0 &&
                                       buyingPrice >= wholesalePrice) {
-                                    _showSnackbar('buying_must_be_below_wholesale'.tr);
+                                    _showSnackbar(
+                                      'buying_must_be_below_wholesale'.tr,
+                                    );
                                     return;
                                   }
 
-                                  final wMinRaw = _wholesaleMinQtyController.text
+                                  final wMinRaw = _wholesaleMinQtyController
+                                      .text
                                       .trim()
                                       .replaceAll(',', '');
                                   final wholesaleMinQty = int.tryParse(wMinRaw);
@@ -1279,102 +1471,173 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
                                   if (_selectedItemType == 'product' &&
                                       _selectedProductType == 'paired') {
-                                    if (_twinNameController.text.trim().isEmpty) {
-                                      _showSnackbar('twin_product_name_required'.tr);
+                                    if (_twinNameController.text
+                                        .trim()
+                                        .isEmpty) {
+                                      _showSnackbar(
+                                        'twin_product_name_required'.tr,
+                                      );
                                       return;
                                     }
                                     final twinBuy = double.tryParse(
-                                        _twinBuyingPriceController.text.replaceAll(',', ''));
+                                      _twinBuyingPriceController.text
+                                          .replaceAll(',', ''),
+                                    );
                                     final twinSell = double.tryParse(
-                                        _twinSellingPriceController.text.replaceAll(',', ''));
+                                      _twinSellingPriceController.text
+                                          .replaceAll(',', ''),
+                                    );
                                     if (twinBuy == null || twinSell == null) {
-                                      _showSnackbar('twin_product_prices_required'.tr);
+                                      _showSnackbar(
+                                        'twin_product_prices_required'.tr,
+                                      );
                                       return;
                                     }
                                     if (twinBuy >= twinSell) {
                                       _showSnackbar('twin_buy_below_sell'.tr);
                                       return;
                                     }
-                                    final twinQtyRaw = _twinQuantityController.text
+                                    final twinQtyRaw = _twinQuantityController
+                                        .text
                                         .trim()
                                         .replaceAll(',', '');
                                     if (twinQtyRaw.isNotEmpty) {
-                                      final twinQty = double.tryParse(twinQtyRaw);
+                                      final twinQty = double.tryParse(
+                                        twinQtyRaw,
+                                      );
                                       if (twinQty == null || twinQty < 0) {
-                                        _showSnackbar('twin_product_quantity_invalid'.tr);
+                                        _showSnackbar(
+                                          'twin_product_quantity_invalid'.tr,
+                                        );
                                         return;
                                       }
                                     }
                                   }
 
-                                  isUploading = true;
-
-                                  String? imageUrl;
-                                  if (imageFile != null) {
-                                    imageUrl = await uploadFile('gmanproducts', imageFile!).catchError((error) {
-                                      _showSnackbar('Upload failed: $error');
-                                    });
-                                  }
-
-                                  final String? businessId = _businessController.business['id'];
-
-                                  if (businessId == null) {
-                                    print('Owner ID is null, cannot add product.');
-                                    setState(() {
-                                      isUploading = false;
-                                    });
-                                    return;
-                                  }
+                                  if (isUploading) return;
+                                  setState(() => isUploading = true);
 
                                   try {
-                                    bool existsCategory = _businessController.business['categories']
-                                        .contains(_categoryController.text.trim());
+                                    final String? businessId =
+                                        _businessController.business['id'];
+                                    if (businessId == null) {
+                                      throw Exception('Business ID is null');
+                                    }
+
+                                    // Product creation waits for server
+                                    // acknowledgement, so fail early instead
+                                    // of leaving the page loading while offline.
+                                    await firestore
+                                        .collection('businesses')
+                                        .doc(businessId)
+                                        .get(
+                                          const GetOptions(
+                                            source: Source.server,
+                                          ),
+                                        )
+                                        .timeout(const Duration(seconds: 10));
+
+                                    String? imageUrl;
+                                    if (imageFile != null) {
+                                      imageUrl = await uploadFile(
+                                        'gmanproducts',
+                                        imageFile!,
+                                      );
+                                    }
+
+                                    bool existsCategory = _businessController
+                                        .business['categories']
+                                        .contains(
+                                          _categoryController.text.trim(),
+                                        );
                                     if (!existsCategory) {
-                                      String trimmedCategory = _categoryController.text.trim();
+                                      String trimmedCategory =
+                                          _categoryController.text.trim();
                                       if (trimmedCategory.isNotEmpty) {
-                                        firestore.collection('businesses').doc(businessId).update({
-                                          'categories': FieldValue.arrayUnion([trimmedCategory]),
-                                        });
+                                        firestore
+                                            .collection('businesses')
+                                            .doc(businessId)
+                                            .update({
+                                              'categories':
+                                                  FieldValue.arrayUnion([
+                                                    trimmedCategory,
+                                                  ]),
+                                            });
                                       }
                                     }
 
-                                    bool existsUnit = allUnits.contains(_selectedUnit);
+                                    bool existsUnit = allUnits.contains(
+                                      _selectedUnit,
+                                    );
                                     if (!existsUnit) {
-                                      firestore.collection('businesses').doc(businessId).update({
-                                        'additionalList1': FieldValue.arrayUnion([_selectedUnit]),
-                                      });
+                                      firestore
+                                          .collection('businesses')
+                                          .doc(businessId)
+                                          .update({
+                                            'additionalList1':
+                                                FieldValue.arrayUnion([
+                                                  _selectedUnit,
+                                                ]),
+                                          });
                                     }
 
-                                    DateTime? expireDate = _expireDateController.text.trim().isNotEmpty
-                                        ? DateTime.tryParse(_expireDateController.text.trim())
+                                    DateTime? expireDate =
+                                        _expireDateController.text
+                                            .trim()
+                                            .isNotEmpty
+                                        ? DateTime.tryParse(
+                                            _expireDateController.text.trim(),
+                                          )
                                         : null;
 
-                                    final mainQty = _selectedItemType == 'service'
+                                    final mainQty =
+                                        _selectedItemType == 'service'
                                         ? 1.0
-                                        : double.tryParse(_quantityController.text.trim().replaceAll(',', '')) ?? 0.0;
+                                        : double.tryParse(
+                                                _quantityController.text
+                                                    .trim()
+                                                    .replaceAll(',', ''),
+                                              ) ??
+                                              0.0;
 
                                     final mainFields = <String, dynamic>{
                                       'owner': businessId,
                                       'businessId': businessId,
-                                      'manufacturer': _manufacturerController.text.trim(),
+                                      'manufacturer': _manufacturerController
+                                          .text
+                                          .trim(),
                                       'name': _nameController.text.trim(),
                                       'details': _detailsController.text.trim(),
-                                      'location': _locationController.text.trim(),
+                                      'location': _locationController.text
+                                          .trim(),
                                       'buyingPrice': buyingPrice,
                                       'understock': int.parse(
-                                          _underStockController.text.trim().replaceAll(',', '').isEmpty
-                                              ? '10'
-                                              : _underStockController.text.trim().replaceAll(',', '')),
+                                        _underStockController.text
+                                                .trim()
+                                                .replaceAll(',', '')
+                                                .isEmpty
+                                            ? '10'
+                                            : _underStockController.text
+                                                  .trim()
+                                                  .replaceAll(',', ''),
+                                      ),
                                       'discount': double.parse(
-                                          _discountController.text.trim().replaceAll(',', '').isEmpty
-                                              ? '0'
-                                              : _discountController.text.trim().replaceAll(',', '')),
+                                        _discountController.text
+                                                .trim()
+                                                .replaceAll(',', '')
+                                                .isEmpty
+                                            ? '0'
+                                            : _discountController.text
+                                                  .trim()
+                                                  .replaceAll(',', ''),
+                                      ),
                                       'code': _codeController.text.trim(),
                                       'price': sellingPrice,
                                       'wholesalePrice': wholesalePrice,
                                       'wholesaleMinQuantity': wholesaleMinQty,
                                       'quantity': mainQty,
-                                      'category': _categoryController.text.trim(),
+                                      'category': _categoryController.text
+                                          .trim(),
                                       'image': imageUrl ?? '',
                                       'storeQuantity': 0,
                                       'reserveString1': _selectedUnit,
@@ -1392,43 +1655,57 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     if (_selectedItemType == 'product' &&
                                         _selectedProductType == 'paired') {
                                       final twinBuy = double.parse(
-                                          _twinBuyingPriceController.text.replaceAll(',', ''));
+                                        _twinBuyingPriceController.text
+                                            .replaceAll(',', ''),
+                                      );
                                       final twinSell = double.parse(
-                                          _twinSellingPriceController.text.replaceAll(',', ''));
-                                      final twinQtyRaw = _twinQuantityController.text
+                                        _twinSellingPriceController.text
+                                            .replaceAll(',', ''),
+                                      );
+                                      final twinQtyRaw = _twinQuantityController
+                                          .text
                                           .trim()
                                           .replaceAll(',', '');
                                       final twinQty = twinQtyRaw.isEmpty
                                           ? 0.0
                                           : double.parse(twinQtyRaw);
-                                      final mainId = await _productController.createPairedProductBundle(
-                                        mainFields: mainFields,
-                                        twinName: _twinNameController.text.trim(),
-                                        twinBuyingPrice: twinBuy,
-                                        twinSellingPrice: twinSell,
-                                        initialMainQuantity: mainQty,
-                                        initialTwinQuantity: twinQty,
-                                        mainSellingPrice: sellingPrice,
-                                      );
+                                      final mainId = await _productController
+                                          .createPairedProductBundle(
+                                            mainFields: mainFields,
+                                            twinName: _twinNameController.text
+                                                .trim(),
+                                            twinBuyingPrice: twinBuy,
+                                            twinSellingPrice: twinSell,
+                                            initialMainQuantity: mainQty,
+                                            initialTwinQuantity: twinQty,
+                                            mainSellingPrice: sellingPrice,
+                                          );
                                       if (mainId != null) {
                                         await saveProductToUserStore(
-                                          understock: mainFields['understock'] as int,
+                                          understock:
+                                              mainFields['understock'] as int,
                                           owner: businessId,
                                           id: mainId,
-                                          storeId: _businessController.business['owner'],
+                                          storeId: _businessController
+                                              .business['owner'],
                                           code: _codeController.text.trim(),
                                           businessId: businessId,
                                           name: _nameController.text.trim(),
                                           buyingPrice: buyingPrice,
-                                          details: _detailsController.text.trim(),
+                                          details: _detailsController.text
+                                              .trim(),
                                           imageUrl: imageUrl ?? '',
                                           price: sellingPrice,
                                           wholesalePrice: wholesalePrice,
                                           wholesaleMinQuantity: wholesaleMinQty,
                                           quantity: mainQty,
-                                          manufacturer: _manufacturerController.text.trim(),
-                                          location: _locationController.text.trim(),
-                                          category: _categoryController.text.trim(),
+                                          manufacturer: _manufacturerController
+                                              .text
+                                              .trim(),
+                                          location: _locationController.text
+                                              .trim(),
+                                          category: _categoryController.text
+                                              .trim(),
                                           expireDate: expireDate,
                                         );
                                       }
@@ -1442,10 +1719,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       mainFields['productType'] = 'normal';
 
                                       await saveProductToUserStore(
-                                        understock: mainFields['understock'] as int,
+                                        understock:
+                                            mainFields['understock'] as int,
                                         owner: businessId,
                                         id: productRef.id,
-                                        storeId: _businessController.business['owner'],
+                                        storeId: _businessController
+                                            .business['owner'],
                                         code: _codeController.text.trim(),
                                         businessId: businessId,
                                         name: _nameController.text.trim(),
@@ -1456,28 +1735,34 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                         wholesalePrice: wholesalePrice,
                                         wholesaleMinQuantity: wholesaleMinQty,
                                         quantity: mainQty,
-                                        manufacturer: _manufacturerController.text.trim(),
-                                        location: _locationController.text.trim(),
-                                        category: _categoryController.text.trim(),
+                                        manufacturer: _manufacturerController
+                                            .text
+                                            .trim(),
+                                        location: _locationController.text
+                                            .trim(),
+                                        category: _categoryController.text
+                                            .trim(),
                                         expireDate: expireDate,
                                       );
 
-                                      await productRef.set(mainFields);
-
-                                      await _productController.updateInitialTransaction(
-                                        mainQty,
-                                        productRef.id,
-                                        sellingPrice,
-                                      );
+                                      await _productController
+                                          .createProductWithOpeningStock(
+                                            productRef: productRef,
+                                            productData: mainFields,
+                                            quantity: mainQty,
+                                            price: sellingPrice,
+                                          );
                                     }
 
-                                    _showSnackbar('Product added successfully!');
+                                    _showSnackbar(
+                                      'Product added successfully!',
+                                    );
                                     _clearFields();
                                     _businessController.updateBusinessData();
                                   } catch (error) {
                                     Get.snackbar(
                                       'Error',
-                                      '$error',
+                                      operationErrorMessage(error),
                                       snackPosition: SnackPosition.BOTTOM,
                                       duration: const Duration(seconds: 15),
                                       backgroundColor: Colors.red,
@@ -1485,25 +1770,40 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       margin: const EdgeInsets.all(10),
                                       borderRadius: 8,
                                     );
-                                    print('Failed to add product or update initial transaction: $error');
+                                    print(
+                                      'Failed to add product or update initial transaction: $error',
+                                    );
                                   } finally {
-                                    setState(() {
-                                      isUploading = false;
-                                    });
+                                    if (mounted) {
+                                      setState(() => isUploading = false);
+                                    }
                                   }
                                 } else {
-                                  _showSnackbar('Please fill all required fields');
+                                  _showSnackbar(
+                                    'Please fill all required fields',
+                                  );
                                 }
                               },
                               style: ButtonStyle(
-                                backgroundColor: MaterialStateProperty.all<Color>(
-                                  const Color(0xFF80B2FF),
-                                ),
+                                backgroundColor:
+                                    MaterialStateProperty.all<Color>(
+                                      const Color(0xFF80B2FF),
+                                    ),
                               ),
-                              child: Text(
-                                'add_product'.tr,
-                                style: const TextStyle(color: Colors.white),
-                              ),
+                              child: isUploading
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(
+                                      'add_product'.tr,
+                                      style:
+                                          const TextStyle(color: Colors.white),
+                                    ),
                             ),
                           ),
                         ],
@@ -1516,9 +1816,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             if (isUploading)
               Container(
                 color: Colors.white.withOpacity(0.7),
-                child: const Center(
-                  child: CircularProgressIndicator(),
-                ),
+                child: const Center(child: CircularProgressIndicator()),
               ),
           ],
         ),
@@ -1553,11 +1851,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
     DateTime? expireDate,
     double? discount,
   }) async {
-    const String functionUrl = 'https://us-central1-hesabumauzo.cloudfunctions.net/saveProductToUserStore'; // Replace with the function's actual URL
+    const String functionUrl =
+        'https://us-central1-hesabumauzo.cloudfunctions.net/saveProductToUserStore'; // Replace with the function's actual URL
 
     // Create the request payload
     final Map<String, dynamic> data = {
-      'id':id,
+      'id': id,
       'storeId': storeId,
       'businessId': businessId,
       'manufacturer': manufacturer,
@@ -1579,7 +1878,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       'reserveDouble2': reserveDouble2,
       'reserveList1': reserveList1,
       'reserveList2': reserveList2,
-      'discount':discount,
+      'discount': discount,
     };
 
     try {
@@ -1602,15 +1901,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _showAddUnitDialog(BuildContext context) async {
-
-
     final result = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(4),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
           contentPadding: const EdgeInsets.all(20),
           title: Text(
             "new_unit".tr, // Translate this as needed
@@ -1646,29 +1941,38 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         text: 'save'.tr,
                         onPressed: () async {
                           if (newUnitController.text.isNotEmpty) {
-                            final String newUnit = newUnitController.text.trim();
-                            final String? businessId = _businessController.business['id'];
-                            
+                            final String newUnit = newUnitController.text
+                                .trim();
+                            final String? businessId =
+                                _businessController.business['id'];
+
                             // Save to Firestore
                             if (businessId != null) {
                               try {
-                                await firestore.collection('businesses').doc(businessId).update({
-                                  'additionalList1': FieldValue.arrayUnion([newUnit]),
-                                });
+                                await firestore
+                                    .collection('businesses')
+                                    .doc(businessId)
+                                    .update({
+                                      'additionalList1': FieldValue.arrayUnion([
+                                        newUnit,
+                                      ]),
+                                    });
                                 // Refresh business data to get updated units
                                 await _businessController.updateBusinessData();
                               } catch (e) {
                                 print('Error saving custom unit: $e');
                               }
                             }
-                            
+
                             setState(() {
                               // Add the new unit to the list and select it
                               _units.add(newUnit);
                               _selectedUnit = newUnit;
                               newUnitController.clear();
                             });
-                            Navigator.of(context).pop(true); // Close the dialog and return true
+                            Navigator.of(
+                              context,
+                            ).pop(true); // Close the dialog and return true
                           }
                         },
                       ),
@@ -1686,6 +1990,4 @@ class _AddProductScreenState extends State<AddProductScreen> {
       // Handle the case when the unit is added
     }
   }
-
-
 }

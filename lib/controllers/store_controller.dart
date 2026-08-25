@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:get/get.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/operation_error_message.dart';
 import 'package:mauzo/utils/download_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -15,6 +16,7 @@ import '../models/product_model.dart';
 import '../models/stock_transaction.dart';
 import '../services/firestore_db.dart';
 import 'business_controller.dart';
+
 class StoreController extends GetxController {
   final BusinessController _businessController = Get.find();
 
@@ -72,49 +74,68 @@ class StoreController extends GetxController {
     }
   }
 
-  Future<void> updateStoreProductCount(Product product, double count) async {
+  Future<bool> updateStoreProductCount(Product product, double count) async {
     final String? business = _businessController.business['owner'];
     final String? businessshop = _businessController.businessId.value;
 
     if (business == null) {
       print('Owner ID is null, cannot update store product count.');
       errorSnackbar("Owner ID is null");
-      return;
+      return false;
+    }
+    if (businessshop == null) {
+      errorSnackbar("Business ID is null");
+      return false;
     }
 
     try {
-      final oldQty = (product.quantity is num)
-          ? (product.quantity as num).toDouble()
-          : double.tryParse(product.quantity.toString()) ?? 0.0;
-      final change = (count - oldQty).abs();
-
       final productRef = firestore
           .collection('store')
           .doc(business)
           .collection('userStore')
           .doc(product.id);
-
-      await productRef.update({'quantity': count});
-
-      if (change > 0 && businessshop != null) {
-        final transactionRef = firestore
+      final intendedDelta = count - product.quantity;
+      final operationId = firestore.collection('transactions').doc().id;
+      final transactionRef = firestore
             .collection('transactions')
             .doc(businessshop)
             .collection('usersTransactions')
-            .doc();
+            .doc(operationId);
+      await firestore.runTransaction((fireTx) async {
+        final snapshot = await fireTx.get(productRef);
+        if (!snapshot.exists) {
+          throw Exception('Store product no longer exists.');
+        }
+        final live = _quantityFrom(snapshot.data());
+        final next = live + intendedDelta;
+        if (next < 0) {
+          throw Exception('Insufficient store stock.');
+        }
+        fireTx.update(productRef, {'quantity': next});
+        if (intendedDelta == 0) return;
         final stockTransaction = StockTransaction(
-            transactionId: transactionRef.id,
-            productId: product.id,
-            quantity: change,
-            previousQuantity: oldQty,
-            newQuantity: count,
-            transactionType: count >= oldQty ? 'addition' : 'removal',
-            transactionOrigin: count >= oldQty ? 'Store Stock Added' : 'Store Stock Reduced',
-            timestamp: Timestamp.now(),
-            userId: business,
-            price: product.price);
-        await transactionRef.set(stockTransaction.toMap());
-      }
+          transactionId: transactionRef.id,
+          productId: product.id,
+          quantity: intendedDelta.abs(),
+          delta: intendedDelta,
+          previousQuantity: live,
+          newQuantity: next,
+          transactionType: intendedDelta >= 0 ? 'addition' : 'removal',
+          transactionOrigin: intendedDelta >= 0
+              ? 'Store Stock Added'
+              : 'Store Stock Reduced',
+          timestamp: Timestamp.now(),
+          userId: businessshop,
+          price: product.price,
+          referenceId: product.id,
+          referenceType: 'adjustment',
+          operationId: operationId,
+          inventoryLocation: 'store',
+        );
+        final history = stockTransaction.toMap();
+        history['serverTimestamp'] = FieldValue.serverTimestamp();
+        fireTx.set(transactionRef, history);
+      });
 
       search(searchText.value);
       Get.snackbar(
@@ -122,9 +143,11 @@ class StoreController extends GetxController {
         'Store product quantity updated.',
         snackPosition: SnackPosition.BOTTOM,
       );
+      return true;
     } catch (e) {
       print('Error updating store product count: $e');
-      errorSnackbar('Error updating store product count: $e');
+      errorSnackbar(operationErrorMessage(e));
+      return false;
     }
   }
 
@@ -132,213 +155,229 @@ class StoreController extends GetxController {
     return products.where((p) => p.id == product.id).length;
   }
 
-  Future<void> moveStockToShop(Product storeProduct, double quantity) async {
+  double _quantityFrom(Map<String, dynamic>? data) {
+    final value = data?['quantity'];
+    return value is num ? value.toDouble() : 0.0;
+  }
+
+  Map<String, dynamic> _transferHistory(
+    StockTransaction stockTransaction, {
+    required double delta,
+  }) {
+    return stockTransaction.toMap()..addAll({
+      'delta': delta,
+      'referenceId': stockTransaction.referenceId,
+      'referenceType': 'transfer',
+      'inventoryLocation': 'shop',
+      'operationId': stockTransaction.transactionId,
+      'serverTimestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<bool> moveStockToShop(Product storeProduct, double quantity) async {
     final String? businessOwner = _businessController.business['owner'];
-    final String? businessshop = _businessController.businessId.value;
-    if (businessOwner == null) {
-      print('Business ID is null, cannot move stock.');
+    final String? businessShop = _businessController.businessId.value;
+    if (businessOwner == null || businessShop == null) {
       Get.snackbar(
         'Error',
         'Business ID is null',
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );
-      return;
+      return false;
     }
-
-    if (quantity > 0.0 && storeProduct.quantity >= quantity) {
-      try {
-        // Reference to the corresponding product in the 'products' collection
-        final productRef = firestore
-            .collection('products')
-            .doc(businessshop)
-            .collection('userProducts')
-            .doc(storeProduct.id);
-
-        // Get current product data from 'products' collection
-        final productSnapshot = await productRef.get();
-        if (!productSnapshot.exists) {
-          print('Product does not exist in products collection.');
-          Get.snackbar(
-            'Error',
-            'Product not in ${_businessController.business['name']}',
-            snackPosition: SnackPosition.BOTTOM,
-            colorText: Colors.red,
-            duration: Duration(seconds: 8), // Set duration to 8 seconds
-          );
-
-          return;
-        }
-
-        // Calculate new quantities
-        final double currentShopQuantity = (productSnapshot['quantity'] ?? 0.0).toDouble();
-        final double newShopQuantity = currentShopQuantity + quantity;
-        final double newStoreQuantity = storeProduct.quantity - quantity;
-
-        // Update the product's quantity in the 'products' collection
-        await productRef.update({'quantity': newShopQuantity});
-
-        // Update the store product's storeQuantity in the 'store' collection
-        final storeProductRef = firestore
-            .collection('store')
-            .doc(businessOwner)
-            .collection('userStore')
-            .doc(storeProduct.id);
-        await storeProductRef.update({'quantity': newStoreQuantity});
-
-        // Log the transaction in **shop (business)** inventory terms — same collection as
-        // other product history, so previous/new must be shop quantities, not store levels.
-        final transactionRef = firestore
-            .collection('transactions')
-            .doc(businessshop)
-            .collection('usersTransactions')
-            .doc();
-
-        final stockTransaction = StockTransaction(
-            transactionId: transactionRef.id,
-            productId: storeProduct.id,
-            quantity: quantity,
-            previousQuantity: currentShopQuantity,
-            newQuantity: newShopQuantity,
-            transactionType: 'addition',
-            transactionOrigin: 'Added From Store',
-            timestamp: Timestamp.now(),
-            userId: businessOwner,
-            price: storeProduct.price,
-        );
-
-        await transactionRef.set(stockTransaction.toMap());
-
-        Get.snackbar(
-          'Stock Moved',
-          '$quantity items moved from store to shop.',
-          snackPosition: SnackPosition.BOTTOM,
-        );
-      } catch (e) {
-        print('Error moving stock and recording transaction: $e');
-        Get.snackbar(
-          'Error',
-          'Error moving stock: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          colorText: Colors.red,
-        );
-      }
-    } else {
+    if (quantity <= 0.0) {
       Get.snackbar(
         'Error',
         'Insufficient store stock to move.',
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );
+      return false;
+    }
+
+    try {
+      final shopRef = firestore
+          .collection('products')
+          .doc(businessShop)
+          .collection('userProducts')
+          .doc(storeProduct.id);
+      final storeRef = firestore
+          .collection('store')
+          .doc(businessOwner)
+          .collection('userStore')
+          .doc(storeProduct.id);
+      final historyRef = firestore
+          .collection('transactions')
+          .doc(businessShop)
+          .collection('usersTransactions')
+          .doc();
+      final timestamp = Timestamp.now();
+
+      await firestore.runTransaction((fireTx) async {
+        final snapshots = await Future.wait([
+          fireTx.get(shopRef),
+          fireTx.get(storeRef),
+        ]);
+        final shopSnapshot = snapshots[0];
+        final storeSnapshot = snapshots[1];
+        if (!shopSnapshot.exists) {
+          throw Exception(
+            'Product not in ${_businessController.business['name']}',
+          );
+        }
+        if (!storeSnapshot.exists) {
+          throw Exception('Product does not exist in store.');
+        }
+        final shopQuantity = _quantityFrom(shopSnapshot.data());
+        final storeQuantity = _quantityFrom(storeSnapshot.data());
+        if (storeQuantity < quantity) {
+          throw Exception('Insufficient store stock to move.');
+        }
+        final nextShopQuantity = shopQuantity + quantity;
+        final nextStoreQuantity = storeQuantity - quantity;
+        fireTx.update(shopRef, {'quantity': nextShopQuantity});
+        fireTx.update(storeRef, {'quantity': nextStoreQuantity});
+        final history = StockTransaction(
+          transactionId: historyRef.id,
+          productId: storeProduct.id,
+          quantity: quantity,
+          previousQuantity: shopQuantity,
+          newQuantity: nextShopQuantity,
+          transactionType: 'addition',
+          transactionOrigin: 'Added From Store',
+          timestamp: timestamp,
+          userId: businessOwner,
+          price: storeProduct.price,
+          referenceId: historyRef.id,
+          referenceType: 'transfer',
+          totalValue: quantity * storeProduct.price,
+        );
+        fireTx.set(historyRef, _transferHistory(history, delta: quantity));
+      });
+
+      Get.snackbar(
+        'Stock Moved',
+        '$quantity items moved from store to shop.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return true;
+    } catch (e) {
+      print('Error moving stock and recording transaction: $e');
+      Get.snackbar(
+        'Error',
+        operationErrorMessage(e),
+        snackPosition: SnackPosition.BOTTOM,
+        colorText: Colors.red,
+      );
+      return false;
     }
   }
 
-  Future<void> moveStockToStore(Product shopProduct, double quantity) async {
+  Future<bool> moveStockToStore(Product shopProduct, double quantity) async {
     final String? businessOwner = _businessController.business['owner'];
     final String? businessShop = _businessController.businessId.value;
-    
     if (businessOwner == null || businessShop == null) {
-      print('Business ID is null, cannot move stock.');
       Get.snackbar(
         'Error',
         'Business ID is null',
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );
-      return;
+      return false;
     }
-
-    if (quantity > 0.0 && shopProduct.quantity >= quantity) {
-      try {
-        // Reference to the shop product
-        final shopProductRef = firestore
-            .collection('products')
-            .doc(businessShop)
-            .collection('userProducts')
-            .doc(shopProduct.id);
-
-        // Reference to the store product
-        final storeProductRef = firestore
-            .collection('store')
-            .doc(businessOwner)
-            .collection('userStore')
-            .doc(shopProduct.id);
-
-        // Get current store product data
-        final storeProductSnapshot = await storeProductRef.get();
-        double currentStoreQuantity = 0.0;
-        
-        if (storeProductSnapshot.exists) {
-          currentStoreQuantity = (storeProductSnapshot.data()?['quantity'] ?? 0.0).toDouble();
-        } else {
-          // If store product doesn't exist, create it by copying shop product
-          final shopProductSnapshot = await shopProductRef.get();
-          if (shopProductSnapshot.exists) {
-            final shopProductData = shopProductSnapshot.data() as Map<String, dynamic>;
-            shopProductData['quantity'] = 0.0; // Set initial store quantity to 0
-            await storeProductRef.set(shopProductData);
-          }
-        }
-
-        // Calculate new quantities
-        final double newShopQuantity = shopProduct.quantity - quantity;
-        final double newStoreQuantity = currentStoreQuantity + quantity;
-
-        // Update shop product quantity
-        await shopProductRef.update({'quantity': newShopQuantity});
-
-        // Update store product quantity
-        await storeProductRef.update({'quantity': newStoreQuantity});
-
-        // Log the transaction
-        final transactionRef = firestore
-            .collection('transactions')
-            .doc(businessShop)
-            .collection('usersTransactions')
-            .doc();
-
-        final stockTransaction = StockTransaction(
-            transactionId: transactionRef.id,
-            productId: shopProduct.id,
-            quantity: quantity,
-            previousQuantity: shopProduct.quantity,
-            newQuantity: shopProduct.quantity - quantity,
-            transactionType: 'removal',
-            transactionOrigin: 'Moved To Store',
-            timestamp: Timestamp.now(),
-            userId: businessOwner,
-            price: shopProduct.price
-        );
-
-        await transactionRef.set(stockTransaction.toMap());
-
-        Get.snackbar(
-          'Stock Moved',
-          '$quantity items moved from shop to store.',
-          snackPosition: SnackPosition.BOTTOM,
-        );
-      } catch (e) {
-        print('Error moving stock to store: $e');
-        Get.snackbar(
-          'Error',
-          'Error moving stock to store: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          colorText: Colors.red,
-        );
-      }
-    } else {
+    if (quantity <= 0.0) {
       Get.snackbar(
         'Error',
         'Insufficient shop stock to move.',
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );
+      return false;
+    }
+
+    try {
+      final shopRef = firestore
+          .collection('products')
+          .doc(businessShop)
+          .collection('userProducts')
+          .doc(shopProduct.id);
+      final storeRef = firestore
+          .collection('store')
+          .doc(businessOwner)
+          .collection('userStore')
+          .doc(shopProduct.id);
+      final historyRef = firestore
+          .collection('transactions')
+          .doc(businessShop)
+          .collection('usersTransactions')
+          .doc();
+      final timestamp = Timestamp.now();
+
+      await firestore.runTransaction((fireTx) async {
+        final snapshots = await Future.wait([
+          fireTx.get(shopRef),
+          fireTx.get(storeRef),
+        ]);
+        final shopSnapshot = snapshots[0];
+        final storeSnapshot = snapshots[1];
+        if (!shopSnapshot.exists) {
+          throw Exception('Product does not exist in shop.');
+        }
+        final shopQuantity = _quantityFrom(shopSnapshot.data());
+        if (shopQuantity < quantity) {
+          throw Exception('Insufficient shop stock to move.');
+        }
+        final storeQuantity = _quantityFrom(storeSnapshot.data());
+        final nextShopQuantity = shopQuantity - quantity;
+        final nextStoreQuantity = storeQuantity + quantity;
+        fireTx.update(shopRef, {'quantity': nextShopQuantity});
+        if (storeSnapshot.exists) {
+          fireTx.update(storeRef, {'quantity': nextStoreQuantity});
+        } else {
+          final storeData = Map<String, dynamic>.from(shopSnapshot.data()!);
+          storeData['quantity'] = nextStoreQuantity;
+          fireTx.set(storeRef, storeData);
+        }
+        final history = StockTransaction(
+          transactionId: historyRef.id,
+          productId: shopProduct.id,
+          quantity: quantity,
+          previousQuantity: shopQuantity,
+          newQuantity: nextShopQuantity,
+          transactionType: 'removal',
+          transactionOrigin: 'Moved To Store',
+          timestamp: timestamp,
+          userId: businessOwner,
+          price: shopProduct.price,
+          referenceId: historyRef.id,
+          referenceType: 'transfer',
+          totalValue: quantity * shopProduct.price,
+        );
+        fireTx.set(historyRef, _transferHistory(history, delta: -quantity));
+      });
+
+      Get.snackbar(
+        'Stock Moved',
+        '$quantity items moved from shop to store.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return true;
+    } catch (e) {
+      print('Error moving stock to store: $e');
+      Get.snackbar(
+        'Error',
+        operationErrorMessage(e),
+        snackPosition: SnackPosition.BOTTOM,
+        colorText: Colors.red,
+      );
+      return false;
     }
   }
 
   Product getProduct(String productId) {
     return products.firstWhere(
-          (product) => product.id == productId,
+      (product) => product.id == productId,
       orElse: () => Product(
         owner: '',
         id: '',
@@ -356,7 +395,9 @@ class StoreController extends GetxController {
   double calculateTotalSales() {
     double total = 0;
     for (Product product in products) {
-      if (product.total != null && product.quantity != null && product.price != null) {
+      if (product.total != null &&
+          product.quantity != null &&
+          product.price != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.total! - product.quantity!) * product.price!;
         total += result;
@@ -371,7 +412,7 @@ class StoreController extends GetxController {
   double calculateTotalStock() {
     double total = 0;
     for (Product product in products) {
-      if (product.total != null  && product.price != null) {
+      if (product.total != null && product.price != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.quantity!) * product.price!;
         total += result;
@@ -382,10 +423,11 @@ class StoreController extends GetxController {
     }
     return total;
   }
+
   double calculateTotalStockBuying() {
     double total = 0;
     for (Product product in products) {
-      if (product.quantity != null  && product.buyingPrice != null) {
+      if (product.quantity != null && product.buyingPrice != null) {
         // Only process products with all necessary fields (A, B, and C)
         double result = (product.quantity!) * product.buyingPrice!;
         total += result;
@@ -396,9 +438,10 @@ class StoreController extends GetxController {
     }
     return total;
   }
+
   Product getProductByCode(String code) {
     return products.firstWhere(
-          (product) => product.code == code,
+      (product) => product.code == code,
       orElse: () => Product(
         owner: '',
         id: '',
@@ -412,7 +455,6 @@ class StoreController extends GetxController {
       ),
     );
   }
-
 
   final filterCategories = <String>[].obs;
 
@@ -428,9 +470,11 @@ class StoreController extends GetxController {
 
     if (searchText.value.isNotEmpty) {
       filteredProducts.value = products
-          .where((product) => product.name
-              .toLowerCase()
-              .contains(searchText.value.toLowerCase()))
+          .where(
+            (product) => product.name.toLowerCase().contains(
+              searchText.value.toLowerCase(),
+            ),
+          )
           .toList();
     }
 
@@ -463,8 +507,10 @@ class StoreController extends GetxController {
   void search(String searchValue) {
     searchText.value = searchValue;
     searchProducts.value = products
-        .where((product) =>
-        product.name.toLowerCase().contains(searchValue.toLowerCase()))
+        .where(
+          (product) =>
+              product.name.toLowerCase().contains(searchValue.toLowerCase()),
+        )
         .toList();
     filterProducts();
   }
@@ -473,18 +519,22 @@ class StoreController extends GetxController {
   void setCategory(String updatedCategory) {
     selectedCategory.value = updatedCategory;
   }
+
   final selectedUnit = 'No unit'.obs;
   void setUnit(String updatedUnit) {
     selectedUnit.value = updatedUnit;
   }
+
   final selectedManufacturer = 'No manufacturer'.obs;
   void setManufacturer(String updatedManufacturer) {
     selectedManufacturer.value = updatedManufacturer;
   }
+
   final selectedLocation = 'No location'.obs;
   void setLocation(String updatedLocation) {
     selectedLocation.value = updatedLocation;
   }
+
   //for mobile
   Future<void> generateExcelFromProductsInstore() async {
     // Create a new Excel document
@@ -495,7 +545,8 @@ class StoreController extends GetxController {
     Sheet sheetObject = excel[defaultSheet];
 
     // Add the business name and report title as the first row (heading)
-    String businessName = _businessController.business['name'] ?? 'Business Name';
+    String businessName =
+        _businessController.business['name'] ?? 'Business Name';
     String reportTitle = "Product Report";
 
     sheetObject.appendRow([businessName]);
@@ -508,7 +559,17 @@ class StoreController extends GetxController {
 
     // Define header row with background color (matches import template)
     final headerRow = [
-      "Name", "Quantity", "Category", "Manufacturer", "Location", "Price", "Buying Price", "Code", "Unit", "Understock", "Item Type"
+      "Name",
+      "Quantity",
+      "Category",
+      "Manufacturer",
+      "Location",
+      "Price",
+      "Buying Price",
+      "Code",
+      "Unit",
+      "Understock",
+      "Item Type",
     ];
 
     // Apply a background color to the header row
@@ -555,16 +616,12 @@ class StoreController extends GetxController {
     sheetObject.appendRow([]);
 
     // Add the Total Value row at the bottom of the Price column
-    sheetObject.appendRow([
-      '', '', 'Total Value:', totalValue, ''
-    ]);
+    sheetObject.appendRow(['', '', 'Total Value:', totalValue, '']);
 
     // Apply a bold style to the Total Value row
     var totalValueRowIndex = sheetObject.maxRows - 1;
     sheetObject.row(totalValueRowIndex).forEach((cell) {
-      cell?.cellStyle = CellStyle(
-        bold: true,
-      );
+      cell?.cellStyle = CellStyle(bold: true);
     });
 
     final fileBytes = excel.encode();
@@ -587,10 +644,9 @@ class StoreController extends GetxController {
         ..createSync(recursive: true)
         ..writeAsBytesSync(fileBytes);
 
-      final result = await Share.shareXFiles(
-        [XFile(filePath)],
-        text: 'Store Report',
-      );
+      final result = await Share.shareXFiles([
+        XFile(filePath),
+      ], text: 'Store Report');
 
       if (result.status == ShareResultStatus.success) {
         print('Thank you for sharing the report!');
@@ -600,8 +656,8 @@ class StoreController extends GetxController {
     }
   }
 
-//for web
-/*
+  //for web
+  /*
   Future<void> generateExcelFromProductsInstore() async {
     // Create a new Excel document
     var excel = Excel.createExcel();
@@ -696,8 +752,13 @@ class StoreController extends GetxController {
   // Method to toggle understock filtering
   void toggleUnderstockFilter() {
     // Find products that are understocked
-    var understockedProducts = products.where((product) =>
-    product.quantity != null && product.quantity! < product.understock!).toList();
+    var understockedProducts = products
+        .where(
+          (product) =>
+              product.quantity != null &&
+              product.quantity! < product.understock!,
+        )
+        .toList();
 
     if (understockedProducts.isEmpty) {
       // If there are no understocked products, display a notification
@@ -706,12 +767,12 @@ class StoreController extends GetxController {
         'There are no products that are currently understock.'.tr,
         snackPosition: SnackPosition.BOTTOM,
         duration: Duration(seconds: 3),
-        backgroundColor: Colors.black,  // Set the background color to black
-        colorText: Colors.white,  // Set the text color to white
-        snackStyle: SnackStyle.FLOATING,  // Optional: makes the snackbar float above the content
-        margin: EdgeInsets.all(16),  // Optional: adds margin around the snackbar
+        backgroundColor: Colors.black, // Set the background color to black
+        colorText: Colors.white, // Set the text color to white
+        snackStyle: SnackStyle
+            .FLOATING, // Optional: makes the snackbar float above the content
+        margin: EdgeInsets.all(16), // Optional: adds margin around the snackbar
       );
-
     } else {
       if (isUnderstockFilterActive.value) {
         // If the filter is active, reset to show all products
@@ -725,7 +786,8 @@ class StoreController extends GetxController {
       isUnderstockFilterActive.value = !isUnderstockFilterActive.value;
     }
   }
-  void clearStore(){
+
+  void clearStore() {
     products.value.clear();
     filteredProducts.value.clear();
   }
@@ -734,9 +796,7 @@ class StoreController extends GetxController {
   Future<void> moveAllStockToStore() async {
     final String? businessOwner = _businessController.business['owner'];
     final String? businessShop = _businessController.businessId.value;
-    
     if (businessOwner == null || businessShop == null) {
-      print('Business ID is null, cannot move stock.');
       Get.snackbar(
         'Error',
         'Business ID is null',
@@ -747,65 +807,70 @@ class StoreController extends GetxController {
     }
 
     try {
-      // Get all shop products with quantity > 0
-      final shopProductsRef = firestore
+      final query = firestore
           .collection('products')
           .doc(businessShop)
           .collection('userProducts')
-          .where('quantity', isGreaterThan: 0);
-
-      final shopProductsSnapshot = await shopProductsRef.get();
+          .where('quantity', isGreaterThan: 0)
+          .limit(100);
       int movedProducts = 0;
 
-      for (var doc in shopProductsSnapshot.docs) {
-        final productData = doc.data();
-        final quantity = (productData['quantity'] ?? 0.0).toDouble();
-        
-        if (quantity > 0) {
-          // Move to store
-          final storeProductRef = firestore
+      while (true) {
+        final page = await query.get();
+        if (page.docs.isEmpty) break;
+        for (final doc in page.docs) {
+          final storeRef = firestore
               .collection('store')
               .doc(businessOwner)
               .collection('userStore')
               .doc(doc.id);
-
-          final storeProductSnapshot = await storeProductRef.get();
-          double currentStoreQuantity = 0.0;
-          
-          if (storeProductSnapshot.exists) {
-            currentStoreQuantity = (storeProductSnapshot.data()?['quantity'] ?? 0.0).toDouble();
-          } else {
-            // Create store product if it doesn't exist
-            final newProductData = Map<String, dynamic>.from(productData);
-            newProductData['quantity'] = 0.0;
-            await storeProductRef.set(newProductData);
-          }
-
-          // Update quantities
-          await doc.reference.update({'quantity': 0.0});
-          await storeProductRef.update({'quantity': currentStoreQuantity + quantity});
-
-          // Log transaction
-          final transactionRef = firestore
+          final historyRef = firestore
               .collection('transactions')
               .doc(businessShop)
               .collection('usersTransactions')
               .doc();
-
-          final stockTransaction = StockTransaction(
-              transactionId: transactionRef.id,
+          final timestamp = Timestamp.now();
+          final moved = await firestore.runTransaction((fireTx) async {
+            final snapshots = await Future.wait([
+              fireTx.get(doc.reference),
+              fireTx.get(storeRef),
+            ]);
+            final shopSnapshot = snapshots[0];
+            final storeSnapshot = snapshots[1];
+            if (!shopSnapshot.exists) return false;
+            final quantity = _quantityFrom(shopSnapshot.data());
+            if (quantity <= 0) return false;
+            final storeQuantity = _quantityFrom(storeSnapshot.data());
+            final nextStoreQuantity = storeQuantity + quantity;
+            fireTx.update(doc.reference, {'quantity': 0.0});
+            if (storeSnapshot.exists) {
+              fireTx.update(storeRef, {'quantity': nextStoreQuantity});
+            } else {
+              final storeData = Map<String, dynamic>.from(shopSnapshot.data()!);
+              storeData['quantity'] = nextStoreQuantity;
+              fireTx.set(storeRef, storeData);
+            }
+            final rawPrice = shopSnapshot.data()?['price'];
+            final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+            final history = StockTransaction(
+              transactionId: historyRef.id,
               productId: doc.id,
               quantity: quantity,
               previousQuantity: quantity,
+              newQuantity: 0.0,
               transactionType: 'removal',
               transactionOrigin: 'Bulk Move To Store',
-              timestamp: Timestamp.now(),
+              timestamp: timestamp,
               userId: businessOwner,
-              price: (productData['price'] ?? 0.0).toDouble()
-          );
-
-          await transactionRef.set(stockTransaction.toMap());
-          movedProducts++;
+              price: price,
+              referenceId: historyRef.id,
+              referenceType: 'transfer',
+              totalValue: quantity * price,
+            );
+            fireTx.set(historyRef, _transferHistory(history, delta: -quantity));
+            return true;
+          });
+          if (moved) movedProducts++;
         }
       }
 
@@ -818,7 +883,7 @@ class StoreController extends GetxController {
       print('Error in bulk move to store: $e');
       Get.snackbar(
         'Error',
-        'Error in bulk move: $e',
+        operationErrorMessage(e),
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );
@@ -828,9 +893,7 @@ class StoreController extends GetxController {
   Future<void> moveAllStockToShop() async {
     final String? businessOwner = _businessController.business['owner'];
     final String? businessShop = _businessController.businessId.value;
-    
     if (businessOwner == null || businessShop == null) {
-      print('Business ID is null, cannot move stock.');
       Get.snackbar(
         'Error',
         'Business ID is null',
@@ -841,65 +904,70 @@ class StoreController extends GetxController {
     }
 
     try {
-      // Get all store products with quantity > 0
-      final storeProductsRef = firestore
+      final query = firestore
           .collection('store')
           .doc(businessOwner)
           .collection('userStore')
-          .where('quantity', isGreaterThan: 0);
-
-      final storeProductsSnapshot = await storeProductsRef.get();
+          .where('quantity', isGreaterThan: 0)
+          .limit(100);
       int movedProducts = 0;
 
-      for (var doc in storeProductsSnapshot.docs) {
-        final productData = doc.data();
-        final quantity = (productData['quantity'] ?? 0.0).toDouble();
-        
-        if (quantity > 0) {
-          // Move to shop
-          final shopProductRef = firestore
+      while (true) {
+        final page = await query.get();
+        if (page.docs.isEmpty) break;
+        for (final doc in page.docs) {
+          final shopRef = firestore
               .collection('products')
               .doc(businessShop)
               .collection('userProducts')
               .doc(doc.id);
-
-          final shopProductSnapshot = await shopProductRef.get();
-          double currentShopQuantity = 0.0;
-          
-          if (shopProductSnapshot.exists) {
-            currentShopQuantity = (shopProductSnapshot.data()?['quantity'] ?? 0.0).toDouble();
-          } else {
-            // Create shop product if it doesn't exist
-            final newProductData = Map<String, dynamic>.from(productData);
-            newProductData['quantity'] = 0.0;
-            await shopProductRef.set(newProductData);
-          }
-
-          // Update quantities
-          await doc.reference.update({'quantity': 0.0});
-          await shopProductRef.update({'quantity': currentShopQuantity + quantity});
-
-          // Log transaction
-          final transactionRef = firestore
+          final historyRef = firestore
               .collection('transactions')
               .doc(businessShop)
               .collection('usersTransactions')
               .doc();
-
-          final stockTransaction = StockTransaction(
-              transactionId: transactionRef.id,
+          final timestamp = Timestamp.now();
+          final moved = await firestore.runTransaction((fireTx) async {
+            final snapshots = await Future.wait([
+              fireTx.get(doc.reference),
+              fireTx.get(shopRef),
+            ]);
+            final storeSnapshot = snapshots[0];
+            final shopSnapshot = snapshots[1];
+            if (!storeSnapshot.exists) return false;
+            final quantity = _quantityFrom(storeSnapshot.data());
+            if (quantity <= 0) return false;
+            final shopQuantity = _quantityFrom(shopSnapshot.data());
+            final nextShopQuantity = shopQuantity + quantity;
+            fireTx.update(doc.reference, {'quantity': 0.0});
+            if (shopSnapshot.exists) {
+              fireTx.update(shopRef, {'quantity': nextShopQuantity});
+            } else {
+              final shopData = Map<String, dynamic>.from(storeSnapshot.data()!);
+              shopData['quantity'] = nextShopQuantity;
+              fireTx.set(shopRef, shopData);
+            }
+            final rawPrice = storeSnapshot.data()?['price'];
+            final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+            final history = StockTransaction(
+              transactionId: historyRef.id,
               productId: doc.id,
               quantity: quantity,
-              previousQuantity: currentShopQuantity,
+              previousQuantity: shopQuantity,
+              newQuantity: nextShopQuantity,
               transactionType: 'addition',
               transactionOrigin: 'Bulk Move From Store',
-              timestamp: Timestamp.now(),
+              timestamp: timestamp,
               userId: businessOwner,
-              price: (productData['price'] ?? 0.0).toDouble()
-          );
-
-          await transactionRef.set(stockTransaction.toMap());
-          movedProducts++;
+              price: price,
+              referenceId: historyRef.id,
+              referenceType: 'transfer',
+              totalValue: quantity * price,
+            );
+            fireTx.set(historyRef, _transferHistory(history, delta: quantity));
+            return true;
+          });
+          if (moved) movedProducts++;
         }
       }
 
@@ -912,7 +980,7 @@ class StoreController extends GetxController {
       print('Error in bulk move to shop: $e');
       Get.snackbar(
         'Error',
-        'Error in bulk move: $e',
+        operationErrorMessage(e),
         snackPosition: SnackPosition.BOTTOM,
         colorText: Colors.red,
       );

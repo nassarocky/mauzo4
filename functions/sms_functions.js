@@ -699,6 +699,7 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       supplierId,
       clientName,
       supplierName,
+      referenceId,
       amount,
       remaining,
       lines,
@@ -768,13 +769,68 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       }
     }
 
-    const itemLines = normalizeLines(lines);
+    let invoiceAmount = amount;
+    let itemLines = normalizeLines(lines);
+    let purchaseDraftRef = null;
+    if (smsType === "invoice" && referenceId) {
+      const invoiceId = String(referenceId).trim();
+      if (invoiceId && !invoiceId.includes("/")) {
+        const invoiceSnap = await firestore
+          .collection("invoices")
+          .doc(businessId)
+          .collection("userInvoices")
+          .doc(invoiceId)
+          .get();
+        if (invoiceSnap.exists) {
+          const invoice = invoiceSnap.data() || {};
+          const storedLines = normalizeLines(invoice.products);
+          if (storedLines.length > 0) {
+            itemLines = storedLines;
+          }
+          if (Number.isFinite(Number(invoice.price))) {
+            invoiceAmount = Number(invoice.price);
+          }
+        }
+      }
+    }
+    if (smsType === "purchase_list" && referenceId) {
+      const draftId = String(referenceId).trim();
+      if (!draftId || draftId.includes("/")) {
+        throw new HttpsError("invalid-argument", "Invalid purchase list ID.");
+      }
+      purchaseDraftRef = firestore
+        .collection("purchaseLists")
+        .doc(businessId)
+        .collection("drafts")
+        .doc(draftId);
+      const draftSnap = await purchaseDraftRef.get();
+      if (!draftSnap.exists) {
+        throw new HttpsError("not-found", "Purchase list not found.");
+      }
+      const draft = draftSnap.data() || {};
+      if (String(draft.status || "draft") === "converted") {
+        throw new HttpsError(
+          "failed-precondition",
+          "This purchase list was already converted."
+        );
+      }
+      const storedLines = normalizeLines(draft.products);
+      if (storedLines.length === 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Purchase list has no products."
+        );
+      }
+      itemLines = storedLines;
+      destPhone = destPhone || draft.supplierPhone;
+      destName = destName || draft.supplierName || "";
+    }
     let text = String(message || "").trim();
     if (!text) {
       if (smsType === "invoice") {
         text = smsHelpers.buildInvoiceSms({
           clientName: destName,
-          amount,
+          amount: invoiceAmount,
           currency,
           businessName,
           lines: itemLines,
@@ -818,7 +874,7 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       }
     }
 
-    return deductAndSend({
+    const result = await deductAndSend({
       businessId,
       phone: destPhone,
       message: text,
@@ -828,8 +884,24 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
         clientId: clientId || "",
         clientName: destName,
         supplierId: supplierId || "",
+        referenceId: referenceId || "",
+        lineCount: itemLines.length,
       },
     });
+    if (purchaseDraftRef) {
+      await purchaseDraftRef.update({
+        lastSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        sendCount: admin.firestore.FieldValue.increment(1),
+      }).catch((error) => {
+        console.error("Purchase list SMS sent but metadata update failed", {
+          businessId,
+          referenceId,
+          error: error?.message || String(error),
+        });
+      });
+    }
+    return result;
   }
 
   async function updateSmsSettings(request) {

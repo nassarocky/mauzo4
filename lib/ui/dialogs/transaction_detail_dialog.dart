@@ -24,7 +24,10 @@ class TransactionDetailDialog extends StatelessWidget {
   }
 
   String formatCurrency(double amount, String currency) {
-    final formatCurrency = NumberFormat.currency(symbol: currency, decimalDigits: 2);
+    final formatCurrency = NumberFormat.currency(
+      symbol: currency,
+      decimalDigits: 2,
+    );
     return formatCurrency.format(amount);
   }
 
@@ -48,34 +51,51 @@ class TransactionDetailDialog extends StatelessWidget {
     if (origin == TransactionOrigins.saleDeleted) {
       return Icons.delete_sweep_outlined;
     }
-    return type == 'addition' ? Icons.add_circle_outline : Icons.remove_circle_outline;
+    return type == 'addition'
+        ? Icons.add_circle_outline
+        : Icons.remove_circle_outline;
   }
 
   @override
   Widget build(BuildContext context) {
     final BusinessController businessController = Get.find();
     final currency = businessController.business['mainCurrency'] ?? 'TZS';
-    
-    final isAddition = transaction.transactionType == 'addition';
+
+    final isAddition = transaction.delta != null
+        ? transaction.delta! >= 0
+        : transaction.transactionType == 'addition';
     final beforeQty = transaction.previousQuantity;
 
     final bool isCFTransferTransaction =
         transaction.transactionOrigin == 'Product Transfer Out' ||
-        transaction.transactionOrigin == 'Product Transfer In';
+        transaction.transactionOrigin == 'Product Transfer In' ||
+        transaction.transactionOrigin == 'Batch Transfer Out' ||
+        transaction.transactionOrigin == 'Batch Transfer In';
 
     final double quantityChange;
     final double afterQty;
-    if (isCFTransferTransaction) {
+    if (transaction.delta != null) {
+      quantityChange = transaction.delta!.abs();
+      afterQty = transaction.newQuantity ?? beforeQty + transaction.delta!;
+    } else if (isCFTransferTransaction) {
       afterQty = transaction.newQuantity ?? transaction.quantity;
       quantityChange = (beforeQty - afterQty).abs();
     } else {
       quantityChange = transaction.quantity;
-      afterQty = transaction.newQuantity ??
-          (isAddition ? beforeQty + quantityChange : beforeQty - quantityChange);
+      afterQty =
+          transaction.newQuantity ??
+          (isAddition
+              ? beforeQty + quantityChange
+              : beforeQty - quantityChange);
     }
 
-    final totalValue = transaction.totalValue ?? (quantityChange * transaction.price);
-    final transactionColor = getTransactionColor(transaction.transactionType, transaction.transactionOrigin);
+    final totalValue =
+        transaction.totalValue ?? (quantityChange * transaction.price);
+    final estimatePrefix = transaction.quantityEstimated ? '~' : '';
+    final transactionColor = getTransactionColor(
+      transaction.transactionType,
+      transaction.transactionOrigin,
+    );
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -98,7 +118,10 @@ class TransactionDetailDialog extends StatelessWidget {
                 child: Row(
                   children: [
                     Icon(
-                      getTransactionIcon(transaction.transactionType, transaction.transactionOrigin),
+                      getTransactionIcon(
+                        transaction.transactionType,
+                        transaction.transactionOrigin,
+                      ),
                       color: transactionColor,
                       size: 32,
                     ),
@@ -132,7 +155,7 @@ class TransactionDetailDialog extends StatelessWidget {
                   ],
                 ),
               ),
-              
+
               // Product Info
               Container(
                 padding: const EdgeInsets.all(16),
@@ -221,13 +244,16 @@ class TransactionDetailDialog extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.grey[200],
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                beforeQty.toStringAsFixed(1),
+                                '$estimatePrefix${beforeQty.toStringAsFixed(1)}',
                                 style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
@@ -236,7 +262,7 @@ class TransactionDetailDialog extends StatelessWidget {
                             ),
                           ],
                         ),
-                        
+
                         // Arrow with change
                         Column(
                           children: [
@@ -247,7 +273,10 @@ class TransactionDetailDialog extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: transactionColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(4),
@@ -263,7 +292,7 @@ class TransactionDetailDialog extends StatelessWidget {
                             ),
                           ],
                         ),
-                        
+
                         // After
                         Column(
                           children: [
@@ -276,7 +305,10 @@ class TransactionDetailDialog extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: transactionColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -286,7 +318,7 @@ class TransactionDetailDialog extends StatelessWidget {
                                 ),
                               ),
                               child: Text(
-                                afterQty.toStringAsFixed(1),
+                                '$estimatePrefix${afterQty.toStringAsFixed(1)}',
                                 style: TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
@@ -348,11 +380,13 @@ class TransactionDetailDialog extends StatelessWidget {
                       _buildDetailRow(
                         icon: Icons.link,
                         label: 'Reference',
-                        value: '${transaction.referenceType ?? 'Document'} #${transaction.referenceId}',
+                        value:
+                            '${transaction.referenceType ?? 'Document'} #${transaction.referenceId}',
                         copyable: true,
                       ),
                     ],
-                    if (transaction.notes != null && transaction.notes!.isNotEmpty) ...[
+                    if (transaction.notes != null &&
+                        transaction.notes!.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       _buildDetailRow(
                         icon: Icons.note,
@@ -414,10 +448,7 @@ class TransactionDetailDialog extends StatelessWidget {
             children: [
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
               const SizedBox(height: 2),
               Row(

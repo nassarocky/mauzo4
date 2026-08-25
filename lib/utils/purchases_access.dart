@@ -11,6 +11,7 @@ class PurchasesAccess {
     '/bought',
     '/buy',
     '/buycart',
+    '/purchase-lists',
     '/suppliers',
     '/supplier/select',
     '/supplier/add',

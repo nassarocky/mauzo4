@@ -18,9 +18,10 @@ class TransactionController extends GetxController {
 
   final selectedCategory = 'No category'.obs;
   final selectedManufacturer = 'No manufacturer'.obs;
-  
+
   // NEW: Cache for per-product transaction streams
-  final Map<String, StreamSubscription<List<StockTransaction>>> _productStreams = {};
+  final Map<String, StreamSubscription<List<StockTransaction>>>
+  _productStreams = {};
   final Map<String, RxList<StockTransaction>> _productTransactions = {};
 
   @override
@@ -29,11 +30,14 @@ class TransactionController extends GetxController {
 
     try {
       // Check if required controllers are available
-      final BusinessController businessController = Get.find<BusinessController>();
+      final BusinessController businessController =
+          Get.find<BusinessController>();
       final ProfileController profileController = Get.find<ProfileController>();
-      
+
       if (businessController.businessId.value.isEmpty) {
-        print("BusinessController not ready, skipping transaction stream initialization");
+        print(
+          "BusinessController not ready, skipping transaction stream initialization",
+        );
         return;
       }
 
@@ -45,7 +49,7 @@ class TransactionController extends GetxController {
       //   searchTransactions.value = data;
       //   filteredtransactions.value = data;
       // });
-      
+
       // OPTION 2: Use lazy loading (recommended for better performance)
       // Transactions are now loaded per-product using loadProductTransactions()
       print("TransactionController initialized with lazy loading mode");
@@ -58,26 +62,26 @@ class TransactionController extends GetxController {
   @override
   void onClose() {
     _transactionSubscription?.cancel();
-    
+
     // Cancel all per-product streams
     for (var subscription in _productStreams.values) {
       subscription.cancel();
     }
     _productStreams.clear();
     _productTransactions.clear();
-    
+
     super.onClose();
   }
 
   StockTransaction getTransactions(String transactionId) {
     return transactions.firstWhere(
-          (transaction) => transaction.transactionId == transactionId,
+      (transaction) => transaction.transactionId == transactionId,
       orElse: () => StockTransaction(
         transactionId: '',
         productId: '',
         quantity: 0,
         previousQuantity: 0,
-        newQuantity: 0,  // Include new field with default
+        newQuantity: 0, // Include new field with default
         transactionType: '',
         transactionOrigin: '',
         timestamp: Timestamp.now(),
@@ -98,9 +102,11 @@ class TransactionController extends GetxController {
     filteredtransactions.value = transactions;
     if (searchText.value.isNotEmpty) {
       filteredtransactions.value = transactions
-          .where((transaction) => transaction.transactionType
-          .toLowerCase()
-          .contains(searchText.value.toLowerCase()))
+          .where(
+            (transaction) => transaction.transactionType.toLowerCase().contains(
+              searchText.value.toLowerCase(),
+            ),
+          )
           .toList();
     }
     if (filterCategories.isNotEmpty) {
@@ -117,13 +123,13 @@ class TransactionController extends GetxController {
     if (_productTransactions.containsKey(productId)) {
       return _productTransactions[productId]!.toList();
     }
-    
+
     // Otherwise, filter from all transactions (fallback for old behavior)
     return transactions
         .where((transaction) => transaction.productId == productId)
         .toList();
   }
-  
+
   /// NEW: Lazy load transactions for a specific product
   /// Call this when user opens transaction screen for a product
   void loadProductTransactions(String productId) {
@@ -132,35 +138,43 @@ class TransactionController extends GetxController {
       print('Transactions for product $productId already loaded');
       return;
     }
-    
+
     print('🔄 Lazy loading transactions for product: $productId');
-    
+
     try {
-      final BusinessController businessController = Get.find<BusinessController>();
+      final BusinessController businessController =
+          Get.find<BusinessController>();
       final String? businessId = businessController.businessId.value;
-      
+
       if (businessId == null || businessId.isEmpty) {
         print('❌ Cannot load transactions: businessId is empty');
         return;
       }
-      
+
       // Create observable list for this product
       _productTransactions[productId] = <StockTransaction>[].obs;
-      
+
       // Subscribe to Firestore stream for this specific product
       _productStreams[productId] = FirestoreDb()
           .getTransactionsByProduct(productId)
-          .listen((data) {
-        print('✅ Loaded ${data.length} transactions for product $productId');
-        _productTransactions[productId]!.value = data;
-      }, onError: (error) {
-        print('❌ Error loading transactions for product $productId: $error');
-      });
+          .listen(
+            (data) {
+              print(
+                '✅ Loaded ${data.length} transactions for product $productId',
+              );
+              _productTransactions[productId]!.value = data;
+            },
+            onError: (error) {
+              print(
+                '❌ Error loading transactions for product $productId: $error',
+              );
+            },
+          );
     } catch (e) {
       print('❌ Error setting up transaction stream for product $productId: $e');
     }
   }
-  
+
   /// NEW: Unload transactions for a product to free memory
   /// Call this when user leaves transaction screen
   void unloadProductTransactions(String productId) {
@@ -180,9 +194,11 @@ class TransactionController extends GetxController {
   void search(String searchValue) {
     searchText.value = searchValue;
     searchTransactions.value = transactions
-        .where((transaction) => transaction.transactionOrigin
-        .toLowerCase()
-        .contains(searchValue.toLowerCase()))
+        .where(
+          (transaction) => transaction.transactionOrigin.toLowerCase().contains(
+            searchValue.toLowerCase(),
+          ),
+        )
         .toList();
     filteredTransactions();
   }
@@ -199,15 +215,16 @@ class TransactionController extends GetxController {
     transactions.clear();
     filteredtransactions.clear();
   }
-  
+
   /// Verify if a product's transaction history matches its current quantity
   /// Returns a map with verification results
-  Future<Map<String, dynamic>> verifyProductTransactions(String productId, double currentQuantity) async {
+  Future<Map<String, dynamic>> verifyProductTransactions(
+    String productId,
+    double currentQuantity,
+  ) async {
     try {
       // Get all transactions for this product
-      final productTransactions = transactions
-          .where((txn) => txn.productId == productId)
-          .toList()
+      final productTransactions = getTransactionsByProductId(productId).toList()
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
       if (productTransactions.isEmpty) {
@@ -222,11 +239,19 @@ class TransactionController extends GetxController {
 
       // Calculate expected quantity from transactions
       double calculatedQty = 0.0;
-      
+
       for (var txn in productTransactions) {
-        if (txn.transactionOrigin == 'Opening Stock') {
+        if (txn.delta != null) {
+          calculatedQty += txn.delta!;
+        } else if (txn.transactionOrigin == 'Opening Stock') {
           // Opening stock sets the initial quantity
           calculatedQty = txn.quantity;
+        } else if ((txn.transactionOrigin == 'Product Transfer In' ||
+                txn.transactionOrigin == 'Product Transfer Out' ||
+                txn.transactionOrigin == 'Batch Transfer In' ||
+                txn.transactionOrigin == 'Batch Transfer Out') &&
+            txn.newQuantity != null) {
+          calculatedQty += txn.newQuantity! - txn.previousQuantity;
         } else if (txn.transactionType == 'addition') {
           calculatedQty += txn.quantity;
         } else if (txn.transactionType == 'removal') {
@@ -235,7 +260,8 @@ class TransactionController extends GetxController {
       }
 
       final difference = currentQuantity - calculatedQty;
-      final isValid = difference.abs() < 0.01; // Allow small floating point differences
+      final isValid =
+          difference.abs() < 0.01; // Allow small floating point differences
 
       return {
         'isValid': isValid,
@@ -247,19 +273,15 @@ class TransactionController extends GetxController {
       };
     } catch (e) {
       print('Error verifying transactions: $e');
-      return {
-        'isValid': false,
-        'error': 'Error during verification: $e',
-      };
+      return {'isValid': false, 'error': 'Error during verification: $e'};
     }
   }
-  
+
   /// Get detailed transaction summary for a product
   Map<String, dynamic> getProductTransactionSummary(String productId) {
-    final productTransactions = transactions
-        .where((txn) => txn.productId == productId)
-        .toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final productTransactions =
+        transactions.where((txn) => txn.productId == productId).toList()
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
     if (productTransactions.isEmpty) {
       return {

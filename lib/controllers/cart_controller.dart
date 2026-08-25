@@ -16,6 +16,7 @@ class CartController extends GetxController {
   String origin = 'sale';
   String passedArgument = 'NOT';
   String editInvoice = 'NOT';
+  String purchaseListDraftId = '';
   get products => _products;
 
   /// O(1) qty/price lookups rebuilt whenever cart lines change.
