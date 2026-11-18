@@ -43,8 +43,12 @@ service cloud.firestore {
 
     // ✅ Businesses collection
     match /businesses/{businessId} {
-      // Allow creation of a new business if authenticated
-      allow create: if request.auth != null;
+      // Signup may create the first shop before the profile exists.
+      // After that, the login list must still be under maxBusiness.
+      // Owned-shop count is enforced in enforceBusinessOwnerLimit.
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && businessCreateUnderLoginLimit();
 
       // Allow read & delete if user belongs to the business
       allow get, list, delete: if isBusinessAllowed(businessId);
@@ -388,6 +392,21 @@ match /inventoryLosses/{businessId} {
     // ❌ Deny everything else explicitly
     match /{document=**} {
       allow read, write: if false;
+    }
+
+    function businessCreateUnderLoginLimit() {
+      return !exists(/databases/$(database)/documents/gmanusers/$(request.auth.uid))
+        || userProfile().get('business', []).size() < maxBusinessLimit();
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/gmanusers/$(request.auth.uid)).data;
+    }
+
+    function maxBusinessLimit() {
+      return userProfile().get('maxBusiness', 2) > 0
+        ? userProfile().get('maxBusiness', 2)
+        : 2;
     }
 
     // ✅ Helper Functions

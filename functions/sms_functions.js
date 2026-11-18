@@ -80,6 +80,16 @@ function canSendDebtSms(userData) {
   );
 }
 
+function canSendAdvertisementSms(userData) {
+  const role = String(userData.role || "").toLowerCase();
+  const perms = Array.isArray(userData.permissions) ? userData.permissions : [];
+  return (
+    role === "owner" ||
+    role === "manager" ||
+    perms.includes("manage_clients")
+  );
+}
+
 function canBuySms(userData) {
   return String(userData.role || "").toLowerCase() === "owner";
 }
@@ -207,7 +217,15 @@ async function applySmsPaymentFromCallback(firestore, admin, additionalProps, ex
   return true;
 }
 
-function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommissionAdmin }) {
+function createSmsHandlers({
+  firestore,
+  admin,
+  fetchImpl,
+  secrets,
+  assertCommissionAdmin,
+  // Granting SMS is limited to full admins; default keeps older callers/tests working.
+  assertFullCommissionAdmin = assertCommissionAdmin,
+}) {
   async function sendDebtReminderSms(request) {
       const uid = request.auth?.uid;
       const {
@@ -406,6 +424,214 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       };
   }
 
+  async function sendAdvertisementSms(request) {
+    const uid = request.auth?.uid;
+    const { businessId, clientIds, message } = request.data || {};
+    const userData = await assertBusinessMember(firestore, uid, businessId);
+    if (!canSendAdvertisementSms(userData)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You cannot send advertisements to clients."
+      );
+    }
+
+    const ids = [...new Set(
+      (Array.isArray(clientIds) ? clientIds : [])
+        .filter((id) => typeof id === "string" && id.trim())
+        .map((id) => id.trim())
+    )];
+    if (!ids.length) {
+      throw new HttpsError("invalid-argument", "Select at least one client.");
+    }
+    if (ids.length > MAX_REMINDERS_PER_CALL) {
+      throw new HttpsError(
+        "invalid-argument",
+        `You can send to at most ${MAX_REMINDERS_PER_CALL} clients at once.`
+      );
+    }
+    if (ids.some((id) => id.includes("/"))) {
+      throw new HttpsError("invalid-argument", "Invalid client selection.");
+    }
+
+    const template = String(message || "").trim();
+    if (!template) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Write an advertisement message."
+      );
+    }
+
+    const bizSnap = await firestore.collection("businesses").doc(businessId).get();
+    if (!bizSnap.exists) {
+      throw new HttpsError("not-found", "Business not found.");
+    }
+    const business = bizSnap.data() || {};
+    const businessName = business.name || "Biashara";
+    const clientRefs = ids.map((clientId) =>
+      firestore
+        .collection("clients")
+        .doc(businessId)
+        .collection("userClients")
+        .doc(clientId)
+    );
+    const clientSnaps = await firestore.getAll(...clientRefs);
+    const phones = new Set();
+    const recipients = [];
+
+    for (const clientSnap of clientSnaps) {
+      if (!clientSnap.exists) continue;
+      const client = clientSnap.data() || {};
+      const phone = smsHelpers.normalizeSmsPhone(client.phone);
+      if (!phone || phone.length < 11 || phone.length > 15 || phones.has(phone)) {
+        continue;
+      }
+      const text = smsHelpers.applyAdvertisementTemplate(template, {
+        clientName: client.name,
+        businessName,
+      });
+      const segments = smsHelpers.countSmsSegments(text);
+      if (segments < 1) {
+        throw new HttpsError("invalid-argument", "Message is required.");
+      }
+      phones.add(phone);
+      recipients.push({
+        clientId: clientSnap.id,
+        clientName: String(client.name || ""),
+        phone,
+        message: text,
+        segments,
+      });
+    }
+
+    if (!recipients.length) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No selected clients have a valid phone number."
+      );
+    }
+
+    const creditsNeeded = recipients.reduce(
+      (sum, recipient) => sum + recipient.segments,
+      0
+    );
+    const bizRef = firestore.collection("businesses").doc(businessId);
+    await firestore.runTransaction(async (transaction) => {
+      const currentSnap = await transaction.get(bizRef);
+      const current = currentSnap.data() || {};
+      const available = Number(current.smsCredits) || 0;
+      if (available < creditsNeeded) {
+        throw new Error("SMS_CREDITS_EXHAUSTED");
+      }
+      transaction.update(bizRef, {
+        smsCredits: available - creditsNeeded,
+        smsCreditsUsed:
+          (Number(current.smsCreditsUsed) || 0) + creditsNeeded,
+      });
+    }).catch((error) => {
+      if (String(error.message || "").includes("SMS_CREDITS_EXHAUSTED")) {
+        throw new HttpsError(
+          "resource-exhausted",
+          `Not enough SMS credits. Need ${creditsNeeded}. Buy an SMS pack first.`
+        );
+      }
+      throw error;
+    });
+
+    const logCollection = firestore
+      .collection("smsLogs")
+      .doc(businessId)
+      .collection("messages");
+    const results = [];
+    let creditsUsed = 0;
+    let failedCredits = 0;
+
+    for (const recipient of recipients) {
+      try {
+        const parsed = await sendViaMobishastra(
+          fetchImpl,
+          secrets,
+          recipient.phone,
+          recipient.message
+        );
+        if (!parsed.success) {
+          failedCredits += recipient.segments;
+          results.push({
+            clientId: recipient.clientId,
+            phone: recipient.phone,
+            success: false,
+            error: parsed.raw || "SMS not sent",
+          });
+          await logCollection.add({
+            ...recipient,
+            type: "advertisement",
+            status: "failed",
+            providerResponse: parsed.raw,
+            credits: recipient.segments,
+            sentBy: uid,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          }).catch((error) => {
+            console.error("[sms] advertisement failure log failed", error);
+          });
+          continue;
+        }
+
+        creditsUsed += recipient.segments;
+        results.push({
+          clientId: recipient.clientId,
+          phone: recipient.phone,
+          success: true,
+          credits: recipient.segments,
+        });
+        await logCollection.add({
+          ...recipient,
+          type: "advertisement",
+          status: "sent",
+          providerResponse: parsed.raw,
+          credits: recipient.segments,
+          sentBy: uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }).catch((error) => {
+          console.error("[sms] advertisement success log failed", error);
+        });
+      } catch (error) {
+        failedCredits += recipient.segments;
+        results.push({
+          clientId: recipient.clientId,
+          phone: recipient.phone,
+          success: false,
+          error: error.message || "SMS delivery failed",
+        });
+        await logCollection.add({
+          ...recipient,
+          type: "advertisement",
+          status: "failed",
+          providerResponse: error.message || "SMS delivery failed",
+          credits: recipient.segments,
+          sentBy: uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }).catch((logError) => {
+          console.error("[sms] advertisement exception log failed", logError);
+        });
+      }
+    }
+
+    if (failedCredits > 0) {
+      await bizRef.update({
+        smsCredits: admin.firestore.FieldValue.increment(failedCredits),
+        smsCreditsUsed: admin.firestore.FieldValue.increment(-failedCredits),
+      });
+    }
+
+    const sent = results.filter((result) => result.success).length;
+    return {
+      success: sent > 0,
+      sent,
+      failed: results.length - sent,
+      creditsUsed,
+      results,
+    };
+  }
+
   async function makeSmsPayment(req, res) {
     setCors(req, res);
     if (req.method === "OPTIONS") {
@@ -504,7 +730,7 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
   }
 
   async function grantSmsCredits(request) {
-    await assertCommissionAdmin(request);
+    await assertFullCommissionAdmin(request);
     const { businessId, credits, packId, note } = request.data || {};
     const n = smsHelpers.parseSmsCreditsValue(credits);
     if (!businessId || !n) {
@@ -705,6 +931,8 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       lines,
       lang,
       message,
+      payment,
+      debt,
     } = data;
 
     const userData = await assertBusinessMember(firestore, uid, businessId);
@@ -716,6 +944,8 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       role === "manager" ||
       (smsType === "invoice" && (perms.includes("share_invoices") || perms.includes("print_invoices"))) ||
       (smsType === "purchase_list" && perms.includes("buy_products")) ||
+      (smsType === "purchase_receipt" &&
+        (perms.includes("buy_products") || perms.includes("view_purchases"))) ||
       (["advance", "debt_payment", "debt_reminder"].includes(smsType) &&
         (perms.includes("send_debt_sms") || perms.includes("manage_debt"))) ||
       smsType === "custom";
@@ -742,7 +972,8 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
 
     let destPhone = phone;
     let destName = clientName || supplierName || "";
-    if (!destPhone && clientId) {
+    let clientTotalDebt;
+    if (clientId) {
       const clientSnap = await firestore
         .collection("clients")
         .doc(businessId)
@@ -751,8 +982,12 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
         .get();
       if (clientSnap.exists) {
         const client = clientSnap.data() || {};
-        destPhone = client.phone;
+        destPhone = destPhone || client.phone;
         destName = destName || client.name || "";
+        const debt = Number(client.debt);
+        if (Number.isFinite(debt)) {
+          clientTotalDebt = Math.max(0, debt);
+        }
       }
     }
     if (!destPhone && supplierId) {
@@ -770,6 +1005,8 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
     }
 
     let invoiceAmount = amount;
+    let receiptPayment = payment;
+    let receiptDebt = debt;
     let itemLines = normalizeLines(lines);
     let purchaseDraftRef = null;
     if (smsType === "invoice" && referenceId) {
@@ -825,6 +1062,34 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       destPhone = destPhone || draft.supplierPhone;
       destName = destName || draft.supplierName || "";
     }
+    if (smsType === "purchase_receipt" && referenceId) {
+      const purchaseId = String(referenceId).trim();
+      if (purchaseId && !purchaseId.includes("/")) {
+        const purchaseSnap = await firestore
+          .collection("recovered")
+          .doc(businessId)
+          .collection("userRecovered")
+          .doc(purchaseId)
+          .get();
+        if (purchaseSnap.exists) {
+          const purchase = purchaseSnap.data() || {};
+          const storedLines = normalizeLines(purchase.products);
+          if (storedLines.length > 0) {
+            itemLines = storedLines;
+          }
+          if (Number.isFinite(Number(purchase.price))) {
+            invoiceAmount = Number(purchase.price);
+          }
+          if (Number.isFinite(Number(purchase.payment))) {
+            receiptPayment = Number(purchase.payment);
+          }
+          if (Number.isFinite(Number(purchase.debt))) {
+            receiptDebt = Number(purchase.debt);
+          }
+          destName = destName || purchase.supplierName || purchase.suppliername || "";
+        }
+      }
+    }
     let text = String(message || "").trim();
     if (!text) {
       if (smsType === "invoice") {
@@ -843,6 +1108,17 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
           lines: itemLines,
           lang: messageLang,
         });
+      } else if (smsType === "purchase_receipt") {
+        text = smsHelpers.buildPurchaseReceiptSms({
+          supplierName: destName,
+          businessName,
+          amount: invoiceAmount,
+          currency,
+          lines: itemLines,
+          payment: receiptPayment,
+          debt: receiptDebt,
+          lang: messageLang,
+        });
       } else if (smsType === "advance") {
         text = smsHelpers.buildAdvanceSms({
           clientName: destName,
@@ -855,7 +1131,10 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
         text = smsHelpers.buildDebtPaymentSms({
           clientName: destName,
           amount,
-          remaining,
+          remaining: smsHelpers.remainingDebtForPaymentSms({
+            clientTotalDebt,
+            fallbackRemaining: remaining,
+          }),
           currency,
           businessName,
           lang: messageLang,
@@ -1304,7 +1583,14 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
       const settings = smsHelpers.normalizeSmsSettings(business.smsSettings);
       if (!settings.dailyDigestEnabled) continue;
       const last = smsHelpers.firestoreToDate(business.smsLastDailyDigestAt);
-      if (last && smsHelpers.sameCalendarDay(last, smsHelpers.startOfDayNairobi(today))) {
+      if (
+        !smsHelpers.isDailyDigestDue({
+          now: today,
+          hour: settings.dailyDigestHour,
+          minute: settings.dailyDigestMinute,
+          lastSent: last,
+        })
+      ) {
         continue;
       }
       const ownerPhone = business.phone;
@@ -1340,6 +1626,7 @@ function createSmsHandlers({ firestore, admin, fetchImpl, secrets, assertCommiss
 
   return {
     sendDebtReminderSms,
+    sendAdvertisementSms,
     sendBusinessSms,
     updateSmsSettings,
     processScheduledSmsJobs,

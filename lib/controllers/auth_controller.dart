@@ -12,6 +12,7 @@ import 'package:mauzo/controllers/pay_role_controller.dart';
 import 'package:mauzo/controllers/payment_controller.dart';
 import 'package:path_provider/path_provider.dart';
 import '../utils/app_navigation.dart';
+import '../utils/app_navigation_policy.dart';
 import '../utils/constants.dart';
 import '../utils/firestore_auth_retry.dart';
 import '../utils/preferences.dart';
@@ -172,8 +173,11 @@ class AuthController extends GetxController {
     _initializePaymentGeneration();
     _authBootstrapDone = true;
 
-    final route = AppNavigation.currentRoute();
-    if (route == '/login' || route == '/' || route.isEmpty) {
+    // Get.currentRoute is often '/' or empty after Navigator.pushNamed from
+    // home. Resetting on those values wipes the screen the user just opened.
+    if (AppNavigationPolicy.shouldResetToHomeAfterLoginBootstrap(
+      AppNavigation.currentRoute(),
+    )) {
       AppNavigation.offAllNamed('/home', reason: 'bootstrap_logged_in');
     }
   }

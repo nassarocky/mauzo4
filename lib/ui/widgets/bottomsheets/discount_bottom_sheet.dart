@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:pattern_formatter/numeric_formatter.dart';
 import 'package:mauzo/controllers/cart_controller.dart';
 import 'package:mauzo/utils/constants.dart';
+import 'package:mauzo/utils/discount_rules.dart';
 import 'package:mauzo/utils/preferences.dart';
 
 import '../../../controllers/business_controller.dart';
@@ -86,7 +87,16 @@ class _DiscountBottomSheetState extends State<DiscountBottomSheet> {
                       double discount = double.tryParse(
                               _discountController.text.replaceAll(',', '')) ??
                           0;
-                      if(((_cartController.productsPrice-discount)>=_cartController.productsOriginalPrice)||isDiscountExceedingPercent(price: _cartController.productsPrice, discount: discount, discountPercent: _businessController.business['discountPercent'])){
+                      if (isCartDiscountAllowed(
+                        productsPrice: _cartController.productsPrice,
+                        productsOriginalPrice:
+                            _cartController.productsOriginalPrice,
+                        discountableSubtotal:
+                            _cartController.discountableSubtotal,
+                        discount: discount,
+                        discountPercent:
+                            _businessController.business['discountPercent'],
+                      )) {
                       if (discount > 0 &&
                           widget.chosenCurrency ==
                               _businessController.business['secondaryCurrency']) {
@@ -122,7 +132,17 @@ class _DiscountBottomSheetState extends State<DiscountBottomSheet> {
                         _cartController.setDiscount(discount);
                       }} else{
 
-                   errorSnackbar('Maximum allowed Discount is ${_businessController.business['discountPercent']} percent');
+                        if (_cartController.hasNonDiscountableProducts &&
+                            _cartController.discountableSubtotal <= 0) {
+                          errorSnackbar('discount_not_allowed_for_products'.tr);
+                        } else if (_cartController.hasNonDiscountableProducts) {
+                          errorSnackbar(
+                            '${'discount_limited_by_products'.tr} '
+                            '(${_businessController.business['discountPercent']}%)',
+                          );
+                        } else {
+                          errorSnackbar('Maximum allowed Discount is ${_businessController.business['discountPercent']} percent');
+                        }
 
                       }
                     }

@@ -12,6 +12,7 @@ import '../../controllers/product_controller.dart';
 import '../../controllers/profile_controller.dart';
 import '../../utils/preferences.dart';
 import '../../utils/sale_line_quantity.dart';
+import 'product_sales_report_screen.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({Key? key}) : super(key: key);
@@ -246,6 +247,20 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       appBar: AppBar(
         title: Text('statistics'.tr),
         elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: 'products_sold_report'.tr,
+            icon: const Icon(Icons.analytics_outlined),
+            onPressed: _isLoading
+                ? null
+                : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ProductSalesReportScreen(sales: _allSales),
+                      ),
+                    ),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

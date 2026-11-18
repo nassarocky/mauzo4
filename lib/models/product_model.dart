@@ -23,6 +23,10 @@ class Product {
   double count;
   double buyingPrice;
   double discount;
+
+  /// When false, this product is left out of the cart discount allowance
+  /// (business Allowed Discount Percent). Missing in Firestore = allowed.
+  bool allowDiscount;
   String manufacturer;
   String location;
   String details;
@@ -65,6 +69,7 @@ class Product {
     this.wholesaleMinQuantity = defaultWholesaleMinQuantity,
     this.buyingPrice = 0.0,
     this.discount = 0.0,
+    this.allowDiscount = true,
     this.manufacturer = '',
     this.location = '',
     this.details = '',
@@ -126,6 +131,7 @@ class Product {
       wholesaleMinQuantity: convertToInt(data['wholesaleMinQuantity']),
       buyingPrice: convertToDouble(data['buyingPrice']),
       discount: convertToDouble(data['discount']),
+      allowDiscount: data['allowDiscount'] as bool? ?? true,
       reserveDouble1: convertToDouble(data['reserveDouble1']),
       reserveDouble2: convertToDouble(data['reserveDouble2']),
       reserveList1: List<String>.from(data['reserveList1'] ?? []),
@@ -157,6 +163,7 @@ class Product {
       'wholesaleMinQuantity': wholesaleMinQuantity,
       'buyingPrice': buyingPrice,
       'discount': discount,
+      'allowDiscount': allowDiscount,
       'manufacturer': manufacturer,
       'location': location,
       'details': details,

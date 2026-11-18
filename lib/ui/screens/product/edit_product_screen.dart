@@ -71,6 +71,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
   late final TextEditingController newUnitController = TextEditingController(
     text: widget.product.reserveString1.toString(),
   );
+  late bool _allowDiscount = widget.product.allowDiscount;
   bool _isBuyingPriceEmpty = false;
   bool showAdditionalFields =
       false; // State to track visibility of additional fields
@@ -917,7 +918,18 @@ class _EditProductScreenState extends State<EditProductScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('allow_discount_for_product'.tr),
+                          subtitle: Text(
+                            'allow_discount_for_product_hint'.tr,
+                            style: bodyText(textPlaceholderColor),
+                          ),
+                          value: _allowDiscount,
+                          onChanged: (v) => setState(() => _allowDiscount = v),
+                        ),
+                        const SizedBox(height: 16),
                         // Expire Date Input Field
                         SizedBox(
                           height: 44,
@@ -1553,6 +1565,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
       'price': price,
       'wholesalePrice': wholesalePrice,
       'wholesaleMinQuantity': wholesaleMinQuantity,
+      'allowDiscount': _allowDiscount,
       'uomConversions': <Map<String, dynamic>>[],
       'quantity': newQuantity,
       'category': categoryController.text.trim(),

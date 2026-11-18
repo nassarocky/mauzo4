@@ -14,6 +14,10 @@ import '../../utils/constants.dart';
 import '../../utils/purchases_access.dart';
 import '../../utils/preferences.dart';
 import '../../utils/operation_error_message.dart';
+import '../../utils/sms_phone.dart';
+import '../../utils/sms_settings.dart';
+import '../../services/sms_reminder_service.dart';
+import '../widgets/dialogs/sms_recipient_dialog.dart';
 import '../widgets/bottomsheets/comment_bottom_sheet.dart';
 import '../widgets/buttons/primary_button.dart';
 import '../widgets/dashed_seperator.dart';
@@ -1020,7 +1024,14 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                   try {
                                     final bool wasEdit =
                                         _cartController.passedArgument != 'NOT';
-                                    // Check if we are updating an existing purchase
+                                    final receiptSupplier = _cartController.supplier;
+                                    final receiptAmount =
+                                        _cartController.productsPrice;
+                                    final receiptPayment = _cartController.payment;
+                                    final receiptDebt = _cartController.remaining;
+                                    final receiptLines =
+                                        productLinesForSms(products);
+                                    String? purchaseId;
                                     if (wasEdit) {
                                       if (_purchaseDestination == 'shop') {
                                         await _commitEditPurchaseShop(products);
@@ -1028,15 +1039,26 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
                                         await _commitEditPurchaseStore(products);
                                       }
                                     } else {
-                                      await addSale(products);
+                                      purchaseId = await addSale(products);
                                     }
-                                   
-                                    // clear cart
+
                                     clearCartData();
-                                    // navigate to home
+                                    if (mounted) {
+                                      setState(() => _isLoading = false);
+                                    }
+                                    if (!wasEdit && mounted) {
+                                      await _offerPurchaseReceiptSms(
+                                        referenceId: purchaseId,
+                                        supplier: receiptSupplier,
+                                        amount: receiptAmount,
+                                        payment: receiptPayment,
+                                        debt: receiptDebt,
+                                        lines: receiptLines,
+                                      );
+                                    }
+                                    if (!mounted) return;
                                     Navigator.pushNamedAndRemoveUntil(
                                         context, '/home', (route) => false);
-                                    // show success snackbar
                                     successSnackbar(
                                       wasEdit ? 'purchase_updated'.tr : 'order_created'.tr,
                                     );
@@ -1080,7 +1102,67 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
     }
   }
 
-  Future<void> addSale(List<dynamic> products) async {
+  Future<void> _offerPurchaseReceiptSms({
+    required String? referenceId,
+    required Supplier? supplier,
+    required double amount,
+    required double payment,
+    required double debt,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    if (!mounted || lines.isEmpty) return;
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('sms_send_purchase_receipt'.tr),
+        content: Text('sms_send_purchase_receipt_confirm'.tr),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('no'.tr),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('yes'.tr),
+          ),
+        ],
+      ),
+    );
+    if (send != true || !mounted) return;
+
+    String? phone;
+    if (supplier != null &&
+        supplier.id.isNotEmpty &&
+        isValidSmsPhone(supplier.phone)) {
+      phone = supplier.phone;
+    } else {
+      phone = await showSmsPhoneOnlyDialog(
+        context: context,
+        title: 'sms_send_purchase_receipt'.tr,
+      );
+      if (phone == null) return;
+    }
+    try {
+      await SmsReminderService().sendBusinessSms(
+        businessId: _businessController.businessId.value,
+        type: 'purchase_receipt',
+        phone: phone,
+        supplierId: supplier != null && supplier.id.isNotEmpty ? supplier.id : null,
+        supplierName: (supplier?.name ?? '').isNotEmpty ? supplier!.name : phone,
+        referenceId: referenceId,
+        amount: amount,
+        payment: payment,
+        debt: debt,
+        lines: lines,
+        lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
+      );
+      successSnackbar('sms_sent_purchase_receipt'.tr);
+    } catch (e) {
+      errorSnackbar(smsFunctionErrorMessage(e));
+    }
+  }
+
+  Future<String> addSale(List<dynamic> products) async {
     final String? businessId = _businessController.business['id'];
     if (businessId == null) {
       errorSnackbar('Business ID is null');
@@ -1146,6 +1228,7 @@ class _BuyProductCartScreenState extends State<BuyProductCartScreen> {
       commentAtPurchase: capturedComment,
       debtProductsAtPurchase: capturedDebtProducts,
     );
+    return newSaleRef.id;
   }
 
   Timestamp _coerceFirestoreTimestamp(dynamic d) {

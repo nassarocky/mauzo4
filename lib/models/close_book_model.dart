@@ -15,6 +15,12 @@ class CloseBook {
   final double totalPurchase;
   final double totalDiscounts;
   final double debtCollected;
+
+  /// Customer advance deposited during the report period.
+  final double advanceCollected;
+
+  /// Total customer advance still available when the report was generated.
+  final double advanceBalance;
   final String currency;
   final String createdBy;
   final DateTime createdAt;
@@ -42,6 +48,8 @@ class CloseBook {
     required this.totalPurchase,
     required this.totalDiscounts,
     this.debtCollected = 0.0,
+    this.advanceCollected = 0.0,
+    this.advanceBalance = 0.0,
     required this.currency,
     required this.createdBy,
     required this.createdAt,
@@ -76,6 +84,8 @@ class CloseBook {
       totalPurchase: (data['totalPurchase'] ?? 0.0) is int ? (data['totalPurchase'] as int).toDouble() : (data['totalPurchase'] ?? 0.0) as double,
       totalDiscounts: (data['totalDiscounts'] ?? 0.0) is int ? (data['totalDiscounts'] as int).toDouble() : (data['totalDiscounts'] ?? 0.0) as double,
       debtCollected: (data['debtCollected'] ?? 0.0) is int ? (data['debtCollected'] as int).toDouble() : (data['debtCollected'] ?? 0.0) as double,
+      advanceCollected: (data['advanceCollected'] as num?)?.toDouble() ?? 0.0,
+      advanceBalance: (data['advanceBalance'] as num?)?.toDouble() ?? 0.0,
       currency: data['currency'] ?? '',
       createdBy: data['createdBy'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
@@ -104,6 +114,8 @@ class CloseBook {
       'totalPurchase': totalPurchase,
       'totalDiscounts': totalDiscounts,
       'debtCollected': debtCollected,
+      'advanceCollected': advanceCollected,
+      'advanceBalance': advanceBalance,
       'currency': currency,
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(createdAt),

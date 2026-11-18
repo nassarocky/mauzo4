@@ -99,7 +99,8 @@ class _AddBusinessDialogState extends State<_AddBusinessDialog> {
       navigator.pop();
     } catch (e) {
       if (mounted) setState(() => _saving = false);
-      errorSnackbar(e.toString());
+      final message = e.toString().replaceFirst('Exception: ', '');
+      errorSnackbar(message);
     }
   }
 

@@ -690,10 +690,10 @@ class _boughtControllerState extends State<BoughtScreen> {
                                         ),
                                         ElevatedButton.icon(
                                           onPressed: () {
-                                            sendPurchaseListSms(sale, supplier);
+                                            sendPurchaseReceiptSms(sale, supplier);
                                           },
                                           icon: const Icon(Icons.sms_outlined),
-                                          label: Text('sms_send_purchase_list'.tr),
+                                          label: Text('sms_send_purchase_receipt'.tr),
                                         ),
                                       ],
                                     ),
@@ -816,7 +816,7 @@ class _boughtControllerState extends State<BoughtScreen> {
     );
   }
 
-  Future<void> sendPurchaseListSms(sale, Supplier? supplier) async {
+  Future<void> sendPurchaseReceiptSms(sale, Supplier? supplier) async {
     String? phone;
     if (supplier != null &&
         supplier.id.isNotEmpty &&
@@ -825,21 +825,25 @@ class _boughtControllerState extends State<BoughtScreen> {
     } else {
       phone = await showSmsPhoneOnlyDialog(
         context: context,
-        title: 'sms_send_purchase_list'.tr,
+        title: 'sms_send_purchase_receipt'.tr,
       );
       if (phone == null) return;
     }
     try {
       await SmsReminderService().sendBusinessSms(
         businessId: _businessController.businessId.value,
-        type: 'purchase_list',
+        type: 'purchase_receipt',
         phone: phone,
         supplierId: supplier != null && supplier.id.isNotEmpty ? supplier.id : null,
         supplierName: (supplier?.name ?? '').isNotEmpty ? supplier!.name : phone,
+        referenceId: sale.id,
+        amount: (sale.price is num) ? (sale.price as num).toDouble() : 0,
+        payment: (sale.payment is num) ? (sale.payment as num).toDouble() : 0,
+        debt: (sale.debt is num) ? (sale.debt as num).toDouble() : 0,
         lines: productLinesForSms(sale.products ?? const []),
         lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
       );
-      successSnackbar('sms_sent_purchase_list'.tr);
+      successSnackbar('sms_sent_purchase_receipt'.tr);
     } catch (e) {
       errorSnackbar(smsFunctionErrorMessage(e));
     }

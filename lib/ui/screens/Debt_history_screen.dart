@@ -13,6 +13,7 @@ import '../../models/debtHistory_model.dart';
 import 'package:mauzo/services/ledger_service.dart';
 import 'package:mauzo/services/sms_reminder_service.dart';
 import 'package:mauzo/ui/widgets/dialogs/debt_sms_dialog.dart';
+import 'package:mauzo/utils/client_debt.dart';
 import 'package:mauzo/utils/constants.dart';
 import 'package:mauzo/utils/preferences.dart';
 import 'package:mauzo/utils/operation_error_message.dart';
@@ -1288,6 +1289,8 @@ class DebtCard extends StatelessWidget {
 
     _debtHistoryController.isLoading.value = true;
 
+    double totalRemainingDebt = 0;
+
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
       final oldSaleRef = salesCollection.doc(debt.id);
@@ -1360,8 +1363,12 @@ class DebtCard extends StatelessWidget {
       transaction.update(debtHistoryRef, debtHistoryUpdates);
 
       final double currentClientDebt = (clientSnapshot.get('debt') ?? 0.0).toDouble();
-      final double newClientDebt = currentClientDebt - paymentAmount;
+      final double newClientDebt = clientTotalRemainingAfterPayment(
+        clientTotalDebt: currentClientDebt,
+        paymentAmount: paymentAmount,
+      );
       transaction.update(clientRef, {'debt': newClientDebt});
+      totalRemainingDebt = newClientDebt;
       });
       // Refresh the filtered list and switch to the Paid tab
       _debtHistoryController.filteredDebtHistoriesList();
@@ -1386,9 +1393,7 @@ class DebtCard extends StatelessWidget {
               clientId: debt.client,
               clientName: debt.name,
               amount: paymentAmount,
-              remaining: (debt.remainingDebtAmount - paymentAmount)
-                  .clamp(0, double.infinity)
-                  .toDouble(),
+              remaining: totalRemainingDebt,
               lang: Get.locale?.languageCode == 'en' ? 'en' : 'sw',
             ),
           );

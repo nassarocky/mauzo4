@@ -40,6 +40,10 @@ import '../widgets/dialogs/edit_discount_dialog.dart';
 import '../widgets/dialogs/edit_expire_warning_dialog.dart';
 import '../widgets/dialogs/edit_receipt_footer_dialog.dart';
 import '../../utils/receipt_footer.dart';
+import '../../utils/bulk_data_reset.dart';
+import '../../services/bulk_data_reset_service.dart';
+import '../widgets/dialogs/bulk_data_reset_dialog.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -204,6 +208,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     ).then((_) => ctrl.dispose());
+  }
+
+  Future<void> _runBulkDataReset(BulkDataResetAction action) async {
+    if (!_profileController.isManagerOrOwner()) {
+      errorSnackbar('bulk_reset_not_allowed'.tr);
+      return;
+    }
+    final password = await showBulkDataResetPasswordDialog(
+      context: context,
+      action: action,
+    );
+    if (password == null || password.isEmpty) return;
+
+    setState(() {
+      isUploading = true;
+    });
+    try {
+      final ownerId = (_businessController.business['owner'] ?? '').toString();
+      final businessId =
+          (_businessController.business['id'] ??
+                  _businessController.businessId.value)
+              .toString();
+      final service = BulkDataResetService();
+      await service.verifyOwnerPassword(
+        ownerId: ownerId,
+        password: password,
+      );
+      await service.run(
+        action: action,
+        businessId: businessId,
+        ownerId: ownerId,
+      );
+      successSnackbar('bulk_reset_success'.tr);
+    } on FirebaseAuthException catch (e) {
+      final code = e.code;
+      if (code == 'wrong-password' ||
+          code == 'invalid-credential' ||
+          code == 'invalid-login-credentials' ||
+          code == 'user-not-found') {
+        errorSnackbar('wrong_owner_password'.tr);
+      } else {
+        errorSnackbar(e.message ?? code);
+      }
+    } catch (e) {
+      errorSnackbar(e.toString());
+    } finally {
+      if (mounted) {
+        setState(() {
+          isUploading = false;
+        });
+      }
+    }
+  }
+
+  Widget _bulkResetTile({
+    required BulkDataResetAction action,
+    required String titleKey,
+    required String subtitleKey,
+    required IconData icon,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      leading: Icon(icon, color: redColor),
+      title: Text(titleKey.tr),
+      subtitle: Text(subtitleKey.tr),
+      trailing: const Icon(Icons.chevron_right, color: gray400Color),
+      onTap: () => _runBulkDataReset(action),
+    );
   }
 
   Future<void> syncProductsAcrossAllBusinesses() async {
@@ -1068,6 +1140,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const Divider(height: 24),
+                if (_profileController.isManagerOrOwner()) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    child: Text(
+                      'data_reset'.tr,
+                      style: bodyText(
+                        Theme.of(context).textTheme.bodyMedium!.color,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      'data_reset_hint'.tr,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                  _bulkResetTile(
+                    action: BulkDataResetAction.deleteStocks,
+                    titleKey: 'delete_all_stocks',
+                    subtitleKey: 'delete_all_stocks_hint',
+                    icon: Icons.inventory_2_outlined,
+                  ),
+                  _bulkResetTile(
+                    action: BulkDataResetAction.zeroStocks,
+                    titleKey: 'zero_all_stocks',
+                    subtitleKey: 'zero_all_stocks_hint',
+                    icon: Icons.exposure_zero,
+                  ),
+                  _bulkResetTile(
+                    action: BulkDataResetAction.deleteSales,
+                    titleKey: 'delete_all_sales',
+                    subtitleKey: 'delete_all_sales_hint',
+                    icon: Icons.point_of_sale_outlined,
+                  ),
+                  _bulkResetTile(
+                    action: BulkDataResetAction.deleteExpenses,
+                    titleKey: 'delete_all_expenses',
+                    subtitleKey: 'delete_all_expenses_hint',
+                    icon: Icons.receipt_long_outlined,
+                  ),
+                  const Divider(height: 24),
+                ],
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(

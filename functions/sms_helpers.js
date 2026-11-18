@@ -30,6 +30,8 @@ const DEFAULT_SMS_SETTINGS = {
   reminderMaxCount: 5,
   debtReminderTemplate: "",
   dailyDigestEnabled: false,
+  dailyDigestHour: 20,
+  dailyDigestMinute: 0,
   expiryAlertEnabled: false,
   lowStockAlertEnabled: false,
   advanceSmsEnabled: true,
@@ -71,6 +73,18 @@ function countSmsSegments(text) {
   const concatLimit = gsm ? 153 : 67;
   if (msg.length <= singleLimit) return 1;
   return Math.ceil(msg.length / concatLimit);
+}
+
+function applyAdvertisementTemplate(template, { clientName, businessName }) {
+  const name = String(clientName || "").trim() || "Mteja";
+  const business = String(businessName || "").trim() || "Biashara";
+  return String(template || "")
+    .replace(/\{name\}/gi, name)
+    .replace(/\{client\}/gi, name)
+    .replace(/\{business\}/gi, business)
+    .replace(/\{shop\}/gi, business)
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function formatDebtAmount(amount) {
@@ -194,6 +208,48 @@ function sameCalendarDay(a, b) {
   const left = nairobiDateParts(a);
   const right = nairobiDateParts(b);
   return left.year === right.year && left.month === right.month && left.day === right.day;
+}
+
+function nairobiClockParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Nairobi",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type) => {
+    const n = Number(parts.find((p) => p.type === type)?.value);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return {
+    hour: get("hour"),
+    minute: get("minute"),
+  };
+}
+
+function clampDailyDigestHour(raw) {
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_SMS_SETTINGS.dailyDigestHour;
+  return Math.max(0, Math.min(23, n));
+}
+
+function clampDailyDigestMinute(raw) {
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_SMS_SETTINGS.dailyDigestMinute;
+  return Math.max(0, Math.min(59, n));
+}
+
+/**
+ * Send the daily sales/profit SMS once the chosen East Africa Time is reached,
+ * and at most once per calendar day.
+ */
+function isDailyDigestDue({ now, hour, minute, lastSent } = {}) {
+  const when = now instanceof Date ? now : new Date();
+  if (lastSent && sameCalendarDay(lastSent, when)) return false;
+  const clock = nairobiClockParts(when);
+  const dueMins = clampDailyDigestHour(hour) * 60 + clampDailyDigestMinute(minute);
+  const nowMins = clock.hour * 60 + clock.minute;
+  return nowMins >= dueMins;
 }
 
 /**
@@ -336,6 +392,44 @@ function buildPurchaseListSms({ supplierName, businessName, lines, lang = "sw" }
   return `Orodha ya manunuzi ya ${biz} kwa ${sup}: ${items || "bidhaa"}.`;
 }
 
+function buildPurchaseReceiptSms({
+  supplierName,
+  businessName,
+  amount,
+  currency,
+  lines,
+  payment,
+  debt,
+  lang = "sw",
+}) {
+  const sup = String(supplierName || "Msambazaji").trim() || "Msambazaji";
+  const biz = String(businessName || "duka").trim() || "duka";
+  const items = normalizeSmsLines(lines)
+    .slice(0, 8)
+    .map((l) => formatInvoiceSmsLine(l, currency))
+    .join(", ");
+  const total = formatSmsMoney(amount, currency);
+  const debtAmt = Number(debt);
+  const paidAmt = Number(payment);
+  let extra = "";
+  if (Number.isFinite(debtAmt) && debtAmt > 0) {
+    const paidLabel = Number.isFinite(paidAmt) ? formatSmsMoney(paidAmt, currency) : "";
+    if (lang === "en") {
+      extra = paidLabel
+        ? ` Paid ${paidLabel}. Remaining ${formatSmsMoney(debtAmt, currency)}.`
+        : ` Remaining ${formatSmsMoney(debtAmt, currency)}.`;
+    } else {
+      extra = paidLabel
+        ? ` Imelipwa ${paidLabel}. Deni ${formatSmsMoney(debtAmt, currency)}.`
+        : ` Deni ${formatSmsMoney(debtAmt, currency)}.`;
+    }
+  }
+  if (lang === "en") {
+    return `Purchase receipt from ${biz} for ${sup}: ${items || "items"}. Total ${total}.${extra}`;
+  }
+  return `Risiti ya manunuzi kutoka ${biz} kwa ${sup}: ${items || "bidhaa"}. Jumla ${total}.${extra}`;
+}
+
 function buildAdvanceSms({ clientName, amount, currency, businessName, lang = "sw" }) {
   const name = String(clientName || "Mteja").trim() || "Mteja";
   const biz = String(businessName || "duka").trim() || "duka";
@@ -344,6 +438,14 @@ function buildAdvanceSms({ clientName, amount, currency, businessName, lang = "s
     return `Hello ${name}, ${biz} recorded your advance of ${money}. Thank you.`;
   }
   return `Habari ${name}, ${biz} imepokea advance yako ya ${money}. Asante.`;
+}
+
+function remainingDebtForPaymentSms({ clientTotalDebt, fallbackRemaining } = {}) {
+  const total = Number(clientTotalDebt);
+  if (Number.isFinite(total)) return Math.max(0, total);
+  const fallback = Number(fallbackRemaining);
+  if (Number.isFinite(fallback)) return Math.max(0, fallback);
+  return 0;
 }
 
 function buildDebtPaymentSms({ clientName, amount, remaining, currency, businessName, lang = "sw" }) {
@@ -513,6 +615,12 @@ function normalizeSmsSettings(raw) {
     reminderMaxCount: Math.max(1, Math.min(30, Math.trunc(Number(s.reminderMaxCount) || DEFAULT_SMS_SETTINGS.reminderMaxCount))),
     debtReminderTemplate: String(s.debtReminderTemplate || "").trim().slice(0, 600),
     dailyDigestEnabled: Boolean(s.dailyDigestEnabled),
+    dailyDigestHour: clampDailyDigestHour(
+      s.dailyDigestHour == null ? DEFAULT_SMS_SETTINGS.dailyDigestHour : s.dailyDigestHour
+    ),
+    dailyDigestMinute: clampDailyDigestMinute(
+      s.dailyDigestMinute == null ? DEFAULT_SMS_SETTINGS.dailyDigestMinute : s.dailyDigestMinute
+    ),
     expiryAlertEnabled: Boolean(s.expiryAlertEnabled),
     lowStockAlertEnabled: Boolean(s.lowStockAlertEnabled),
     advanceSmsEnabled: s.advanceSmsEnabled !== false,
@@ -533,6 +641,7 @@ module.exports = {
   normalizeSmsPhone,
   isGsmText,
   countSmsSegments,
+  applyAdvertisementTemplate,
   formatDebtAmount,
   formatSmsMoney,
   parseSmsNumber,
@@ -544,6 +653,10 @@ module.exports = {
   normalizeReminderAfterMode,
   startOfDayNairobi,
   endOfDayNairobi,
+  nairobiClockParts,
+  isDailyDigestDue,
+  clampDailyDigestHour,
+  clampDailyDigestMinute,
   nairobiMonthKey,
   formatDueDateLabel,
   firestoreToDate,
@@ -553,7 +666,9 @@ module.exports = {
   applyDebtReminderTemplate,
   buildInvoiceSms,
   buildPurchaseListSms,
+  buildPurchaseReceiptSms,
   buildAdvanceSms,
+  remainingDebtForPaymentSms,
   buildDebtPaymentSms,
   buildDailyDigestSms,
   buildExpiryAlertSms,

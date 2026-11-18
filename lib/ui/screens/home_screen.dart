@@ -32,6 +32,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../controllers/product_controller.dart';
 import '../../controllers/product_transfer_controller.dart';
 import '../../controllers/store_controller.dart';
+import '../../utils/app_navigation.dart';
 import '../../utils/preferences.dart';
 import '../widgets/dialogs/payment_dialog.dart';
 import '../widgets/screens_card.dart';
@@ -194,11 +195,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _dismissSubscriptionBlockDialogIfOpen() {
     if (!_subscriptionBlockDialogOpen || !mounted) return;
-    final nav = Navigator.of(context, rootNavigator: true);
-    if (nav.canPop()) {
-      nav.pop();
-    }
     _subscriptionBlockDialogOpen = false;
+    AppNavigation.popOpenPopups(context);
   }
 
   bool _isBusinessOwner() {
@@ -1397,7 +1395,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             end: DateTime.now(),
                           );
                           _saleController.setSelectedDateRange(range);
-                          Navigator.pushNamed(context, '/sales');
+                          AppNavigation.pushNamed(context, '/sales');
                         },
                         title: "today_sales".tr,
                         trailing: formatCurrency(

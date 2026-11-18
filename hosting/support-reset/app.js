@@ -204,6 +204,25 @@ $("dataCollection")?.addEventListener("change", () => {
   clearDataForm();
 });
 
+/** Customer-care admins cannot upgrade subscriptions or change plan limits. */
+let adminCaps = { canManageSubscriptions: true, canGrantSms: true };
+
+function applyAdminCapabilities() {
+  const payBtn = $("bizPaymentExtendBtn");
+  const payDays = $("paymentExtendDays");
+  const mb = $("fieldMaxBusiness");
+  const canPay = adminCaps.canManageSubscriptions;
+  if (payBtn) {
+    payBtn.disabled = !canPay;
+    payBtn.title = canPay ? "" : "Customer care cannot upgrade subscriptions";
+  }
+  if (payDays) payDays.disabled = !canPay;
+  if (mb) {
+    mb.disabled = !canPay;
+    mb.title = canPay ? "" : "Customer care cannot change the number of shops";
+  }
+}
+
 onAuthStateChanged(auth, async (user) => {
   const boot = $("authBootCard");
   const loginCard = $("loginCard");
@@ -215,7 +234,11 @@ onAuthStateChanged(auth, async (user) => {
     toolCard.hidden = true;
     try {
       const ping = httpsCallable(functions, "commissionAdminPing");
-      await ping({});
+      const pingRes = await ping({});
+      adminCaps = {
+        canManageSubscriptions: pingRes?.data?.canManageSubscriptions !== false,
+        canGrantSms: pingRes?.data?.canGrantSms !== false,
+      };
     } catch (e) {
       console.warn("[support-reset] commissionAdminPing failed:", e?.code || e?.message || e);
       const msg = (e?.message || "").toString();
@@ -228,6 +251,7 @@ onAuthStateChanged(auth, async (user) => {
     if (boot) boot.hidden = true;
     toolCard.hidden = false;
     staffEmail.textContent = user.email || user.uid;
+    applyAdminCapabilities();
     syncCollectionFieldsUI();
     setTab(activeTab);
     setFeedback("", "");
@@ -474,7 +498,7 @@ $("dataSaveBtn")?.addEventListener("click", async () => {
     const img = $("fieldImage")?.value.trim();
     if (img) patch.image = img;
     const mbEl = $("fieldMaxBusiness");
-    if (mbEl) {
+    if (mbEl && adminCaps.canManageSubscriptions) {
       let mb = typeof mbEl.valueAsNumber === "number" ? mbEl.valueAsNumber : NaN;
       if (Number.isNaN(mb)) {
         const s = String(mbEl.value ?? "").trim();
@@ -542,27 +566,9 @@ $("bizPaymentExtendBtn")?.addEventListener("click", async () => {
   if (btn) btn.disabled = true;
   setFeedback("Updating payment…", "info");
   try {
-    const qs = new URLSearchParams({ email, numberOfDays: String(days) });
-    const res = await fetch(`${functionsHttpBase()}/paymentCallbackEmail2?${qs}`, { method: "GET" });
-    let bodyText = "";
-    try {
-      bodyText = await res.text();
-    } catch (_) {
-      bodyText = "";
-    }
-    let parsed = null;
-    try {
-      parsed = JSON.parse(bodyText);
-    } catch (_) {
-      parsed = null;
-    }
-    if (!res.ok) {
-      const errMsg = parsed?.error || bodyText || res.statusText;
-      setFeedback(`Payment update failed: ${errMsg}`, "error");
-      return;
-    }
-    const msg = parsed?.message || bodyText || "OK";
-    setFeedback(typeof msg === "string" ? msg : JSON.stringify(msg), "ok");
+    const adjust = httpsCallable(functions, "adminAdjustSubscriptionDays");
+    const res = await adjust({ email, numberOfDays: days });
+    setFeedback(res.data?.message || "OK", "ok");
   } catch (e) {
     setFeedback(e?.message || String(e), "error");
   } finally {

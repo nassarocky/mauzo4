@@ -6,7 +6,7 @@ AppPublisher=Mauzo
 AppPublisherURL=https://example.com
 DefaultDirName={pf}\Mauzo
 DefaultGroupName=Mauzo
-UninstallDisplayIcon={app}\mauzo.exe
+UninstallDisplayIcon={app}\app_icon.ico
 OutputDir=..\..\dist\windows
 OutputBaseFilename=MauzoSetup
 SetupIconFile=..\runner\resources\app_icon.ico
@@ -24,10 +24,11 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 
 [Files]
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "..\runner\resources\app_icon.ico"; DestDir: "{app}"; DestName: "app_icon.ico"
 
 [Icons]
-Name: "{group}\\Mauzo"; Filename: "{app}\\mauzo.exe"; IconFilename: "..\\runner\\resources\\app_icon.ico"
-Name: "{commondesktop}\\Mauzo"; Filename: "{app}\\mauzo.exe"; Tasks: desktopicon; IconFilename: "..\\runner\\resources\\app_icon.ico"
+Name: "{group}\Mauzo"; Filename: "{app}\mauzo.exe"; IconFilename: "{app}\app_icon.ico"
+Name: "{commondesktop}\Mauzo"; Filename: "{app}\mauzo.exe"; Tasks: desktopicon; IconFilename: "{app}\app_icon.ico"
 
 [Run]
 Filename: "{app}\\mauzo.exe"; Description: "Launch Mauzo"; Flags: nowait postinstall skipifsilent

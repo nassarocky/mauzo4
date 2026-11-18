@@ -20,6 +20,14 @@ const {
   buildLowStockAlertSms,
   buildInvoiceSms,
   buildPurchaseListSms,
+  buildPurchaseReceiptSms,
+  applyAdvertisementTemplate,
+  remainingDebtForPaymentSms,
+  buildDebtPaymentSms,
+  isDailyDigestDue,
+  clampDailyDigestHour,
+  clampDailyDigestMinute,
+  normalizeSmsSettings,
 } = require("./sms_helpers");
 
 test("normalizeSmsPhone converts TZ local formats", () => {
@@ -40,6 +48,18 @@ test("countSmsSegments uses GSM 160 for Swahili Latin", () => {
   assert.equal(countSmsSegments(short), 1);
   assert.ok(short.length < 160);
   assert.equal(countSmsSegments("a".repeat(161)), 2);
+});
+
+test("advertisement template personalizes client and business", () => {
+  const msg = applyAdvertisementTemplate(
+    "Habari {name}, ofa mpya kutoka {business}.",
+    {
+      clientName: "Asha",
+      businessName: "Duka Bora",
+    }
+  );
+
+  assert.equal(msg, "Habari Asha, ofa mpya kutoka Duka Bora.");
 });
 
 test("buildDebtReminderMessage uses custom template placeholders", () => {
@@ -97,6 +117,40 @@ test("buildPurchaseListSms includes every selected name and quantity", () => {
   assert.ok(message.includes("Sugar x4"));
   assert.ok(message.includes("Rice x2"));
   assert.ok(!message.includes("@"));
+});
+
+test("buildPurchaseReceiptSms includes prices, total, and remaining debt", () => {
+  const msg = buildPurchaseReceiptSms({
+    supplierName: "Mtoa Bidhaa",
+    businessName: "Duka",
+    amount: 4500,
+    currency: "TZS",
+    lines: [
+      { name: "Sugar", qty: 2, price: 1500 },
+      { name: "Rice", qty: 1, price: 1500 },
+    ],
+    payment: 2000,
+    debt: 2500,
+    lang: "en",
+  });
+  assert.match(msg, /Purchase receipt from Duka for Mtoa Bidhaa/);
+  assert.ok(msg.includes("Sugar x2 TZS 1500 (TZS 3000)"));
+  assert.ok(msg.includes("Rice x1 TZS 1500"));
+  assert.ok(msg.includes("Total TZS 4500"));
+  assert.ok(msg.includes("Paid TZS 2000"));
+  assert.ok(msg.includes("Remaining TZS 2500"));
+
+  const sw = buildPurchaseReceiptSms({
+    supplierName: "Mtoa Bidhaa",
+    businessName: "Duka",
+    amount: 3000,
+    currency: "TZS",
+    lines: [{ name: "Sugar", qty: 2, price: 1500 }],
+    lang: "sw",
+  });
+  assert.match(sw, /Risiti ya manunuzi kutoka Duka/);
+  assert.ok(sw.includes("Jumla TZS 3000"));
+  assert.equal(sw.includes("Deni"), false);
 });
 
 test("getSmsPackById resolves default packs", () => {
@@ -334,4 +388,94 @@ test("buildLowStockAlertSms lists product quantities", () => {
   assert.match(msg, /Flour\(0\)/);
   assert.equal(msg.includes("Rice"), false);
   assert.equal(require("./sms_helpers").countSmsSegments(msg), 1);
+});
+
+test("remainingDebtForPaymentSms prefers the client's total remaining debt", () => {
+  assert.equal(
+    remainingDebtForPaymentSms({
+      clientTotalDebt: 11000,
+      fallbackRemaining: 3000,
+    }),
+    11000
+  );
+  assert.equal(
+    remainingDebtForPaymentSms({
+      fallbackRemaining: 3000,
+    }),
+    3000
+  );
+  assert.equal(
+    remainingDebtForPaymentSms({
+      clientTotalDebt: -50,
+      fallbackRemaining: 3000,
+    }),
+    0
+  );
+});
+
+test("buildDebtPaymentSms reports remaining balance after payment", () => {
+  const msg = buildDebtPaymentSms({
+    clientName: "Asha",
+    amount: 2000,
+    remaining: 11000,
+    currency: "TZS",
+    businessName: "Duka",
+    lang: "en",
+  });
+  assert.match(msg, /TZS 2000/);
+  assert.match(msg, /Remaining TZS 11000/);
+  assert.equal(msg.includes("3000"), false);
+});
+
+test("daily digest is due at or after the chosen East Africa Time", () => {
+  const before = new Date("2026-09-20T16:59:00.000Z"); // 19:59 EAT
+  const at = new Date("2026-09-20T17:00:00.000Z"); // 20:00 EAT
+  const after = new Date("2026-09-20T17:10:00.000Z");
+  assert.equal(
+    isDailyDigestDue({ now: before, hour: 20, minute: 0, lastSent: null }),
+    false
+  );
+  assert.equal(
+    isDailyDigestDue({ now: at, hour: 20, minute: 0, lastSent: null }),
+    true
+  );
+  assert.equal(
+    isDailyDigestDue({ now: after, hour: 20, minute: 0, lastSent: null }),
+    true
+  );
+  assert.equal(
+    isDailyDigestDue({ now: at, hour: 20, minute: 0, lastSent: at }),
+    false
+  );
+});
+
+test("daily digest respects a custom morning time", () => {
+  const before = new Date("2026-09-20T05:29:00.000Z"); // 08:29 EAT
+  const at = new Date("2026-09-20T05:30:00.000Z"); // 08:30 EAT
+  assert.equal(
+    isDailyDigestDue({ now: before, hour: 8, minute: 30, lastSent: null }),
+    false
+  );
+  assert.equal(
+    isDailyDigestDue({ now: at, hour: 8, minute: 30, lastSent: null }),
+    true
+  );
+});
+
+test("normalizeSmsSettings keeps daily digest time and clamps invalid values", () => {
+  const defaults = normalizeSmsSettings({});
+  assert.equal(defaults.dailyDigestHour, 20);
+  assert.equal(defaults.dailyDigestMinute, 0);
+  const saved = normalizeSmsSettings({
+    dailyDigestEnabled: true,
+    dailyDigestHour: 7,
+    dailyDigestMinute: 45,
+  });
+  assert.equal(saved.dailyDigestEnabled, true);
+  assert.equal(saved.dailyDigestHour, 7);
+  assert.equal(saved.dailyDigestMinute, 45);
+  assert.equal(clampDailyDigestHour(26), 23);
+  assert.equal(clampDailyDigestHour("x"), 20);
+  assert.equal(clampDailyDigestMinute(-1), 0);
+  assert.equal(clampDailyDigestMinute(90), 59);
 });

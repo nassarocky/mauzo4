@@ -82,6 +82,8 @@ let cursorStack = [null];
 let pageIndex = 0;
 let hasMore = false;
 let loading = false;
+/** Customer-care admins cannot upgrade subscriptions or grant SMS. */
+let adminCaps = { canManageSubscriptions: true, canGrantSms: true };
 
 function currentFilters() {
   return {
@@ -152,8 +154,16 @@ function renderBusinesses(list) {
     card.querySelector(".sms-usage").textContent =
       `${b.smsCreditsUsed ?? 0} / ${b.smsCreditsTotalPurchased ?? 0}`;
     card.querySelector(".badge").textContent = st || "no status";
-    card.querySelector(".pay-btn")?.addEventListener("click", () => openPaymentUpdate(b));
-    card.querySelector(".sms-btn")?.addEventListener("click", () => grantSmsCredits(b));
+    if (adminCaps.canManageSubscriptions) {
+      card.querySelector(".pay-btn")?.addEventListener("click", () => openPaymentUpdate(b));
+    } else {
+      card.querySelector(".pay-btn")?.remove();
+    }
+    if (adminCaps.canGrantSms) {
+      card.querySelector(".sms-btn")?.addEventListener("click", () => grantSmsCredits(b));
+    } else {
+      card.querySelector(".sms-btn")?.remove();
+    }
     card.querySelector(".del-btn")?.addEventListener("click", () => confirmDelete(b));
     grid.appendChild(card);
   }
@@ -202,12 +212,18 @@ async function loadPage({ reset } = { reset: false }) {
     if ($("sortMeta")) {
       $("sortMeta").textContent = `Sorted by ${data.sortBy || filters.sortBy} (newest first) · ${businesses.length} on page`;
     }
-    setFeedback(
-      businesses.length
-        ? `Loaded ${businesses.length} business(es).`
-        : "No businesses matched these filters.",
-      businesses.length ? "ok" : "info"
-    );
+    const search = data.search || null;
+    let doneMsg = businesses.length
+      ? `Loaded ${businesses.length} business(es).`
+      : "No businesses matched these filters.";
+    if (search) {
+      doneMsg = businesses.length
+        ? `Found ${search.totalMatches} match(es)` +
+          (search.shown < search.totalMatches ? `, showing the newest ${search.shown}. Type more to narrow down.` : ".")
+        : "No business matched that email/name.";
+      if (!search.scanComplete) doneMsg += " (Search stopped early on a very large list; narrow the text.)";
+    }
+    setFeedback(doneMsg, businesses.length ? "ok" : "info");
   } catch (e) {
     console.error(e);
     const msg = e?.message || String(e);
@@ -243,16 +259,9 @@ async function openPaymentUpdate(b) {
   }
   setFeedback(days < 0 ? "Reducing subscription days…" : "Updating payment…", "info");
   try {
-    const qs = new URLSearchParams({ email, numberOfDays: String(days) });
-    const res = await fetch(`${functionsHttpBase()}/paymentCallbackEmail2?${qs}`, {
-      method: "GET",
-    });
-    const bodyText = await res.text();
-    if (!res.ok) {
-      setFeedback(`Payment update failed: ${bodyText || res.statusText}`, "error");
-      return;
-    }
-    setFeedback(bodyText || "Payment updated.", "ok");
+    const adjust = httpsCallable(functions, "adminAdjustSubscriptionDays");
+    const res = await adjust({ email, numberOfDays: days });
+    setFeedback(res.data?.message || "Payment updated.", "ok");
     await loadPage({ reset: false });
   } catch (e) {
     setFeedback(e?.message || String(e), "error");
@@ -336,7 +345,11 @@ onAuthStateChanged(auth, async (user) => {
     mainCard.hidden = true;
     try {
       const ping = httpsCallable(functions, "commissionAdminPing");
-      await ping({});
+      const pingRes = await ping({});
+      adminCaps = {
+        canManageSubscriptions: pingRes?.data?.canManageSubscriptions !== false,
+        canGrantSms: pingRes?.data?.canGrantSms !== false,
+      };
     } catch (e) {
       setFeedback(e?.message || "Not authorised.", "error");
       if (boot) boot.hidden = true;

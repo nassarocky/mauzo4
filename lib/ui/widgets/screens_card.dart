@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mauzo/utils/app_navigation.dart';
 import 'package:mauzo/utils/preferences.dart';
 
 import '../../utils/constants.dart';
@@ -20,7 +21,7 @@ class ScreensCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => Navigator.pushNamed(context, route),
+      onTap: () => AppNavigation.pushNamed(context, route),
       child: Ink(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(4),

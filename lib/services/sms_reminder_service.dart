@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:get/get.dart';
 import 'package:mauzo/models/sms_pack_model.dart';
 import 'package:mauzo/utils/sms_settings.dart';
 
@@ -8,9 +7,9 @@ class SmsReminderService {
   SmsReminderService({
     FirebaseFunctions? functions,
     FirebaseFirestore? firestore,
-  })  : _functions = functions ??
-            FirebaseFunctions.instanceFor(region: 'us-central1'),
-        _firestore = firestore ?? FirebaseFirestore.instance;
+  }) : _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: 'us-central1'),
+       _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFunctions _functions;
   final FirebaseFirestore _firestore;
@@ -59,6 +58,23 @@ class SmsReminderService {
     return {'success': false};
   }
 
+  Future<Map<String, dynamic>> sendAdvertisement({
+    required String businessId,
+    required List<String> clientIds,
+    required String message,
+  }) async {
+    final result = await _functions.httpsCallable('sendAdvertisementSms').call({
+      'businessId': businessId,
+      'clientIds': clientIds,
+      'message': message.trim(),
+    });
+    final data = result.data;
+    if (data is Map) {
+      return Map<String, dynamic>.from(data);
+    }
+    return {'success': false};
+  }
+
   Future<Map<String, dynamic>> sendBusinessSms({
     required String businessId,
     required String type,
@@ -70,6 +86,8 @@ class SmsReminderService {
     String? referenceId,
     double? amount,
     double? remaining,
+    double? payment,
+    double? debt,
     List<Map<String, dynamic>>? lines,
     String lang = 'sw',
     String? message,
@@ -86,9 +104,12 @@ class SmsReminderService {
         'referenceId': referenceId,
       if (amount != null) 'amount': amount,
       if (remaining != null) 'remaining': remaining,
+      if (payment != null) 'payment': payment,
+      if (debt != null) 'debt': debt,
       if (lines != null) 'lines': lines,
       'lang': lang,
-      if (message != null && message.trim().isNotEmpty) 'message': message.trim(),
+      if (message != null && message.trim().isNotEmpty)
+        'message': message.trim(),
     });
     final data = result.data;
     if (data is Map) {

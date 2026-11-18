@@ -332,6 +332,19 @@ class CartController extends GetxController {
     return sum;
   }
 
+  /// Cart total for lines that may be discounted (products not marked "no discount").
+  double get discountableSubtotal {
+    double sum = 0;
+    for (final product in _products) {
+      if (!product.allowDiscount) continue;
+      sum += getPrice(product.id) * product.count;
+    }
+    return sum;
+  }
+
+  bool get hasNonDiscountableProducts =>
+      _products.any((product) => !product.allowDiscount);
+
   double get productsBuyingPrice {
     double total = 0;
     for (final product in _products) {

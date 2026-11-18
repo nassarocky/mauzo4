@@ -27,6 +27,10 @@ const MOBISHASTRA_PWD = defineSecret("MOBISHASTRA_PWD");
 const MOBISHASTRA_SENDER_ID = defineSecret("MOBISHASTRA_SENDER_ID");
 const { createSmsHandlers, applySmsPaymentFromCallback } = require("./sms_functions");
 const smsHelpers = require("./sms_helpers");
+const { resolvedMaxBusiness, shouldRejectNewBusiness } = require("./business_limit");
+const { tierPricesForBusinessCount } = require("./subscription_tiers");
+const { matchesSearch } = require("./admin_search");
+const { isFullAdminRole } = require("./admin_roles");
 
 const OTP_EXPIRY_MS   = 10 * 60 * 1000; // 10 minutes
 const MAX_OTP_ATTEMPTS = 5;
@@ -110,15 +114,6 @@ const DEFAULT_SUBSCRIPTION_PRICING = {
   tier5Plus: { week: 25000, month: 75000, sixMonths: 375000, year: 650000 },
 };
 
-function tierKeyForBusinessCount(count) {
-  const n = typeof count === "number" && count > 0 ? Math.floor(count) : 1;
-  if (n <= 1) return "tier1";
-  if (n === 2) return "tier2";
-  if (n === 3) return "tier3";
-  if (n === 4) return "tier4";
-  return "tier5Plus";
-}
-
 function mergeTierPrices(tierKey, partial) {
   const fallback = DEFAULT_SUBSCRIPTION_PRICING[tierKey] || DEFAULT_SUBSCRIPTION_PRICING.tier1;
   const p = partial && typeof partial === "object" ? partial : {};
@@ -142,6 +137,8 @@ async function loadSubscriptionPricingMerged() {
       tier3: mergeTierPrices("tier3", x.tier3),
       tier4: mergeTierPrices("tier4", x.tier4),
       tier5Plus: mergeTierPrices("tier5Plus", x.tier5Plus),
+      // Optional per-shop add-on from the 6th shop (see subscription_tiers.js)
+      ...(x.extraShop && typeof x.extraShop === "object" ? { extraShop: x.extraShop } : {}),
     };
   } catch (_) {
     return { ...DEFAULT_SUBSCRIPTION_PRICING };
@@ -168,8 +165,7 @@ function canonicalSubscriptionPackageFromDays(numberOfDays) {
  * Unknown durations fall back to (days/30)*monthly (legacy behaviour).
  */
 function commissionBasisTotalForSubscriptionPayment(pricing, businessCount, numberOfDays) {
-  const tierKey = tierKeyForBusinessCount(businessCount);
-  const tierPrices = pricing[tierKey] || pricing.tier1;
+  const tierPrices = tierPricesForBusinessCount(pricing, businessCount) || pricing.tier1;
   const pkg = canonicalSubscriptionPackageFromDays(numberOfDays);
   if (pkg && typeof tierPrices[pkg] === "number" && tierPrices[pkg] > 0) {
     return tierPrices[pkg];
@@ -225,7 +221,7 @@ async function recordReferralPaymentEventsForDocs(docs, paymentStart, numberOfDa
   if (n > 0) await batch.commit();
 }
 
-async function assertCommissionAdmin(request) {
+async function getCommissionAdminRecord(request) {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Sign in required.");
   }
@@ -233,8 +229,29 @@ async function assertCommissionAdmin(request) {
   if (!d.exists) {
     throw new HttpsError("permission-denied", "Not a commission admin.");
   }
-  return request.auth.uid;
+  return { uid: request.auth.uid, data: d.data() || {} };
 }
+
+/** Any admin (full or customer care). */
+async function assertCommissionAdmin(request) {
+  return (await getCommissionAdminRecord(request)).uid;
+}
+
+/**
+ * Full admins only. Customer-care admins (commission_admins/{uid}.role = "customer_care")
+ * must not upgrade subscriptions or grant SMS.
+ */
+async function assertFullCommissionAdmin(request) {
+  const { uid, data } = await getCommissionAdminRecord(request);
+  if (!isFullAdminRole(data.role)) {
+    throw new HttpsError(
+      "permission-denied",
+      "Customer care admins cannot upgrade subscriptions or grant SMS."
+    );
+  }
+  return uid;
+}
+
 
 async function assertCommissionAgent(request) {
   if (!request.auth?.uid) {
@@ -257,6 +274,7 @@ const smsHandlers = createSmsHandlers({
     senderId: MOBISHASTRA_SENDER_ID,
   },
   assertCommissionAdmin,
+  assertFullCommissionAdmin,
 });
 exports.sendDebtReminderSms = onCall(
   {
@@ -264,6 +282,13 @@ exports.sendDebtReminderSms = onCall(
     secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
   },
   (request) => smsHandlers.sendDebtReminderSms(request)
+);
+exports.sendAdvertisementSms = onCall(
+  {
+    region: "us-central1",
+    secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
+  },
+  (request) => smsHandlers.sendAdvertisementSms(request)
 );
 exports.sendBusinessSms = onCall(
   {
@@ -287,7 +312,7 @@ exports.processScheduledSmsJobs = onSchedule(
 );
 exports.processDailyDigestJobs = onSchedule(
   {
-    schedule: "0 20 * * *",
+    schedule: "every 15 minutes",
     timeZone: "Africa/Nairobi",
     region: "us-central1",
     secrets: [MOBISHASTRA_USER, MOBISHASTRA_PWD, MOBISHASTRA_SENDER_ID],
@@ -719,7 +744,8 @@ exports.adminSupportResolveUser = onCall({ region: "us-central1" }, async (reque
 
 /** Support: merge allowed fields on gmanusers or businesses; mirrors name/email/phone/role to userEmployees for that user. Commission admins only. */
 exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (request) => {
-  const callerUid = await assertCommissionAdmin(request);
+  const adminRecord = await getCommissionAdminRecord(request);
+  const callerUid = adminRecord.uid;
   const { collection: col, documentId, patch } = request.data || {};
   if (col !== "gmanusers" && col !== "businesses") {
     throw new HttpsError(
@@ -782,6 +808,19 @@ exports.adminSupportUpdateRecord = onCall({ region: "us-central1" }, async (requ
   const before = await docRef.get();
   if (!before.exists) {
     throw new HttpsError("not-found", "Document not found.");
+  }
+
+  // maxBusiness is how many shops a customer may run (a plan upgrade): full admins only.
+  // Re-sending the current value is fine (the support form always includes it).
+  if (
+    sanitized.maxBusiness !== undefined &&
+    !isFullAdminRole(adminRecord.data.role) &&
+    Number((before.data() || {}).maxBusiness) !== sanitized.maxBusiness
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "Customer care admins cannot change the number of shops (maxBusiness)."
+    );
   }
 
   await docRef.set(sanitized, { merge: true });
@@ -1507,6 +1546,85 @@ exports.checkSubscriptionStatusBusiness = onSchedule(
   }
 );
 
+
+/**
+ * Admin hub / support-reset: add or remove subscription days for every business with an email.
+ * Full admins only (customer care is refused). Same renewal rules as paymentCallbackEmail2,
+ * which stays open and unchanged because the payment gateway calls it.
+ */
+exports.adminAdjustSubscriptionDays = onCall({ region: "us-central1" }, async (request) => {
+  const callerUid = await assertFullCommissionAdmin(request);
+  const email = String((request.data || {}).email || "").trim();
+  const numberOfDays = parseFloat(String((request.data || {}).numberOfDays));
+
+  if (!email || !Number.isFinite(numberOfDays) || numberOfDays === 0) {
+    throw new HttpsError("invalid-argument", "Missing or invalid email or numberOfDays.");
+  }
+  if (Math.abs(numberOfDays) > 3650) {
+    throw new HttpsError("invalid-argument", "numberOfDays must be between -3650 and 3650.");
+  }
+
+  const businessesSnapshot = await firestore
+    .collection("businesses")
+    .where("email", "==", email)
+    .get();
+  if (businessesSnapshot.empty) {
+    throw new HttpsError("not-found", `No businesses found with email ${email}`);
+  }
+
+  const nowTs = admin.firestore.Timestamp.now();
+  const now = nowTs.toDate();
+  const reduceDays = numberOfDays < 0;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  await Promise.all(
+    businessesSnapshot.docs.map((businessDoc) => {
+      const business = businessDoc.data();
+
+      if (reduceDays) {
+        const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : now;
+        const paymentLastDate = new Date(existingPaymentLast.getTime() + numberOfDays * DAY_MS);
+        const expired = paymentLastDate <= now;
+        return businessDoc.ref.update({
+          paid: !expired,
+          subscriptionStatus: expired ? "subscription_ended" : "subscription_ok",
+          paymentLast: admin.firestore.Timestamp.fromDate(paymentLastDate),
+        });
+      }
+
+      // Start from the latest of: now, paid expiry, trial expiry (trialStart + 30 days).
+      const existingPaymentLast = business.paymentLast ? business.paymentLast.toDate() : null;
+      const trialStart = business.trialStart ? business.trialStart.toDate() : null;
+      const trialExpiry = trialStart ? new Date(trialStart.getTime() + 30 * DAY_MS) : null;
+      let startDate = now;
+      if (existingPaymentLast && existingPaymentLast > startDate) startDate = existingPaymentLast;
+      if (trialExpiry && trialExpiry > startDate) startDate = trialExpiry;
+
+      return businessDoc.ref.update({
+        paid: true,
+        subscriptionStatus: "subscription_ok",
+        paymentStart: nowTs,
+        paymentLast: admin.firestore.Timestamp.fromDate(
+          new Date(startDate.getTime() + numberOfDays * DAY_MS)
+        ),
+      });
+    })
+  );
+
+  if (!reduceDays) {
+    await recordReferralPaymentEventsForDocs(businessesSnapshot.docs, nowTs, numberOfDays);
+  }
+  console.log(
+    `[adminAdjustSubscriptionDays] caller=${callerUid} email=${email} days=${numberOfDays}`
+  );
+
+  return {
+    success: true,
+    message: reduceDays
+      ? `Reduced ${Math.abs(numberOfDays)} day(s) for ${email}`
+      : `Added ${numberOfDays} day(s) for ${email}`,
+  };
+});
 
 exports.paymentCallbackEmail2 = onRequest(
   {
@@ -3371,6 +3489,170 @@ exports.acceptBatchTransferRequestV2 = onCall({ region: "us-central1" }, async (
   }
 });
 
+function ownedBusinessQuery(ownerId) {
+  return firestore.collection("businesses").where("ownerId", "==", ownerId);
+}
+
+function shopPayloadFromTemplate(template, { businessId, ownerId, name, shopCountry, shopCity, shopStreet }) {
+  const source = template || {};
+  const country = String(shopCountry || source.shopCountry || "Tanzania").trim() || "Tanzania";
+  return {
+    name,
+    email: source.email || "",
+    phone: source.phone || "",
+    tin: source.tin || "",
+    allowSalesView: source.allowSalesView !== false,
+    subscriptionStatus: source.subscriptionStatus || "subscription_ontrial",
+    discountPercent: source.discountPercent || 0,
+    categories: Array.isArray(source.categories) ? source.categories : [],
+    manufacturer: Array.isArray(source.manufacturer) ? source.manufacturer : [],
+    location: Array.isArray(source.location) ? source.location : [],
+    debtEnabled: source.debtEnabled !== false,
+    expireWarning: source.expireWarning || 30,
+    mainCurrency: source.mainCurrency || "TZS",
+    reset_time: admin.firestore.FieldValue.serverTimestamp(),
+    secondaryCurrency: source.secondaryCurrency || "",
+    date: admin.firestore.FieldValue.serverTimestamp(),
+    id: businessId,
+    ownerId,
+    reserve: 0,
+    additionalDouble1: 0,
+    additionalDouble2: 0,
+    additionalString1: "false",
+    additionalString2: "",
+    additionalList1: [],
+    additionalList2: [],
+    shopCountry: country,
+    shopCity: String(shopCity || "").trim(),
+    shopStreet: String(shopStreet || "").trim(),
+    ...(source.trialStart != null ? { trialStart: source.trialStart } : {}),
+    ...(source.paymentStart != null ? { paymentStart: source.paymentStart } : {}),
+    ...(source.paymentLast != null ? { paymentLast: source.paymentLast } : {}),
+    ...(source.paid != null ? { paid: source.paid } : {}),
+  };
+}
+
+/**
+ * Backstop for already installed apps that still create a shop from the device.
+ * Counts shops by ownerId. If this create goes past maxBusiness, the shop is removed
+ * and taken off the login list. Signup is left alone when the profile does not exist yet.
+ */
+exports.enforceBusinessOwnerLimit = onDocumentCreated(
+  { document: "businesses/{businessId}", region: "us-central1" },
+  async (event) => {
+    const businessId = event.params.businessId;
+    const data = event.data?.data() || {};
+    const ownerId = typeof data.ownerId === "string" ? data.ownerId.trim() : "";
+    if (!ownerId) return;
+
+    const userRef = firestore.collection("gmanusers").doc(ownerId);
+    const businessRef = firestore.collection("businesses").doc(businessId);
+
+    await firestore.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      const ownedSnap = await tx.get(ownedBusinessQuery(ownerId));
+      const reject = shouldRejectNewBusiness({
+        userExists: userSnap.exists,
+        ownedCountIncludingNew: ownedSnap.size,
+        maxBusiness: userSnap.exists ? userSnap.data().maxBusiness : null,
+      });
+      if (!userSnap.exists || !reject) {
+        if (userSnap.exists) {
+          const list = Array.isArray(userSnap.data().business) ? userSnap.data().business : [];
+          if (!list.includes(businessId)) {
+            tx.update(userRef, {
+              business: admin.firestore.FieldValue.arrayUnion(businessId),
+            });
+          }
+        }
+        return;
+      }
+      tx.delete(businessRef);
+      const list = Array.isArray(userSnap.data().business) ? userSnap.data().business : [];
+      if (list.includes(businessId)) {
+        tx.update(userRef, {
+          business: admin.firestore.FieldValue.arrayRemove(businessId),
+        });
+      }
+    });
+  }
+);
+
+exports.createOwnedBusiness = onCall({ region: "us-central1" }, async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Sign in required.");
+  }
+  const uid = request.auth.uid;
+  const name = String(request.data?.name || "").trim();
+  if (!name) {
+    throw new HttpsError("invalid-argument", "Shop name is required.");
+  }
+  const currentBusinessId = String(request.data?.currentBusinessId || "").trim();
+  const userRef = firestore.collection("gmanusers").doc(uid);
+  const businessRef = firestore.collection("businesses").doc();
+
+  const created = await firestore.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
+      throw new HttpsError("failed-precondition", "User profile not found.");
+    }
+    const user = userSnap.data() || {};
+    if (String(user.role || "") !== "owner") {
+      throw new HttpsError("permission-denied", "Only the owner can add a shop.");
+    }
+    const ownedSnap = await tx.get(ownedBusinessQuery(uid));
+    const max = resolvedMaxBusiness(user.maxBusiness);
+    if (ownedSnap.size >= max) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `You have reached your maximum business limit (${max}). Contact support to increase your limit.`
+      );
+    }
+    const templateDoc =
+      ownedSnap.docs.find((doc) => doc.id === currentBusinessId) || ownedSnap.docs[0];
+    tx.set(
+      businessRef,
+      shopPayloadFromTemplate(templateDoc ? templateDoc.data() : null, {
+        businessId: businessRef.id,
+        ownerId: uid,
+        name,
+        shopCountry: request.data?.shopCountry,
+        shopCity: request.data?.shopCity,
+        shopStreet: request.data?.shopStreet,
+      })
+    );
+    const list = Array.isArray(user.business) ? user.business.filter((id) => id !== businessRef.id) : [];
+    tx.update(userRef, { business: [businessRef.id, ...list] });
+    return {
+      businessId: businessRef.id,
+      user,
+      max,
+    };
+  });
+
+  await firestore
+    .collection("employees")
+    .doc(created.businessId)
+    .collection("userEmployees")
+    .doc(uid)
+    .set(
+      {
+        id: uid,
+        name: created.user.name || "",
+        email: created.user.email || "",
+        phone: created.user.phone || "",
+        role: "owner",
+        maxBusiness: created.max,
+        business: [created.businessId],
+        image: created.user.image || "",
+        date: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+  return { businessId: created.businessId };
+});
+
 exports.reconcileNegativeShopStockV2 = onDocumentWritten(
   {
     document: 'products/{businessId}/userProducts/{productId}',
@@ -3927,8 +4209,14 @@ exports.commissionAdminDeleteAgent = onCall({ region: "us-central1" }, async (re
 
 /** Lightweight auth check for commission admin (e.g. support-reset sign-in gate). */
 exports.commissionAdminPing = onCall({ region: "us-central1" }, async (request) => {
-  await assertCommissionAdmin(request);
-  return { ok: true };
+  const { data } = await getCommissionAdminRecord(request);
+  const full = isFullAdminRole(data.role);
+  return {
+    ok: true,
+    role: full ? "admin" : "customer_care",
+    canManageSubscriptions: full,
+    canGrantSms: full,
+  };
 });
 
 function serializeFirestoreTs(value) {
@@ -3985,7 +4273,8 @@ function serializeAdminBusiness(doc) {
  * Paginated businesses for admin-hub (no full-collection dump).
  * - sortBy "date": recently registered first
  * - sortBy "paymentStart": recently paid first (use with subscription_ok)
- * Optional filters: subscriptionStatus, dateFrom/dateTo (registration), email, name (exact)
+ * Optional filters: subscriptionStatus, dateFrom/dateTo (registration), email, name
+ * (email/name are partial, case-insensitive matches; see admin_search.js)
  */
 exports.adminListBusinesses = onCall({ region: "us-central1" }, async (request) => {
   await assertCommissionAdmin(request);
@@ -4016,26 +4305,68 @@ exports.adminListBusinesses = onCall({ region: "us-central1" }, async (request) 
     sortBy = "date";
   }
 
-  // Exact email/name lookups are small; always sort by registration date.
-  const exactLookup = Boolean(email || name);
-  const orderField =
-    !exactLookup && sortBy === "paymentStart" ? "paymentStart" : "date";
+  // Partial, case-insensitive email/name search (Firestore has no substring query,
+  // so scan a small projection and fetch full docs only for the matches).
+  if (email || name) {
+    const MAX_SCAN = 40000;
+    const MAX_MATCHES = 100;
+    const matched = [];
+    let scanned = 0;
+    let last = null;
+    let scanComplete = true;
+    while (true) {
+      let q = firestore
+        .collection("businesses")
+        .select("name", "email", "date", "subscriptionStatus")
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(1000);
+      if (last) q = q.startAfter(last);
+      const page = await q.get();
+      if (page.empty) break;
+      for (const d of page.docs) {
+        const b = d.data() || {};
+        if (subscriptionStatus && (b.subscriptionStatus || "") !== subscriptionStatus) continue;
+        if (email && !matchesSearch(b.email, email)) continue;
+        if (name && !matchesSearch(b.name, name)) continue;
+        const ts = b.date && typeof b.date.toMillis === "function" ? b.date.toMillis() : 0;
+        matched.push({ ref: d.ref, ts });
+      }
+      scanned += page.size;
+      last = page.docs[page.docs.length - 1];
+      if (page.size < 1000) break;
+      if (scanned >= MAX_SCAN) {
+        scanComplete = false;
+        break;
+      }
+    }
+    matched.sort((a, b) => b.ts - a.ts);
+    const top = matched.slice(0, MAX_MATCHES);
+    const fullDocs = top.length ? await firestore.getAll(...top.map((m) => m.ref)) : [];
+    return {
+      businesses: fullDocs.filter((d) => d.exists).map(serializeAdminBusiness),
+      pageSize,
+      sortBy: "date",
+      hasMore: false,
+      nextCursor: null,
+      search: {
+        totalMatches: matched.length,
+        shown: top.length,
+        scanComplete,
+      },
+    };
+  }
+
+  const orderField = sortBy === "paymentStart" ? "paymentStart" : "date";
   let query = firestore.collection("businesses");
 
-  if (email) {
-    query = query.where("email", "==", email);
-  } else if (name) {
-    query = query.where("name", "==", name);
-  } else {
-    if (subscriptionStatus) {
-      query = query.where("subscriptionStatus", "==", subscriptionStatus);
-    }
-    if (dateFrom) {
-      query = query.where("date", ">=", admin.firestore.Timestamp.fromDate(dateFrom));
-    }
-    if (dateTo) {
-      query = query.where("date", "<=", admin.firestore.Timestamp.fromDate(dateTo));
-    }
+  if (subscriptionStatus) {
+    query = query.where("subscriptionStatus", "==", subscriptionStatus);
+  }
+  if (dateFrom) {
+    query = query.where("date", ">=", admin.firestore.Timestamp.fromDate(dateFrom));
+  }
+  if (dateTo) {
+    query = query.where("date", "<=", admin.firestore.Timestamp.fromDate(dateTo));
   }
 
   query = query.orderBy(orderField, "desc");

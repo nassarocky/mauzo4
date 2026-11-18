@@ -28,8 +28,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
   @override
   void dispose() {
     Timer.run(() {
-      _clientController.searchClients.value =
-          List.from(_clientController.clients);
+      _clientController.searchClients.value = List.from(
+        _clientController.clients,
+      );
       _clientController.filterType.value = 'all';
       _clientController.sort(_clientController.sortCategory.value);
     });
@@ -38,30 +39,64 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool canManageClients = _profileController.hasPermission('manage_clients');
-    
+    final bool canManageClients = _profileController.hasPermission(
+      'manage_clients',
+    );
+    final role = (_profileController.user['role'] ?? '')
+        .toString()
+        .toLowerCase();
+    final canSendDebtSms =
+        _profileController.hasPermission('send_debt_sms') ||
+        _profileController.hasPermission('manage_debt') ||
+        role == 'owner' ||
+        role == 'manager';
+    final canSendAdvertisement =
+        canManageClients || role == 'owner' || role == 'manager';
+
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
         title: Text('clients'.tr),
         actions: [
-          if (_profileController.hasPermission('send_debt_sms') ||
-              _profileController.hasPermission('manage_debt') ||
-              (_profileController.user['role'] ?? '') == 'owner')
-            IconButton(
-              tooltip: 'sms_debt_reminders'.tr,
+          if (canSendDebtSms || canSendAdvertisement)
+            PopupMenuButton<String>(
+              tooltip: 'SMS',
               icon: const Icon(Icons.sms_outlined),
-              onPressed: () {
-                Navigator.pushNamed(context, '/sms-credits');
+              onSelected: (value) {
+                if (value == 'advertisement') {
+                  Navigator.pushNamed(context, '/sms-advertisement');
+                } else if (value == 'credits') {
+                  Navigator.pushNamed(context, '/sms-credits');
+                }
               },
+              itemBuilder: (context) => [
+                if (canSendAdvertisement)
+                  const PopupMenuItem(
+                    value: 'advertisement',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.campaign_outlined),
+                      title: Text('Send advertisement'),
+                      subtitle: Text('Message selected clients'),
+                    ),
+                  ),
+                if (canSendDebtSms)
+                  PopupMenuItem(
+                    value: 'credits',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.account_balance_wallet_outlined,
+                      ),
+                      title: Text('sms_debt_reminders'.tr),
+                      subtitle: const Text('Credits, reminders and settings'),
+                    ),
+                  ),
+              ],
             ),
           IconButton(
             tooltip: 'export_debtors_excel'.tr,
-            icon: Image.asset(
-              'assets/images/excel.png',
-              width: 24,
-              height: 24,
-            ),
+            icon: Image.asset('assets/images/excel.png', width: 24, height: 24),
             onPressed: () {
               _clientController.generateExcelFromDebtors();
             },
@@ -77,27 +112,20 @@ class _ClientsScreenState extends State<ClientsScreen> {
               }
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'print',
-                child: Text('print_pdf'.tr),
-              ),
-              PopupMenuItem(
-                value: 'share',
-                child: Text('share_pdf'.tr),
-              ),
+              PopupMenuItem(value: 'print', child: Text('print_pdf'.tr)),
+              PopupMenuItem(value: 'share', child: Text('share_pdf'.tr)),
             ],
           ),
         ],
       ),
-      floatingActionButton: canManageClients ? FloatingActionButton(
-        onPressed: () {
-          Navigator.pushNamed(
-            context,
-            '/client/add',
-          );
-        },
-        child: const Icon(Icons.add),
-      ) : null,
+      floatingActionButton: canManageClients
+          ? FloatingActionButton(
+              onPressed: () {
+                Navigator.pushNamed(context, '/client/add');
+              },
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Obx(
         () => Padding(
           padding: const EdgeInsets.all(14),
@@ -174,110 +202,117 @@ class _ClientsScreenState extends State<ClientsScreen> {
               Expanded(
                 child: _clientController.clients.isEmpty
                     ? Center(
-                  child: Text(
-                    'not_found'.tr,
-                    style: bodyText(
-                      Theme.of(context).textTheme.bodyMedium!.color,
-                    ),
-                  ),
-                )
-                    : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _clientController.searchClients.length,
-                  itemBuilder: (context, index) {
-                    final client = _clientController.searchClients[index];
-                    return ListTile(
-                      onTap: () {
-                        showModalBottomSheet(
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.only(
-                              topLeft: Radius.circular(4),
-                              topRight: Radius.circular(4),
-                            ),
+                        child: Text(
+                          'not_found'.tr,
+                          style: bodyText(
+                            Theme.of(context).textTheme.bodyMedium!.color,
                           ),
-                          isScrollControlled: true,
-                          context: context,
-                          builder: (_) {
-                            return ClientInfoBottomSheet(
-                              client: client,
-                            );
-                          },
-                        );
-                      },
-                      contentPadding: const EdgeInsets.all(0),
-                      leading: SizedBox(
-                        height: 36,
-                        width: 36,
-                        child: (client.image != null && client.image != '')
-                            ? ClipRRect(
-                          borderRadius: BorderRadius.circular(100),
-                          child: CachedNetworkImage(
-                            imageUrl: client.image!,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) =>
-                            const CircularProgressIndicator(),
-                            errorWidget: (context, url, error) => Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: gray200Color,
-                                    borderRadius: BorderRadius.circular(100),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _clientController.searchClients.length,
+                        itemBuilder: (context, index) {
+                          final client = _clientController.searchClients[index];
+                          return ListTile(
+                            onTap: () {
+                              showModalBottomSheet(
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: Radius.circular(4),
+                                    topRight: Radius.circular(4),
                                   ),
                                 ),
-                                const Icon(
-                                  Icons.person,
-                                  color: iconGrayColor,
-                                ),
+                                isScrollControlled: true,
+                                context: context,
+                                builder: (_) {
+                                  return ClientInfoBottomSheet(client: client);
+                                },
+                              );
+                            },
+                            contentPadding: const EdgeInsets.all(0),
+                            leading: SizedBox(
+                              height: 36,
+                              width: 36,
+                              child:
+                                  (client.image != null && client.image != '')
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(100),
+                                      child: CachedNetworkImage(
+                                        imageUrl: client.image!,
+                                        fit: BoxFit.cover,
+                                        placeholder: (context, url) =>
+                                            const CircularProgressIndicator(),
+                                        errorWidget: (context, url, error) =>
+                                            Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                Container(
+                                                  decoration: BoxDecoration(
+                                                    color: gray200Color,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          100,
+                                                        ),
+                                                  ),
+                                                ),
+                                                const Icon(
+                                                  Icons.person,
+                                                  color: iconGrayColor,
+                                                ),
+                                              ],
+                                            ),
+                                      ),
+                                    )
+                                  : Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: gray200Color,
+                                            borderRadius: BorderRadius.circular(
+                                              100,
+                                            ),
+                                          ),
+                                        ),
+                                        const Icon(
+                                          Icons.person,
+                                          color: iconGrayColor,
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                            title: Text(
+                              client.name,
+                              style: bodyText(
+                                Theme.of(context).textTheme.bodyLarge!.color,
+                              ),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (client.debt > 0)
+                                  Text(
+                                    '${'debt'.tr}: ${formatCurrency(client.debt, _businessController.business['mainCurrency'])}',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: redColor,
+                                    ),
+                                  ),
+                                if (client.advance > 0)
+                                  Text(
+                                    '${'advance'.tr}: ${formatCurrency(client.advance, _businessController.business['mainCurrency'])}',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color:
+                                          Colors.green, // Use green for advance
+                                    ),
+                                  ),
                               ],
                             ),
-                          ),
-                        )
-                            : Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: gray200Color,
-                                borderRadius: BorderRadius.circular(100),
-                              ),
-                            ),
-                            const Icon(
-                              Icons.person,
-                              color: iconGrayColor,
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                      title: Text(
-                        client.name,
-                        style: bodyText(
-                            Theme.of(context).textTheme.bodyLarge!.color),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (client.debt > 0)
-                            Text(
-                              '${'debt'.tr}: ${formatCurrency(client.debt, _businessController.business['mainCurrency'])}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: redColor,
-                              ),
-                            ),
-                          if (client.advance > 0)
-                            Text(
-                              '${'advance'.tr}: ${formatCurrency(client.advance, _businessController.business['mainCurrency'])}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.green, // Use green for advance
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
               ),
             ],
           ),

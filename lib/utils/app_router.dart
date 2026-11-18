@@ -25,6 +25,7 @@ import 'package:mauzo/ui/screens/statistics_screen.dart';
 import 'package:mauzo/ui/screens/sale/add_sale_screen.dart';
 import 'package:mauzo/ui/screens/product/products_screen.dart';
 import 'package:mauzo/ui/screens/settings_screen.dart';
+import 'package:mauzo/ui/screens/sms/advertisement_sms_screen.dart';
 import 'package:mauzo/ui/screens/sms/sms_credits_screen.dart';
 import 'package:mauzo/ui/screens/subscription_screen.dart';
 import 'package:mauzo/ui/screens/loading_screen.dart';
@@ -63,8 +64,7 @@ class AppRouter {
   }) {
     return CupertinoPageRoute<void>(
       settings: settings,
-      builder: (_) =>
-          backToHome ? AppBackScope(child: screen) : screen,
+      builder: (_) => backToHome ? AppBackScope(child: screen) : screen,
     );
   }
 
@@ -160,6 +160,8 @@ class AppRouter {
         return _page(SubscriptionScreen());
       case '/sms-credits':
         return _page(const SmsCreditsScreen());
+      case '/sms-advertisement':
+        return _page(const AdvertisementSmsScreen());
       case '/support':
         return _page(const SupportScreen());
       case '/account':

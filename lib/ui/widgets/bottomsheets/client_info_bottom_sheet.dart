@@ -28,9 +28,15 @@ class ClientInfoBottomSheet extends StatelessWidget {
     final BusinessController businessController = Get.find();
     final ProfileController profileController = Get.find();
     final SaleController saleController = Get.find();
-    final bool canEditClient = profileController.hasPermission('edit_clients');
+    final bool canEditClient = profileController.isManagerOrOwner();
 
-    return Wrap(
+    return Obx(() {
+      final shown = clientController.clients.firstWhere(
+        (c) => c.id == client.id,
+        orElse: () => client,
+      );
+
+      return Wrap(
       alignment: WrapAlignment.center,
       children: [
         Padding(
@@ -42,7 +48,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(100),
-                child: client.image != null && client.image != ''
+                child: shown.image != null && shown.image != ''
                     ? Container(
                   decoration: const BoxDecoration(
                     color: gray200Color,
@@ -52,7 +58,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                   child: CachedNetworkImage(
                     placeholder: (context, url) =>
                     const CircularProgressIndicator(),
-                    imageUrl: client.image!,
+                    imageUrl: shown.image!,
                     fit: BoxFit.cover,
                     errorWidget: (context, url, error) =>
                     const CircleAvatar(
@@ -78,38 +84,38 @@ class ClientInfoBottomSheet extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                client.name,
+                shown.name,
                 style: h5(Theme.of(context).textTheme.bodyLarge!.color),
               ),
               const SizedBox(height: 12),
               Text(
-                client.phone != "" ? client.phone : "no_phone".tr,
+                shown.phone != "" ? shown.phone : "no_phone".tr,
                 style: bodyText(
                   Theme.of(context).textTheme.bodyMedium!.color,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
-                  client.note != null && client.note != ''
-                      ? client.note!
+                  shown.note != null && shown.note != ''
+                      ? shown.note!
                       : 'no_note'.tr,
                   style: bodyText(
                     Theme.of(context).textTheme.bodyMedium!.color,
                   )),
               const SizedBox(height: 12),
               Text(
-                client.debt > 0
-                    ? "${'debt'.tr}: ${formatCurrency(client.debt, businessController.business['mainCurrency'])}"
+                shown.debt > 0
+                    ? "${'debt'.tr}: ${formatCurrency(shown.debt, businessController.business['mainCurrency'])}"
                     : 'no_debt'.tr,
                 style: TextStyle(
                   fontSize: 14,
-                  color: client.debt > 0
+                  color: shown.debt > 0
                       ? redColor
                       : Theme.of(context).textTheme.bodyMedium!.color,
                 ),
               ),
-              if (client.debt > 0 &&
-                  isValidSmsPhone(client.phone) &&
+              if (shown.debt > 0 &&
+                  isValidSmsPhone(shown.phone) &&
                   (profileController.hasPermission('send_debt_sms') ||
                       profileController.hasPermission('manage_debt')))
                 Padding(
@@ -118,10 +124,10 @@ class ClientInfoBottomSheet extends StatelessWidget {
                     onPressed: () async {
                       await showDebtSmsDialog(
                         context: context,
-                        clientName: client.name,
-                        phone: client.phone,
-                        amount: client.debt,
-                        clientId: client.id,
+                        clientName: shown.name,
+                        phone: shown.phone,
+                        amount: shown.debt,
+                        clientId: shown.id,
                       );
                     },
                     icon: const Icon(Icons.sms_outlined, size: 18),
@@ -142,7 +148,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                     children: [
                       // Display the current advance amount.
                       Text(
-                        formatCurrency(client.advance, businessController.business['mainCurrency']),
+                        formatCurrency(shown.advance, businessController.business['mainCurrency']),
                         style: bodyText(Theme.of(context).textTheme.bodyLarge!.color),
                       ),
                       const SizedBox(width: 8),
@@ -156,7 +162,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                             shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                             ),
-                            builder: (context) => AdvanceTransactionsSheet(client: client),
+                            builder: (context) => AdvanceTransactionsSheet(client: shown),
                           );
                         },
                       ),
@@ -166,7 +172,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                         onPressed: () {
                           showDialog(
                             context: context,
-                            builder: (context) => AddAdvance(client: client),
+                            builder: (context) => AddAdvance(client: shown),
                           );
                         },
                       ),
@@ -200,7 +206,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                                   confirm: 'delete'.tr,
                                   cancel: 'cancel'.tr,
                                   onConfirm: () {
-                                    clientController.deleteClient(client.id);
+                                    clientController.deleteClient(shown.id);
                                     Navigator.pop(context);
                                     Navigator.pop(context);
                                   },
@@ -226,7 +232,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                             context,
                             CupertinoPageRoute(
                               builder: (context) => EditClientScreen(
-                                client: client,
+                                client: shown,
                               ),
                             ),
                           );
@@ -238,7 +244,7 @@ class ClientInfoBottomSheet extends StatelessWidget {
                         text: 'view_orders'.tr,
                         onPressed: () {
                           saleController.selectedDateRange = null;
-                          saleController.filterClients([client.id]);
+                          saleController.filterClients([shown.id]);
                           saleController.filterSales();
                           Navigator.pushNamed(context, '/sales');
                         },
@@ -252,5 +258,6 @@ class ClientInfoBottomSheet extends StatelessWidget {
         ),
       ],
     );
+    });
   }
 }

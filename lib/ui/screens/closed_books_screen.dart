@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../utils/download_helper.dart';
 import '../../controllers/bought_controller.dart';
 import '../../controllers/business_controller.dart';
+import '../../controllers/client_controller.dart';
 import '../../controllers/closed_books_controller.dart';
 import '../../controllers/debt_history_controller.dart';
 import '../../controllers/expence_controller.dart';
@@ -18,6 +19,7 @@ import '../../controllers/product_controller.dart';
 import '../../controllers/profile_controller.dart';
 import '../../controllers/sale_controller.dart';
 import '../../models/close_book_model.dart';
+import '../../utils/advance_summary.dart';
 import '../../utils/constants.dart';
 import '../../utils/report_date_range.dart';
 
@@ -36,6 +38,7 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
   final DebtHistoryController _debtHistoryController = Get.find();
   final ExpenseController _expenseController = Get.find();
   final ProductController _productController = Get.find();
+  final ClientController _clientController = Get.put(ClientController());
 
   @override
   Widget build(BuildContext context) {
@@ -252,6 +255,11 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
     }
     
     double totalDebt = _debtHistoryController.getTotalDebt();
+    final advance = computeAdvanceSummary(
+      _clientController.clients,
+      start: startDate,
+      end: endDate,
+    );
     double totalStock = _productController.calculateTotalStock();
     String currency = _businessController.business['mainCurrency'] ?? "TZS";
 
@@ -276,6 +284,8 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
       totalDebt: totalDebt,
       debt: debt,
       debtCollected: debtCollected,
+      advanceCollected: advance.collectedInPeriod,
+      advanceBalance: advance.totalBalance,
       reserveDouble1: purchasesPaid,
       reserveDouble2: totalSalesBuying,
       expenses: expenses,
@@ -389,6 +399,8 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
         _buildTableRow('${'PURCHASES PAID'.tr}', book.reserveDouble1 ?? 0.0, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT (Created in Period):'.tr}', book.debt, _businessController.business['mainCurrency']),
         _buildTableRow('${'DEBT COLLECTED (Old Debt Paid):'.tr}', book.debtCollected, _businessController.business['mainCurrency']),
+        _buildTableRow('${'ADVANCE COLLECTED (in period)'.tr}', book.advanceCollected, _businessController.business['mainCurrency']),
+        _buildTableRow('${'TOTAL ADVANCE AVAILABLE'.tr}', book.advanceBalance, _businessController.business['mainCurrency']),
         _buildTableRow('${'EXPENSES:'.tr}', book.expenses, _businessController.business['mainCurrency']),
         _buildTableRow(
           '${'Available balance (payments + debt collected - expenses - purchases paid)'.tr}',
@@ -604,6 +616,8 @@ class _CloseBookScreenState extends State<CloseBookScreen> {
 
         _buildPDFTableRow('DEBT (Created in Period):'.tr, book.debt, book.currency),
         _buildPDFTableRow('DEBT COLLECTED (Old Debt Paid):'.tr, book.debtCollected, book.currency),
+        _buildPDFTableRow('ADVANCE COLLECTED (in period)'.tr, book.advanceCollected, book.currency),
+        _buildPDFTableRow('TOTAL ADVANCE AVAILABLE'.tr, book.advanceBalance, book.currency),
         _buildPDFTableRow('EXPENSES:'.tr, book.expenses, book.currency),
         _buildPDFTableRow(
           'Available balance (payments + debt collected - expenses - purchases paid)'.tr,

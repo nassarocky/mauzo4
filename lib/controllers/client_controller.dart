@@ -21,6 +21,7 @@ import '../utils/debtors_export.dart';
 import '../services/sms_reminder_service.dart';
 import '../utils/sms_phone.dart';
 import '../utils/download_helper.dart';
+import '../utils/client_profile_update.dart';
 import '../utils/sale_client_name.dart';
 
 class ClientController extends GetxController {
@@ -176,6 +177,41 @@ class ClientController extends GetxController {
     } catch (e) {
       errorSnackbar(e.toString());
     }
+  }
+
+  /// Updates name/phone/note/image on the registered client document.
+  /// Does not rewrite debt or advance, so existing loans stay intact.
+  Future<void> updateClientInfo({
+    required String clientId,
+    required String name,
+    required String phone,
+    String? note,
+    String? image,
+  }) async {
+    String business = _businessController.businessId.value;
+    if (business.isEmpty) {
+      business = (_businessController.business['id'] ?? '').toString();
+    }
+    if (business.isEmpty) {
+      throw StateError('Business ID is missing, cannot update client.');
+    }
+
+    final data = buildClientProfileUpdate(
+      clientId: clientId,
+      name: name,
+      phone: phone,
+      note: note,
+      image: image,
+    );
+
+    print('Updating client profile at clients/$business/userClients/$clientId');
+    await firestore
+        .collection('clients')
+        .doc(business)
+        .collection('userClients')
+        .doc(clientId)
+        .update(data);
+    print('Client profile updated for $clientId');
   }
 
   Future<void> updateDebt(Client client, double debt) async {

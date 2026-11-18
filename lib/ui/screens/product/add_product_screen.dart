@@ -52,6 +52,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final TextEditingController _expireDateController = TextEditingController();
   final TextEditingController _manufacturerController = TextEditingController();
   final TextEditingController _discountController = TextEditingController();
+  bool _allowDiscount = true;
   final TextEditingController newUnitController = TextEditingController();
 
   bool _isNameEmpty = false;
@@ -335,6 +336,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     setState(() {
       imageFile = null;
       _selectedProductType = 'normal';
+      _allowDiscount = true;
     });
     _productController.setCategory('No category'.tr);
     _productController.setManufacturer('No manufacturer'.tr);
@@ -1123,7 +1125,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 8),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('allow_discount_for_product'.tr),
+                              subtitle: Text(
+                                'allow_discount_for_product_hint'.tr,
+                                style: bodyText(textPlaceholderColor),
+                              ),
+                              value: _allowDiscount,
+                              onChanged: (v) =>
+                                  setState(() => _allowDiscount = v),
+                            ),
+                            const SizedBox(height: 16),
                             // Expire Date Input Field
                             SizedBox(
                               height: 44,
@@ -1631,6 +1645,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                                   .trim()
                                                   .replaceAll(',', ''),
                                       ),
+                                      'allowDiscount': _allowDiscount,
                                       'code': _codeController.text.trim(),
                                       'price': sellingPrice,
                                       'wholesalePrice': wholesalePrice,

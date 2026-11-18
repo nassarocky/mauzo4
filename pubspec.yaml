@@ -69,6 +69,7 @@ flutter_launcher_icons:
   windows:
     generate: true
     image_path: assets/images/hesabu_mauzo_logo.png
+    icon_size: 256
 
 flutter:
   uses-material-design: true

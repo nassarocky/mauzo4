@@ -31,6 +31,7 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../widgets/printer_selection_dialog.dart';
 import '../../../services/thermal_printer_service.dart';
+import '../../../services/delivery_note_service.dart';
 import '../../../utils/download_helper.dart';
 
 import 'edit_sale_screen2.dart';
@@ -815,6 +816,16 @@ class _SalesScreenState extends State<SalesScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                             ),
                                           ),
+                                          ElevatedButton.icon(
+                                            onPressed: () {
+                                              printDeliveryNote(sale, client);
+                                            },
+                                            icon: const Icon(Icons.local_shipping_outlined, size: 18),
+                                            label: Text('delivery_note'.tr),
+                                            style: ElevatedButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            ),
+                                          ),
                                         ],
                                         ),
                                       ),
@@ -932,6 +943,88 @@ class _SalesScreenState extends State<SalesScreen> {
       format: ThermalPrinterService.receiptPdfPageFormat,
       onLayout: (PdfPageFormat _) async => pdf.save(),
     );
+  }
+
+  /// Asks who is delivering the goods. Returns null if the user cancels.
+  Future<String?> _askDeliveredBy() {
+    final controller = TextEditingController();
+    String? error;
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('delivery_note'.tr),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              labelText: 'delivered_by'.tr,
+              errorText: error,
+            ),
+            onSubmitted: (_) {
+              final name = controller.text.trim();
+              if (name.isEmpty) {
+                setDialogState(() => error = 'delivered_by_required'.tr);
+              } else {
+                Navigator.of(dialogContext).pop(name);
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text('cancel'.tr),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = controller.text.trim();
+                if (name.isEmpty) {
+                  setDialogState(() => error = 'delivered_by_required'.tr);
+                } else {
+                  Navigator.of(dialogContext).pop(name);
+                }
+              },
+              child: Text('print'.tr),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A4 delivery note (items and quantities only, no prices). Asks for the
+  /// "Delivered by" name first; the delivery date is filled in automatically.
+  Future<void> printDeliveryNote(Sale sale, Client client) async {
+    try {
+      final business = _businessController.business;
+      final lines = deliveryNoteLinesFromProducts(sale.products);
+      if (lines.isEmpty) {
+        errorSnackbar('delivery_note_no_items'.tr);
+        return;
+      }
+      final deliveredBy = await _askDeliveredBy();
+      if (deliveredBy == null) return;
+      final doc = buildDeliveryNotePdf(
+        businessName: (business['name'] ?? '').toString(),
+        businessPhone: (business['phone'] ?? '').toString(),
+        businessTin: business['tin']?.toString(),
+        date: sale.date.toDate(),
+        clientName: client.name,
+        clientPhone: client.phone,
+        lines: lines,
+        deliveredBy: deliveredBy,
+        deliveredDate: DateTime.now(),
+      );
+      await Printing.layoutPdf(
+        name:
+            'Delivery_Note_${DateFormat('yyyyMMdd_HHmm').format(sale.date.toDate())}',
+        format: PdfPageFormat.a4,
+        onLayout: (PdfPageFormat _) async => doc.save(),
+      );
+    } catch (e) {
+      errorSnackbar('Error generating PDF: $e');
+    }
   }
 
   Future<void> shareInvoice(Sale invoice, Client client) async {

@@ -11,6 +11,10 @@ class SmsSettings {
   final int reminderMaxCount;
   final String debtReminderTemplate;
   final bool dailyDigestEnabled;
+  /// Hour (0–23) in East Africa Time for the daily sales/profit SMS.
+  final int dailyDigestHour;
+  /// Minute (0–59) in East Africa Time for the daily sales/profit SMS.
+  final int dailyDigestMinute;
   final bool expiryAlertEnabled;
   final bool lowStockAlertEnabled;
   final bool advanceSmsEnabled;
@@ -24,11 +28,31 @@ class SmsSettings {
     this.reminderMaxCount = 5,
     this.debtReminderTemplate = '',
     this.dailyDigestEnabled = false,
+    this.dailyDigestHour = 20,
+    this.dailyDigestMinute = 0,
     this.expiryAlertEnabled = false,
     this.lowStockAlertEnabled = false,
     this.advanceSmsEnabled = true,
     this.debtPaymentSmsEnabled = true,
   });
+
+  static int clampHour(dynamic raw, {int fallback = 20}) {
+    final n = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
+    if (n == null) return fallback;
+    return n.clamp(0, 23).toInt();
+  }
+
+  static int clampMinute(dynamic raw, {int fallback = 0}) {
+    final n = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
+    if (n == null) return fallback;
+    return n.clamp(0, 59).toInt();
+  }
+
+  String get dailyDigestTimeLabel {
+    final h = dailyDigestHour.toString().padLeft(2, '0');
+    final m = dailyDigestMinute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
 
   static List<int> _parseDayList(dynamic raw, {required bool allowZero}) {
     if (raw is! List) return const [];
@@ -72,6 +96,8 @@ class SmsSettings {
       debtReminderTemplate:
           template.length > 600 ? template.substring(0, 600) : template,
       dailyDigestEnabled: map['dailyDigestEnabled'] == true,
+      dailyDigestHour: clampHour(map['dailyDigestHour']),
+      dailyDigestMinute: clampMinute(map['dailyDigestMinute']),
       expiryAlertEnabled: map['expiryAlertEnabled'] == true,
       lowStockAlertEnabled: map['lowStockAlertEnabled'] == true,
       advanceSmsEnabled: map['advanceSmsEnabled'] != false,
@@ -88,6 +114,8 @@ class SmsSettings {
       'reminderMaxCount': reminderMaxCount,
       'debtReminderTemplate': debtReminderTemplate,
       'dailyDigestEnabled': dailyDigestEnabled,
+      'dailyDigestHour': dailyDigestHour,
+      'dailyDigestMinute': dailyDigestMinute,
       'expiryAlertEnabled': expiryAlertEnabled,
       'lowStockAlertEnabled': lowStockAlertEnabled,
       'advanceSmsEnabled': advanceSmsEnabled,
@@ -103,6 +131,8 @@ class SmsSettings {
     int? reminderMaxCount,
     String? debtReminderTemplate,
     bool? dailyDigestEnabled,
+    int? dailyDigestHour,
+    int? dailyDigestMinute,
     bool? expiryAlertEnabled,
     bool? lowStockAlertEnabled,
     bool? advanceSmsEnabled,
@@ -122,6 +152,14 @@ class SmsSettings {
       debtReminderTemplate:
           template.length > 600 ? template.substring(0, 600) : template,
       dailyDigestEnabled: dailyDigestEnabled ?? this.dailyDigestEnabled,
+      dailyDigestHour: clampHour(
+        dailyDigestHour ?? this.dailyDigestHour,
+        fallback: this.dailyDigestHour,
+      ),
+      dailyDigestMinute: clampMinute(
+        dailyDigestMinute ?? this.dailyDigestMinute,
+        fallback: this.dailyDigestMinute,
+      ),
       expiryAlertEnabled: expiryAlertEnabled ?? this.expiryAlertEnabled,
       lowStockAlertEnabled: lowStockAlertEnabled ?? this.lowStockAlertEnabled,
       advanceSmsEnabled: advanceSmsEnabled ?? this.advanceSmsEnabled,

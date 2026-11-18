@@ -625,6 +625,7 @@ class _SmsCreditsScreenState extends State<SmsCreditsScreen> {
               update: (value) => _settings.copyWith(dailyDigestEnabled: value),
             ),
           ),
+          if (_settings.dailyDigestEnabled) _buildDailyDigestTimeTile(),
           _alertTile(
             icon: Icons.event_busy_outlined,
             title: 'sms_expiry_alert'.tr,
@@ -665,6 +666,46 @@ class _SmsCreditsScreenState extends State<SmsCreditsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _pickDailyDigestTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _settings.dailyDigestHour,
+        minute: _settings.dailyDigestMinute,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final previous = _settings;
+    setState(() {
+      _settings = _settings.copyWith(
+        dailyDigestHour: picked.hour,
+        dailyDigestMinute: picked.minute,
+      );
+    });
+    try {
+      await _saveSettings(showSuccess: false);
+    } catch (_) {
+      if (mounted) setState(() => _settings = previous);
+    }
+  }
+
+  Widget _buildDailyDigestTimeTile() {
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+      leading: const Icon(Icons.schedule_outlined, color: primaryColor, size: 22),
+      title: Text(
+        'sms_daily_digest_time'.tr,
+        style: TextStyle(fontSize: 14, color: _textPrimary),
+      ),
+      subtitle: Text(
+        '${_settings.dailyDigestTimeLabel} · ${'sms_daily_digest_timezone'.tr}',
+        style: TextStyle(fontSize: 13, color: textMutedColor),
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _savingSettings ? null : _pickDailyDigestTime,
     );
   }
 

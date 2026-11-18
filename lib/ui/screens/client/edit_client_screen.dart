@@ -1,15 +1,14 @@
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../controllers/client_controller.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../../models/client_model.dart';
 import '../../../utils/constants.dart';
 import '../../../utils/image.dart';
 import '../../../utils/preferences.dart';
-import '../../widgets/buttons/primary_button.dart';
 
 class EditClientScreen extends StatefulWidget {
   const EditClientScreen({Key? key, required this.client}) : super(key: key);
@@ -21,8 +20,11 @@ class EditClientScreen extends StatefulWidget {
 }
 
 class _EditClientScreenState extends State<EditClientScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final ProfileController _profileController = Get.find();
+  final ClientController _clientController = Get.find();
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _noteController;
   File? imageFile;
   UploadTask? uploadTask;
 
@@ -31,10 +33,13 @@ class _EditClientScreenState extends State<EditClientScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // CRITICAL SECURITY CHECK: Verify user has permission to manage clients
-    if (!_profileController.hasPermission('manage_clients')) {
-      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditClientScreen without manage_clients permission');
+    _nameController = TextEditingController(text: widget.client.name);
+    _phoneController = TextEditingController(text: widget.client.phone);
+    _noteController = TextEditingController(text: widget.client.note);
+
+    // Only owner and manager may change a registered client's details.
+    if (!_profileController.isManagerOrOwner()) {
+      print('🚨 UNAUTHORIZED ACCESS BLOCKED: User tried to access EditClientScreen without owner/manager role');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
         Get.snackbar(
@@ -48,6 +53,14 @@ class _EditClientScreenState extends State<EditClientScreen> {
       });
       return;
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _noteController.dispose();
+    super.dispose();
   }
 
   Future<String> uploadFile(
@@ -64,15 +77,6 @@ class _EditClientScreenState extends State<EditClientScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final TextEditingController nameController = TextEditingController(
-      text: widget.client.name,
-    );
-    final TextEditingController phoneController =
-    TextEditingController(text: widget.client.phone);
-    final TextEditingController noteController = TextEditingController(
-      text: widget.client.note,
-    );
-
     return WillPopScope(
       onWillPop: () async => isUploading ? false : true,
       child: Scaffold(
@@ -226,7 +230,7 @@ class _EditClientScreenState extends State<EditClientScreen> {
                 ),
                 const SizedBox(height: 30),
                 TextField(
-                  controller: nameController,
+                  controller: _nameController,
                   maxLength: 25,
                   decoration: InputDecoration(
                     contentPadding:
@@ -245,7 +249,7 @@ class _EditClientScreenState extends State<EditClientScreen> {
                 ),
                 const SizedBox(height: 24),
                 TextField(
-                  controller: phoneController,
+                  controller: _phoneController,
                   keyboardType: TextInputType.phone,
                   maxLength: 15,
                   decoration: InputDecoration(
@@ -265,7 +269,7 @@ class _EditClientScreenState extends State<EditClientScreen> {
                 ),
                 const SizedBox(height: 24),
                 TextField(
-                  controller: noteController,
+                  controller: _noteController,
                   maxLength: 50,
                   decoration: InputDecoration(
                     contentPadding:
@@ -287,61 +291,54 @@ class _EditClientScreenState extends State<EditClientScreen> {
                   children: [
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () async {
+                        onPressed: isUploading
+                            ? null
+                            : () async {
                           try {
-                            if (nameController.text.isEmpty) {
+                            if (_nameController.text.trim().isEmpty) {
                               errorSnackbar('fill_required_fields'.tr);
-                            } else {
-                              setState(() {
-                                isUploading = true;
-                              });
-
-                              String? url = widget.client.image;
-
-                              if (imageFile != null) {
-                                url = await uploadFile(
-                                    'clients', imageFile!);
-                              }
-
-                              final String? ownerId = _profileController.user['id'];
-
-                              if (ownerId == null) {
-                                print('Owner ID is null, cannot update client.');
-                                setState(() {
-                                  isUploading = false;
-                                });
-                                return;
-                              }
-
-                              await _firestore
-                                  .collection('clients')
-                                  .doc(ownerId)
-                                  .collection('userClients')
-                                  .doc(widget.client.id)
-                                  .update({
-                                'name': nameController.text.trim(),
-                                'owner': ownerId,
-                                'debt': widget.client.debt,
-                                'phone': phoneController.text.trim(),
-                                "image": url,
-                                "note": noteController.text.trim(),
-                                'date': Timestamp.now(),
-                              });
-
-                              setState(() {
-                                isUploading = false;
-                              });
-
-                              if (mounted) {
-                                Navigator.pop(context);
-                              }
-                              successSnackbar(
-                                'client_updated'.tr,
-                              );
+                              return;
                             }
-                          } catch (e) {
-                            errorSnackbar('something_went_wrong'.tr);
+                            if (widget.client.id.isEmpty) {
+                              errorSnackbar('something_went_wrong'.tr);
+                              print('❌ CLIENT UPDATE: Missing client id');
+                              return;
+                            }
+
+                            setState(() {
+                              isUploading = true;
+                            });
+
+                            String? url = widget.client.image;
+
+                            if (imageFile != null) {
+                              url = await uploadFile(
+                                  'clients', imageFile!);
+                            }
+
+                            await _clientController.updateClientInfo(
+                              clientId: widget.client.id,
+                              name: _nameController.text,
+                              phone: _phoneController.text,
+                              note: _noteController.text,
+                              image: url,
+                            );
+
+                            if (!mounted) return;
+                            setState(() {
+                              isUploading = false;
+                            });
                             Navigator.pop(context);
+                            successSnackbar(
+                              'client_updated'.tr,
+                            );
+                          } catch (e) {
+                            print('❌ CLIENT UPDATE: $e');
+                            if (!mounted) return;
+                            setState(() {
+                              isUploading = false;
+                            });
+                            errorSnackbar('something_went_wrong'.tr);
                           }
                         },
                         style: ElevatedButton.styleFrom(
